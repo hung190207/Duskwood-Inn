@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DUSKWOOD INN</title>
+
+  <!-- Website Favicon -->
+  <link rel="icon" type="image/png" href="image/inn_favicon.png" />
+  <link rel="shortcut icon" type="image/png" href="image/inn_favicon.png" />
+
+  <!-- Retro Pixel Fonts (Stardew / Terraria inspired) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Pixelify+Sans:wght@400;600;700&family=Press+Start+2P&family=Special+Elite&family=VT323&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- Structured Stylesheets -->
+  <link rel="stylesheet" href="css/theme.css" />
+  <link rel="stylesheet" href="css/lobby.css" />
+  <link rel="stylesheet" href="css/gameplay.css" />
+</head>
+<body>
+  <!-- Fullscreen Pixel-Art Dead Forest & Cabin Background (Lobby) -->
+  <canvas id="bg-canvas" aria-hidden="true"></canvas>
+  <div id="vignette-overlay" aria-hidden="true"></div>
+  <div id="scanlines-overlay" aria-hidden="true"></div>
+
+  <!-- Main Title Screen Layer (Lobby) -->
+  <main id="app-shell">
+    <header class="title-block">
+      <h1 class="game-title">DUSKWOOD INN</h1>
+    </header>
+
+    <!-- Centered Minecraft / Terraria Style Menu Stack -->
+    <section id="main-menu" class="menu-stack" aria-label="Main Menu">
+      <button class="silver-btn primary-btn" data-action="open-play">
+        <span class="btn-bracket">[</span> PLAY <span class="btn-bracket">]</span>
+      </button>
+      <button class="silver-btn" data-action="open-howto">
+        <span class="btn-bracket">[</span> HOW TO PLAY <span class="btn-bracket">]</span>
+      </button>
+      <button class="silver-btn" data-action="open-options">
+        <span class="btn-bracket">[</span> OPTIONS <span class="btn-bracket">]</span>
+      </button>
+      <button class="silver-btn" data-action="open-credits">
+        <span class="btn-bracket">[</span> CREDITS <span class="btn-bracket">]</span>
+      </button>
+    </section>
+
+    <!-- Corner HUD Footers -->
+    <footer class="corner-footer">
+      <div class="footer-center" id="active-survivor-pill" title="Click to Customize Survivor">
+        <canvas id="mini-avatar-canvas" width="40" height="52"></canvas>
+        <span id="footer-player-name">SURVIVOR</span>
+      </div>
+      <div class="footer-right">PRESS ESC FOR BACK</div>
+    </footer>
+  </main>
+
+  <!-- ==================== SINGLEPLAYER GAME STAGE (STARDEW PERSPECTIVE) ==================== -->
+  <section id="game-stage" class="game-stage hidden" aria-label="Duskwood Inn Cabin">
+    <canvas id="world-canvas"></canvas>
+
+    <!-- Stardew Valley Inspired Room HUD Overlay -->
+    <div id="game-hud" class="game-hud hud-hidden">
+      <div class="hud-top-left silver-panel hud-card">
+        <div class="hud-room-name" id="hud-room-name">THE DINING ROOM</div>
+        <div class="hud-state-row">
+          <span class="hud-badge" id="hud-state-badge">SEATED AT TABLE</span>
+          <span class="hud-diff-tag" id="hud-diff-tag">NORMAL</span>
+        </div>
+      </div>
+
+      <div class="hud-top-right silver-panel hud-clock-box">
+        <div class="clock-time-display" id="hud-clock-time">12:00 PM</div>
+      </div>
+
+      <div id="hud-prompt" class="hud-prompt hidden">
+        <span id="hud-prompt-text">[T] TABLE VIEW | [E] STAND UP</span>
+      </div>
+
+      <div id="hud-dialogue" class="silver-panel hud-dialogue hidden">
+        <p id="hud-dialogue-text"></p>
+        <span class="dialogue-hint">[SPACE / CLICK]</span>
+      </div>
+
+      <!-- Atmospheric Ink-Smudge Event Instruction Banner (Cutting Corners & Events) -->
+      <div id="event-smudge-banner" class="ev-smudge-banner hidden" role="alert" aria-live="assertive">
+        <svg viewBox="0 0 820 190" preserveAspectRatio="none" class="ev-smudge-bg" aria-hidden="true">
+          <defs>
+            <linearGradient id="smudgeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#09070d" stop-opacity="0.72"/>
+              <stop offset="18%" stop-color="#050408" stop-opacity="0.96"/>
+              <stop offset="50%" stop-color="#0a0610" stop-opacity="0.98"/>
+              <stop offset="82%" stop-color="#050408" stop-opacity="0.96"/>
+              <stop offset="100%" stop-color="#09070d" stop-opacity="0.68"/>
+            </linearGradient>
+          </defs>
+          <!-- Jagged smoky ink-brush smudge stroke matching image_715645 & image_7159c8 -->
+          <path d="M52,38 L140,26 L122,34 L268,22 L390,10 L465,6 L560,20 L628,34 L742,30 L788,42 L764,54 L806,68 L774,84 L810,108 L762,126 L792,144 L694,154 L634,170 L492,178 L345,172 L222,176 L132,162 L64,152 L98,136 L22,120 L74,104 L14,88 L68,74 L32,58 L84,48 Z" fill="url(#smudgeGrad)"/>
+          <path d="M90,48 L220,30 L410,18 L555,28 L720,46 L760,92 L725,142 L515,164 L270,162 L110,144 L56,96 Z" fill="#040306" opacity="0.88"/>
+        </svg>
+        <div class="ev-smudge-content">
+          <div id="event-smudge-subtag" class="ev-smudge-subtag hidden"></div>
+          <div id="event-smudge-text" class="ev-smudge-text"></div>
+          <div id="event-smudge-count" class="ev-smudge-count hidden">10</div>
+        </div>
+        <div id="event-smudge-choices" class="ev-smudge-choices hidden">
+          <button type="button" class="ev-choice-btn is-true" data-game-action="cc-turn-around">
+            <kbd>Q</kbd> TURN AROUND (TRUE)
+          </button>
+          <button type="button" class="ev-choice-btn is-false" data-game-action="cc-stay-corner">
+            <kbd>E</kbd> KEEP FACING CORNER (FALSE)
+          </button>
+        </div>
+      </div>
+
+      <!-- THE ATTIC Minimal Ritual HUD Strip (Totems Placed, Held Items & Stealth Notice) -->
+      <div id="attic-hud-bar" class="silver-panel attic-hud-bar hidden" aria-live="polite">
+        <div id="attic-hud-progress" class="attic-hud-progress">TOTEMS PLACED: 0 / 5</div>
+        <div id="attic-hud-held" class="attic-hud-held">HANDS EMPTY | [F] PICK UP CANDLE / TOTEM</div>
+        <div id="attic-hud-notice" class="attic-hud-notice hidden"></div>
+      </div>
+
+      <!-- Brief Attic Ghost Jumpscare Flash on Catch -->
+      <div id="attic-jumpscare-flash" class="ev-jumpscare-flash hidden" aria-hidden="true">
+        <svg viewBox="0 0 220 220" class="ev-jumpscare-svg">
+          <rect width="220" height="220" fill="rgba(4,5,10,0.92)"/>
+          <!-- Long pitch-black hair framing pale spectral ghost face -->
+          <path d="M26,220 C32,96 52,22 110,22 C168,22 188,96 194,220 Z" fill="#09080e"/>
+          <ellipse cx="110" cy="112" rx="48" ry="62" fill="#aab3bf" stroke="#0d0c14" stroke-width="4"/>
+          <!-- Hollow black staring eyes & shrieking spectral mouth -->
+          <ellipse cx="89" cy="100" rx="11" ry="14" fill="#07060b"/>
+          <ellipse cx="131" cy="100" rx="11" ry="14" fill="#07060b"/>
+          <circle cx="89" cy="100" r="2.2" fill="#dbe6f5"/>
+          <circle cx="131" cy="100" r="2.2" fill="#dbe6f5"/>
+          <ellipse cx="110" cy="144" rx="18" ry="24" fill="#06050a"/>
+          <!-- Draped black hair strands across forehead -->
+          <path d="M62,74 Q82,118 70,175 M158,74 Q138,118 150,175 M94,48 L92,86 M122,48 L128,88" stroke="#09080e" stroke-width="10" fill="none"/>
+        </svg>
+      </div>
+
+      <!-- Brief Tall Man Eyeless Jumpscare Flash on Catch -->
+      <div id="tallman-jumpscare-flash" class="ev-jumpscare-flash hidden" aria-hidden="true">
+        <svg viewBox="0 0 220 220" class="ev-jumpscare-svg">
+          <rect width="220" height="220" fill="rgba(4,4,8,0.94)"/>
+          <!-- Smooth pale elongated eyeless monstrous head -->
+          <ellipse cx="110" cy="108" rx="54" ry="86" fill="#c7bcb0" stroke="#0d0b10" stroke-width="5"/>
+          <!-- Deep hollow eyeless indentations (ZERO EYES!) -->
+          <ellipse cx="86" cy="86" rx="16" ry="11" fill="#7d7065"/>
+          <ellipse cx="134" cy="86" rx="16" ry="11" fill="#7d7065"/>
+          <!-- Giant jagged gaping vertical maw -->
+          <path d="M78,128 Q110,118 142,128 Q138,186 110,192 Q82,186 78,128 Z" fill="#0d0507" stroke="#362826" stroke-width="3"/>
+          <path d="M88,129 L91,146 M100,126 L102,144 M110,125 L110,145 M120,126 L118,144 M132,129 L129,146" stroke="#ded5c8" stroke-width="3.2"/>
+        </svg>
+      </div>
+
+      <!-- Brief Jack-in-the-Box Clown Jumpscare Flash on Catch -->
+      <div id="clown-jumpscare-flash" class="ev-jumpscare-flash hidden" aria-hidden="true">
+        <svg viewBox="0 0 220 220" class="ev-jumpscare-svg">
+          <rect width="220" height="220" fill="rgba(12,2,4,0.92)"/>
+          <!-- Jester hat prongs -->
+          <path d="M52,72 Q22,22 78,34 L110,56 L142,34 Q198,22 168,72 Z" fill="#a81d29" stroke="#14080a" stroke-width="4"/>
+          <circle cx="38" cy="40" r="10" fill="#ffd966"/>
+          <circle cx="182" cy="40" r="10" fill="#ffd966"/>
+          <!-- Pale painted clown face -->
+          <ellipse cx="110" cy="122" rx="64" ry="70" fill="#f2ede4" stroke="#160c0e" stroke-width="4"/>
+          <!-- Black painted eye diamonds + glowing red pupils -->
+          <polygon points="82,84 98,104 82,124 66,104" fill="#140b0e"/>
+          <polygon points="138,84 154,104 138,124 122,104" fill="#140b0e"/>
+          <circle cx="82" cy="104" r="4" fill="#ff3333"/>
+          <circle cx="138" cy="104" r="4" fill="#ff3333"/>
+          <!-- Bright crimson bulb nose -->
+          <circle cx="110" cy="124" r="15" fill="#d91a28" stroke="#42070c" stroke-width="3"/>
+          <!-- Sinister stitched toothy smile -->
+          <path d="M62,148 Q110,196 158,148 Q110,168 62,148 Z" fill="#180508" stroke="#a81924" stroke-width="5"/>
+          <path d="M78,158 L82,172 M94,164 L96,178 M110,166 L110,180 M126,164 L124,178 M142,158 L138,172" stroke="#f5eee0" stroke-width="3.5"/>
+        </svg>
+      </div>
+
+      <!-- Brief Marionette Puppet Jumpscare Flash on Catch -->
+      <div id="puppet-jumpscare-flash" class="ev-jumpscare-flash hidden" aria-hidden="true">
+        <svg viewBox="0 0 220 220" class="ev-jumpscare-svg">
+          <rect width="220" height="220" fill="rgba(10,3,5,0.94)"/>
+          <!-- Taut marionette strings descending from top -->
+          <g stroke="#d6cfc4" stroke-width="2.2" opacity="0.65">
+            <line x1="60" y1="0" x2="72" y2="75"/>
+            <line x1="110" y1="0" x2="110" y2="42"/>
+            <line x1="160" y1="0" x2="148" y2="75"/>
+          </g>
+          <!-- Cracked wooden marionette face -->
+          <ellipse cx="110" cy="112" rx="60" ry="74" fill="#dfd0b8" stroke="#1a100c" stroke-width="5"/>
+          <!-- Deep crack line -->
+          <path d="M96,46 L104,76 L94,98" fill="none" stroke="#362218" stroke-width="3"/>
+          <!-- Painted rosy cheeks -->
+          <circle cx="68" cy="128" r="11" fill="#c9444e" opacity="0.72"/>
+          <circle cx="152" cy="128" r="11" fill="#c9444e" opacity="0.72"/>
+          <!-- Hollow black staring eyes with glowing crimson pinpoint pupils -->
+          <ellipse cx="86" cy="96" rx="14" ry="16" fill="#0d0709"/>
+          <ellipse cx="134" cy="96" rx="14" ry="16" fill="#0d0709"/>
+          <circle cx="86" cy="96" r="4" fill="#ff2e2e"/>
+          <circle cx="134" cy="96" r="4" fill="#ff2e2e"/>
+          <!-- Hinged wooden puppet jaw snapped wide open -->
+          <rect x="76" y="138" width="68" height="44" rx="4" fill="#120608" stroke="#3d2419" stroke-width="4"/>
+          <line x1="76" y1="138" x2="76" y2="182" stroke="#1a100c" stroke-width="5"/>
+          <line x1="144" y1="138" x2="144" y2="182" stroke="#1a100c" stroke-width="5"/>
+          <path d="M88,140 L88,154 M102,140 L102,156 M118,140 L118,156 M132,140 L132,154" stroke="#f0e6d2" stroke-width="4"/>
+        </svg>
+      </div>
+
+      <!-- Brief Giant Monkey Jumpscare Flash on Catch -->
+      <div id="monkey-jumpscare-flash" class="ev-jumpscare-flash hidden" aria-hidden="true">
+        <svg viewBox="0 0 220 220" class="ev-jumpscare-svg">
+          <rect width="220" height="220" fill="rgba(14,4,4,0.94)"/>
+          <!-- Giant Monkey round ears -->
+          <circle cx="34" cy="96" r="24" fill="#472919" stroke="#140906" stroke-width="5"/>
+          <circle cx="34" cy="96" r="13" fill="#ad8664"/>
+          <circle cx="186" cy="96" r="24" fill="#472919" stroke="#140906" stroke-width="5"/>
+          <circle cx="186" cy="96" r="13" fill="#ad8664"/>
+          <!-- Huge fur head & red fez hat -->
+          <ellipse cx="110" cy="112" rx="74" ry="78" fill="#522f1c" stroke="#140906" stroke-width="5"/>
+          <polygon points="84,38 136,38 128,12 92,12" fill="#a81b26" stroke="#1a0809" stroke-width="4"/>
+          <circle cx="132" cy="24" r="5" fill="#ffd966"/>
+          <!-- Pale tan muzzle -->
+          <ellipse cx="110" cy="144" rx="54" ry="38" fill="#c7a582" stroke="#24130c" stroke-width="3"/>
+          <!-- Huge glowing red staring eyes -->
+          <circle cx="80" cy="94" r="17" fill="#120808" stroke="#f5eee0" stroke-width="3"/>
+          <circle cx="140" cy="94" r="17" fill="#120808" stroke="#f5eee0" stroke-width="3"/>
+          <circle cx="80" cy="94" r="8" fill="#ff2626"/>
+          <circle cx="140" cy="94" r="8" fill="#ff2626"/>
+          <circle cx="82" cy="91" r="2.5" fill="#ffffff"/>
+          <circle cx="142" cy="91" r="2.5" fill="#ffffff"/>
+          <!-- Wide snapping jaws with huge teeth -->
+          <rect x="64" y="138" width="92" height="36" rx="8" fill="#160608" stroke="#2e1410" stroke-width="4"/>
+          <path d="M74,139 L74,158 M88,139 L88,160 M102,139 L102,162 M118,139 L118,162 M132,139 L132,160 M146,139 L146,158" stroke="#f5eedc" stroke-width="5"/>
+        </svg>
+      </div>
+
+      <!-- Brief Tall Chainsaw-Head Monster Jumpscare Flash on Catch -->
+      <div id="chainsaw-jumpscare-flash" class="ev-jumpscare-flash hidden" aria-hidden="true">
+        <svg viewBox="0 0 220 220" class="ev-jumpscare-svg">
+          <rect width="220" height="220" fill="rgba(16,3,3,0.95)"/>
+          <!-- Spinning steel chainsaw guide bar jutting forward straight at screen -->
+          <polygon points="84,12 136,12 146,156 74,156" fill="#7d8794" stroke="#14161a" stroke-width="5"/>
+          <rect x="102" y="22" width="16" height="126" fill="#7a1119"/>
+          <!-- Razor saw teeth along both edges -->
+          <path d="M74,26 L62,34 L74,42 M72,54 L60,62 L72,70 M70,82 L58,90 L70,98 M68,110 L56,118 L68,126" fill="#f0f5fa" stroke="#181a1f" stroke-width="2"/>
+          <path d="M146,26 L158,34 L146,42 M148,54 L160,62 L148,70 M150,82 L162,90 L150,98 M152,110 L164,118 L152,126" fill="#f0f5fa" stroke="#181a1f" stroke-width="2"/>
+          <!-- Industrial orange/rusted chainsaw engine head housing -->
+          <rect x="44" y="132" width="132" height="74" rx="10" fill="#bf4317" stroke="#180c08" stroke-width="5"/>
+          <rect x="64" y="150" width="92" height="26" fill="#1b1d22"/>
+          <!-- Glowing furious red motor vents -->
+          <circle cx="84" cy="163" r="8" fill="#ff2626"/>
+          <circle cx="136" cy="163" r="8" fill="#ff2626"/>
+        </svg>
+      </div>
+
+      <!-- Brief Glowing Four-Legged Shadow Beast Jumpscare Flash on Catch -->
+      <div id="shadow-hound-jumpscare-flash" class="ev-jumpscare-flash hidden" aria-hidden="true">
+        <svg viewBox="0 0 220 220" class="ev-jumpscare-svg">
+          <rect width="220" height="220" fill="rgba(2,5,12,0.96)"/>
+          <!-- Glowing bioluminescent cyan aura -->
+          <circle cx="110" cy="110" r="88" fill="rgba(72,210,255,0.16)"/>
+          <!-- Low predatory dark quadruped beast skull & sharp swept ears -->
+          <polygon points="34,76 58,20 84,66" fill="#090d17" stroke="#6eeaff" stroke-width="3"/>
+          <polygon points="186,76 162,20 136,66" fill="#090d17" stroke="#6eeaff" stroke-width="3"/>
+          <ellipse cx="110" cy="114" rx="68" ry="62" fill="#070a12" stroke="#5bd9ff" stroke-width="3.5"/>
+          <!-- Blinding bioluminescent glowing eyes -->
+          <ellipse cx="78" cy="96" rx="16" ry="10" fill="#e6ffff"/>
+          <ellipse cx="142" cy="96" rx="16" ry="10" fill="#e6ffff"/>
+          <circle cx="78" cy="96" r="4" fill="#0a1624"/>
+          <circle cx="142" cy="96" r="4" fill="#0a1624"/>
+          <!-- Wide fanged glowing maw -->
+          <path d="M58,136 Q110,192 162,136 Q110,152 58,136 Z" fill="#04060a" stroke="#6eeaff" stroke-width="3"/>
+          <path d="M72,140 L78,162 L85,144 M94,145 L100,168 L107,146 M114,146 L120,168 L127,145 M135,144 L142,162 L148,140" fill="#e6ffff"/>
+        </svg>
+      </div>
+
+      <!-- Brief Armored Knight Jumpscare Flash on Catch -->
+      <div id="knight-jumpscare-flash" class="ev-jumpscare-flash hidden" aria-hidden="true">
+        <svg viewBox="0 0 220 220" class="ev-jumpscare-svg">
+          <rect width="220" height="220" fill="rgba(12,3,5,0.96)"/>
+          <!-- Raised gleaming steel broadsword blade behind helmet -->
+          <polygon points="172,8 192,16 156,196 138,188" fill="#aeb8c4" stroke="#14161a" stroke-width="4"/>
+          <!-- Towering dark medieval Great Helm -->
+          <path d="M52,58 Q110,14 168,58 L174,186 Q110,206 46,186 Z" fill="#4f5866" stroke="#0d0e12" stroke-width="6"/>
+          <path d="M106,36 L114,36 L116,192 L104,192 Z" fill="#8d99a8"/>
+          <!-- Pitch-black horizontal visor slit with blazing crimson eyes -->
+          <rect x="62" y="92" width="96" height="24" rx="4" fill="#090406" stroke="#1c2026" stroke-width="4"/>
+          <ellipse cx="88" cy="104" rx="12" ry="6" fill="#ff2626"/>
+          <ellipse cx="132" cy="104" rx="12" ry="6" fill="#ff2626"/>
+          <circle cx="88" cy="104" r="3" fill="#fff2b8"/>
+          <circle cx="132" cy="104" r="3" fill="#fff2b8"/>
+          <!-- Helmet breathing vents -->
+          <g fill="#121418">
+            <rect x="74" y="138" width="6" height="24" rx="2"/>
+            <rect x="88" y="142" width="6" height="24" rx="2"/>
+            <rect x="126" y="142" width="6" height="24" rx="2"/>
+            <rect x="140" y="138" width="6" height="24" rx="2"/>
+          </g>
+        </svg>
+      </div>
+
+      <!-- Brief Uncanny Corner Man Jumpscare Flash on Failure -->
+      <div id="event-jumpscare-flash" class="ev-jumpscare-flash hidden" aria-hidden="true">
+        <svg viewBox="0 0 220 220" class="ev-jumpscare-svg">
+          <rect width="220" height="220" fill="rgba(6,2,4,0.86)"/>
+          <ellipse cx="110" cy="108" rx="64" ry="80" fill="#1b1111" stroke="#080405" stroke-width="4"/>
+          <ellipse cx="84" cy="96" rx="14" ry="9" fill="#f5f2ea"/>
+          <ellipse cx="136" cy="96" rx="14" ry="9" fill="#f5f2ea"/>
+          <circle cx="84" cy="96" r="3" fill="#070405"/>
+          <circle cx="136" cy="96" r="3" fill="#070405"/>
+          <path d="M64,132 Q110,174 156,132 Q110,152 64,132 Z" fill="#090406" stroke="#c9b89c" stroke-width="2"/>
+          <path d="M78,139 L82,150 M92,144 L95,155 M108,146 L110,157 M124,144 L127,155 M138,139 L142,150" stroke="#eee6d4" stroke-width="3"/>
+        </svg>
+      </div>
+
+      <div class="hud-bottom-left">
+        <div class="key-hint"><kbd>WASD</kbd> MOVE</div>
+        <div class="key-hint"><kbd>SHIFT</kbd> SPRINT</div>
+        <div class="key-hint"><kbd>C</kbd> CROUCH</div>
+        <div class="key-hint"><kbd>E</kbd> SIT / STAND / INSPECT</div>
+        <div class="key-hint"><kbd>T</kbd> TABLE VIEW</div>
+        <div class="key-hint"><kbd>F</kbd> LANTERN</div>
+        <div class="key-hint"><kbd>B</kbd> BOOK</div>
+        <div class="key-hint"><kbd>J</kbd> TOME</div>
+        <div class="key-hint"><kbd>ESC</kbd> PAUSE</div>
+      </div>
+    </div>
+
+    <!-- ==================== FIRST-PERSON SEATED ROUND TABLE VIEW ==================== -->
+    <div id="table-fp-stage" class="table-fp-stage hidden" aria-label="First-Person Wooden Round Table">
+      <!-- Aspect-Locked 16:9 Perspective Stage (Canvas + Interactive Layer aligned 1:1) -->
+      <div class="fp-viewport-frame" id="fp-viewport-frame">
+        <!-- Pixel-Art Weathered Oak Round Table, Slatted Chairs, Carved Clock Groove & Pawns -->
+        <canvas id="table-fp-canvas"></canvas>
+
+        <!-- Interactive Overlay Layer Mapped 1:1 onto the Wooden Round Table -->
+        <div class="fp-table-surface" id="fp-table-surface">
+          <!-- 1. Center Wooden Disc: Free-Form Parchment Room Cards (Max 6 tiles from Parlor) -->
+          <div class="fp-wood-map-viewport" id="fp-map-viewport" title="Drag to pan map, Scroll to zoom">
+            <div class="fp-map-canvas-inner" id="fp-map-canvas-inner"></div>
+          </div>
+
+          <!-- 2. Harvester Opening Click Target on the Carved Groove (Shown only on Opening Step 2) -->
+          <button
+            type="button"
+            class="fp-harvester-groove-btn hidden"
+            id="fp-harvester-groove-btn"
+            data-table-action="summon-harvester"
+            title="Place The Hollow Harvester onto the carved clock groove (3-turn delay)"
+          >
+            <span>PLAY HARVESTER</span>
+          </button>
+
+          <!-- 3. Curved Outer Rim Trail of Played Cards (Progress, Ward, Hourglass & Events) -->
+          <div class="fp-rim-cards" id="fp-rim-cards" aria-label="Played Cards Around Outer Rim"></div>
+
+          <!-- 4. Bottom-Center Wooden Card Pedestal (Graveyard on top + Protruding Draw Slot below) -->
+          <div class="fp-pedestal-box" id="fp-pedestal-box">
+            <!-- Top flat surface: Graveyard / Candle Tray (Active Clue Card) -->
+            <button
+              type="button"
+              class="fp-pedestal-top"
+              id="fp-tray-btn"
+              data-table-action="inspect-tray"
+              title="Graveyard (Active Omen) — Click to preview or reclaim"
+            >
+              <div class="fp-pedestal-clue" id="fp-tray-preview">
+                <span class="fp-pedestal-empty">GRAVEYARD</span>
+              </div>
+            </button>
+
+            <!-- Front beveled wooden engraving -->
+            <div class="fp-pedestal-plaque" id="fp-pedestal-plaque">It is Your Turn</div>
+
+            <!-- Protruding Draw Slot card sticking out the front of the wooden pedestal -->
+            <button
+              type="button"
+              class="fp-pedestal-draw-slot"
+              id="fp-deck-btn"
+              data-table-action="draw-deck"
+              title="Draw a new card from the Pedestal Draw Slot"
+            >
+              <span class="fp-draw-lip-text" id="fp-deck-count">DRAW (0)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Silent Overhead Bulb Flicker Overlay (triggered when a matched Room Card shifts the cabin) -->
+      <div id="fp-flicker-veil" class="fp-flicker-veil" aria-hidden="true"></div>
+
+      <!-- Minimal Corner Status (Top-Left: Phase, Time, Harvester Delay & Zoom) -->
+      <div class="fp-minimal-tl">
+        <div class="fp-status-strip">
+          <span class="fp-step-tag" id="fp-step-tag">OPENING 1/2</span>
+          <span class="fp-time-chip" id="fp-clock-time">12:00 PM</span>
+          <span class="fp-harv-chip" id="fp-harv-text">HARVESTER: UNPLACED</span>
+        </div>
+        <div class="fp-sub-instruction" id="fp-step-desc">
+          Connect The Cellar directly to The Dining Room
+        </div>
+        <div class="fp-map-mini-tools">
+          <span id="fp-map-count">1 ROOM</span>
+          <button type="button" class="fp-mini-tool-btn" data-table-action="zoom-out" title="Zoom Out">-</button>
+          <button type="button" class="fp-mini-tool-btn" data-table-action="zoom-reset" title="Fit Map">FIT</button>
+          <button type="button" class="fp-mini-tool-btn" data-table-action="zoom-in" title="Zoom In">+</button>
+        </div>
+      </div>
+
+      <!-- Hover Tooltip for Played Outer-Rim Parchment Cards -->
+      <div id="fp-rim-tooltip" class="fp-rim-tooltip hidden"></div>
+
+      <!-- Bottom-Left: Compact Seated Survivor Badge -->
+      <div class="fp-corner-bl">
+        <div class="fp-player-seat silver-panel">
+          <canvas id="fp-player-canvas" width="46" height="60"></canvas>
+          <div class="fp-player-meta">
+            <span class="fp-seat-label" id="fp-seat-label">SEAT 1</span>
+            <strong id="fp-player-name">SURVIVOR</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom-Center: Fanned Vintage Parchment Hand Held by Player -->
+      <div class="fp-hand-dock">
+        <div class="fp-hand-fan" id="fp-hand-cards" aria-label="Cards Held In Hand"></div>
+      </div>
+
+      <!-- Bottom-Right: Minimal Keybind Prompts (Exact Cabin Game Placement) -->
+      <div class="fp-corner-br">
+        <button type="button" class="fp-key-prompt-btn" data-table-action="stand-up">
+          <kbd>E</kbd> <span>STAND UP</span>
+        </button>
+        <button type="button" class="fp-key-prompt-btn" data-table-action="draw-deck">
+          <kbd>D</kbd> <span>DRAW CARD</span>
+        </button>
+        <button type="button" class="fp-key-prompt-btn hidden" id="fp-key-rotate-btn" data-table-action="rotate-room">
+          <kbd>R</kbd> <span>ROTATE 90°</span>
+        </button>
+        <button type="button" class="fp-key-prompt-btn" data-table-action="inspect-tray">
+          <kbd>G</kbd> <span>GRAVEYARD</span>
+        </button>
+        <button type="button" class="fp-key-prompt-btn" data-table-action="open-book">
+          <kbd>B</kbd> <span>BOOK</span>
+        </button>
+      </div>
+
+      <!-- Animated Physical Flying Card (Pedestal -> Center -> Hand/Rim) -->
+      <div id="fp-draw-flyer" class="fp-draw-flyer hidden" aria-hidden="true"></div>
+
+      <!-- SHUFFLE CARD: Creepy Hand Reaching OUT from Beneath the Wooden Table Rim (exact Cabin Game POV!) -->
+      <div id="fp-shuffle-hand-overlay" class="fp-shuffle-overlay hidden" aria-hidden="true">
+        <div id="fp-shuffle-hand-label" class="fp-shuffle-label">A HAND REACHES FROM BENEATH THE TABLE...</div>
+        <!-- Clipped right below the front rim of the wooden round table so the hand physically emerges from under it! -->
+        <div class="fp-shuffle-under-clip">
+          <div class="fp-shuffle-arm-wrap">
+            <!-- Cards currently gripped & dragged/returned by the under-table hand -->
+            <div id="fp-shuffle-grip-cards" class="fp-shuffle-grip-cards"></div>
+            <!-- Stark vertical black finger shadows aligned 1:1 beneath the pixel-art fingernails! -->
+            <svg viewBox="0 0 180 230" class="fp-shuffle-shadows-svg" aria-hidden="true">
+              <defs>
+                <linearGradient id="shShadowBar" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stop-color="rgba(0,0,0,0.95)"/>
+                  <stop offset="72%" stop-color="rgba(0,0,0,0.86)"/>
+                  <stop offset="100%" stop-color="rgba(0,0,0,0.0)"/>
+                </linearGradient>
+              </defs>
+              <g class="sh-finger-shadows">
+                <path d="M40,152 L36,230 L58,230 L58,152 Z" fill="url(#shShadowBar)"/>
+                <path d="M88,166 L86,230 L108,230 L108,166 Z" fill="url(#shShadowBar)"/>
+                <path d="M128,156 L128,230 L148,230 L146,156 Z" fill="url(#shShadowBar)"/>
+                <path d="M158,142 L160,218 L176,218 L172,142 Z" fill="url(#shShadowBar)"/>
+              </g>
+            </svg>
+            <!-- Authentic 16-bit horror pixel-art monster hand sprite (reduced size) -->
+            <img src="image/shuffle_hand.png" class="fp-shuffle-hand-img" alt="" draggable="false" />
+          </div>
+        </div>
+      </div>
+
+      <!-- THE THIEF: Spinning Cursed Wheel Modal (Clues / Rooms / Time / Graveyard) -->
+      <div id="fp-thief-modal" class="fp-drawn-spotlight hidden">
+        <div class="silver-panel fp-thief-box">
+          <div class="fp-thief-header">THE THIEF &bull; SPIN THE WHEEL</div>
+          <div class="fp-thief-wheel-stage">
+            <div class="fp-thief-pointer" aria-hidden="true"></div>
+            <div id="fp-thief-wheel-rotor" class="fp-thief-rotor"></div>
+          </div>
+          <div id="fp-thief-result" class="fp-thief-result">CLUES &bull; ROOMS &bull; TIME &bull; GRAVEYARD</div>
+          <button type="button" id="fp-thief-spin-btn" class="silver-btn mini-btn primary-btn" data-table-action="spin-thief-wheel">
+            [ SPIN THE WHEEL ]
+          </button>
+        </div>
+      </div>
+
+      <!-- Newly Drawn Card Full-Focus Vintage Parchment View (matches image_71b117 & image_71b137!) -->
+      <div id="fp-drawn-spotlight" class="fp-drawn-spotlight hidden">
+        <div class="fp-drawn-stage">
+          <div id="fp-drawn-card" class="fp-vintage-card" data-table-action="dismiss-drawn" role="button" tabindex="0" title="Click to continue"></div>
+          <button type="button" class="fp-drawn-continue-btn" data-table-action="dismiss-drawn">[ ADD TO HAND ]</button>
+        </div>
+      </div>
+
+      <!-- Graveyard (Candle Tray) Inspector Modal -->
+      <div id="fp-tray-modal" class="fp-tray-modal hidden">
+        <div class="silver-panel fp-tray-modal-box">
+          <div class="panel-header">
+            <h2>GRAVEYARD (CLUE / OMEN CARDS)</h2>
+            <button class="icon-close-btn" data-table-action="close-tray-modal" aria-label="Close">X</button>
+          </div>
+          <div class="fp-tray-list" id="fp-tray-list"></div>
+          <div class="panel-footer">
+            <span class="save-hint" id="fp-tray-hint">PREVIEWING DOES NOT SPEND YOUR DRAW</span>
+            <button class="silver-btn mini-btn" data-table-action="close-tray-modal">[ CLOSE ]</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Caught by Harvester Game Over Modal -->
+      <div id="fp-gameover-modal" class="fp-drawn-spotlight hidden">
+        <div class="silver-panel fp-drawn-box">
+          <div class="fp-drawn-header" style="color:#f06c6c;">CONSUMED BY THE HARVESTER</div>
+          <p class="fp-drawn-msg">
+            The Hollow Harvester overtook your piece on the carved clock groove and extinguished your light.
+          </p>
+          <div class="action-row" style="width:100%;">
+            <button class="silver-btn mini-btn subtle-btn" data-table-action="exit-lobby">[ LOBBY ]</button>
+            <button class="silver-btn mini-btn primary-btn" data-table-action="retry-match">[ TRY AGAIN ]</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Interactive Vintage Cabin Game Manual & Clue Deduction Book ([B]) -->
+    <div id="field-book-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Duskwood Inn Game Manual">
+      <div class="fb-shell">
+        <!-- Discreet Leather-Edge Bookmarks & Close Control -->
+        <div class="fb-top-tabs">
+          <button type="button" class="fb-tab-btn active" data-book-jump="0">CONTENTS</button>
+          <button type="button" class="fb-tab-btn" data-book-jump="1">HOW-TO</button>
+          <button type="button" class="fb-tab-btn is-clues-tab" data-book-jump="2">CLUES &amp; EXIT</button>
+          <button type="button" class="fb-tab-btn" data-book-jump="3">CLUE TYPES</button>
+          <button type="button" class="fb-tab-btn" data-book-jump="4">TIPS</button>
+          <button type="button" class="fb-close-x" data-book-action="close" title="Close Book [B / ESC]">X</button>
+        </div>
+
+        <!-- Aged Leather-Bound Two-Page Weathered Parchment Open Book -->
+        <div class="fb-leather-cover">
+          <div class="fb-spread">
+            <article class="fb-page fb-page-left">
+              <div class="fb-page-body" id="fb-page-left-body"></div>
+              <div class="fb-page-footer left">
+                <button type="button" class="fb-turn-btn" id="fb-prev-btn" data-book-action="prev" title="Previous Page [Left Arrow]" aria-label="Previous Page">
+                  <svg viewBox="0 0 26 18" class="fb-arrow-svg"><path d="M23,2 L4,9 L23,16 Q21,9 23,2 Z"/></svg>
+                </button>
+                <span class="fb-page-num" id="fb-num-left">0</span>
+                <button type="button" class="fb-clear-inline hidden" id="fb-clear-btn" data-book-action="reset-notes" title="Erase all red ink marks">clear ink</button>
+              </div>
+            </article>
+
+            <div class="fb-crease" aria-hidden="true"></div>
+
+            <article class="fb-page fb-page-right">
+              <div class="fb-page-body" id="fb-page-right-body"></div>
+              <div class="fb-page-footer right">
+                <span class="fb-page-num" id="fb-num-right">1</span>
+                <button type="button" class="fb-turn-btn" id="fb-next-btn" data-book-action="next" title="Next Page [Right Arrow]" aria-label="Next Page">
+                  <svg viewBox="0 0 26 18" class="fb-arrow-svg"><path d="M3,2 L22,9 L3,16 Q5,9 3,2 Z"/></svg>
+                </button>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- THE BASEMENT: First-Person Electrical / Fuse Box Repair Modal (HOLD [F]) -->
+    <div id="basement-breaker-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Breaker Box Repair">
+      <div class="silver-panel bm-breaker-shell">
+        <div class="panel-header">
+          <h2>FUSE / BREAKER BOX</h2>
+          <button type="button" class="icon-close-btn" data-game-action="close-breaker-modal" aria-label="Close">X</button>
+        </div>
+        <div class="bm-breaker-body">
+          <div class="bm-breaker-frame" id="bm-breaker-art"></div>
+          <div class="bm-progress-wrap">
+            <div class="bm-progress-head">
+              <span>REPAIR PROGRESS</span>
+              <span id="bm-progress-pct">0%</span>
+            </div>
+            <div class="bm-progress-track">
+              <div class="bm-progress-fill" id="bm-progress-fill"></div>
+            </div>
+          </div>
+          <p class="bm-repair-hint" id="bm-repair-hint">HOLD [F] TO REPAIR FUSE BOX &bull; [E / ESC] STEP BACK &amp; HIDE</p>
+        </div>
+        <div class="panel-footer">
+          <button type="button" class="silver-btn mini-btn subtle-btn" data-game-action="close-breaker-modal">[ STEP BACK ]</button>
+          <button type="button" class="silver-btn mini-btn primary-btn" id="bm-hold-repair-btn">[ HOLD F TO REPAIR ]</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- THE KNIGHT: Close-Up Dining Table 3-Glowing-Lights Tactical Map -->
+    <div id="knight-table-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Dining Table Knight Tracker">
+      <div class="silver-panel kn-table-shell">
+        <div class="panel-header">
+          <h2>THE KNIGHT &bull; TABLE LIGHTS</h2>
+          <button type="button" class="icon-close-btn" data-game-action="close-knight-map" aria-label="Close">X</button>
+        </div>
+        <div class="kn-table-body">
+          <div id="knight-map-timer" class="kn-map-timer">YOUR TURN: 10S</div>
+          <div id="knight-map-grid" class="kn-map-arena"></div>
+          <div id="knight-map-status" class="kn-map-legend"></div>
+        </div>
+        <div class="panel-footer">
+          <span class="save-hint">RED = KNIGHT &bull; BLUE = DESTINATION &bull; GREEN = STATUE</span>
+          <button type="button" class="silver-btn mini-btn primary-btn" data-game-action="close-knight-map">[ STEP BACK ]</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Focused Close-Up Clue Inspection Modal (Study Canvas O/X, Grandfather Clock, Remains, Chair, Chicken) -->
+    <div id="clue-inspect-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="clue-modal-title">
+      <div class="silver-panel clue-inspect-shell">
+        <div class="panel-header">
+          <h2 id="clue-modal-title">CLUE INSPECTION</h2>
+          <button class="icon-close-btn" data-game-action="close-clue-inspect" aria-label="Close">X</button>
+        </div>
+        <div class="clue-inspect-body">
+          <div class="clue-focus-frame" id="clue-modal-art"></div>
+          <div class="painting-plaque">
+            <span class="painting-artist" id="clue-modal-subtitle">CABIN CLUE</span>
+            <p class="painting-note" id="clue-modal-note"></p>
+          </div>
+        </div>
+        <div class="panel-footer">
+          <span class="save-hint">PRESS [B] TO MARK THIS CLUE IN YOUR BOOK</span>
+          <button class="silver-btn mini-btn primary-btn" data-game-action="close-clue-inspect">[ STEP BACK ]</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- THE NEIGHBOR: First-Person Hooded Grim Reaper Porch Encounter (image_7c2561 & image_7c2580) -->
+    <div id="neighbor-fp-modal" class="nb-fp-backdrop hidden" role="dialog" aria-modal="true" aria-label="The Neighbor">
+      <div class="nb-fp-scene">
+        <!-- Pixel-Art Moonlit Porch, Pine Woods & Towering Hooded Grim Reaper Canvas -->
+        <canvas id="neighbor-fp-canvas" class="nb-reaper-canvas" width="1366" height="768" aria-hidden="true"></canvas>
+
+        <!-- 3 Ornate Golden-Amber Parchment Choice Cards + Bottom Ink-Smudge Dialogue Box -->
+        <div class="nb-fp-ui-layer">
+          <div class="nb-top-title">THE NEIGHBOR</div>
+          <div id="neighbor-choice-cards" class="nb-choice-row"></div>
+          <div class="nb-bottom-smudge">
+            <svg viewBox="0 0 820 140" preserveAspectRatio="none" class="nb-smudge-bg" aria-hidden="true">
+              <path d="M46,32 L162,18 L295,12 L430,6 L575,16 L710,24 L782,36 L760,52 L802,72 L768,94 L792,116 L675,126 L510,134 L335,128 L178,132 L64,118 L92,98 L18,78 L66,58 L32,42 Z" fill="rgba(5,4,8,0.92)"/>
+            </svg>
+            <div id="neighbor-bottom-text" class="nb-bottom-text"></div>
+            <div id="neighbor-skip-hint" class="nb-skip-hint">[SPACE / CLICK]</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Framed Antique Painting Inspection Modal (triggered by [E] on any wall portrait) -->
+    <div id="painting-inspect-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="painting-modal-title">
+      <div class="silver-panel painting-modal-shell">
+        <div class="panel-header">
+          <h2 id="painting-modal-title">ANTIQUE PORTRAIT</h2>
+          <button class="icon-close-btn" data-game-action="close-painting" aria-label="Close">X</button>
+        </div>
+        <div class="painting-modal-body">
+          <div class="painting-gilt-frame" id="painting-frame-box">
+            <img id="painting-modal-img" src="" alt="Cabin Portrait" referrerpolicy="no-referrer" />
+            <div class="painting-oil-vignette" aria-hidden="true"></div>
+          </div>
+          <div class="painting-plaque">
+            <span class="painting-artist" id="painting-modal-artist">19th Century Oil on Canvas</span>
+            <p class="painting-note" id="painting-modal-note"></p>
+          </div>
+        </div>
+        <div class="panel-footer">
+          <span class="save-hint">[E / SPACE / ESC] TO STEP BACK</span>
+          <button class="silver-btn mini-btn primary-btn" data-game-action="close-painting">[ STEP BACK ]</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MIDNIGHT ENDGAME: LOSE CUTSCENE (Bloody Headless Corpse on Table -> Slow Zoom Out) -->
+    <div id="endgame-cutscene-stage" class="eg-cutscene-stage hidden" aria-label="Endgame Cutscene">
+      <canvas id="endgame-cutscene-canvas" class="eg-cutscene-canvas" width="240" height="135"></canvas>
+      <div id="endgame-lose-overlay" class="eg-lose-overlay hidden">
+        <div class="silver-panel eg-lose-box">
+          <div class="eg-lose-title">YOU DIED</div>
+          <p id="endgame-lose-reason" class="eg-lose-sub">YOU CHOSE THE WRONG EXIT ROOM AT MIDNIGHT.</p>
+          <div id="endgame-true-room-reveal" class="eg-true-room">THE TRUE EXIT ROOM WAS: ???</div>
+          <div class="action-row" style="width:100%;">
+            <button type="button" class="silver-btn mini-btn subtle-btn" data-game-action="exit-to-lobby">[ LOBBY ]</button>
+            <button type="button" class="silver-btn mini-btn primary-btn" data-game-action="retry-endgame">[ TRY AGAIN ]</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MIDNIGHT ENDGAME: VICTORY GAME CREDITS ROLL -->
+    <div id="endgame-credits-modal" class="eg-credits-backdrop hidden" role="dialog" aria-modal="true" aria-label="Victory Credits">
+      <div class="silver-panel eg-credits-box">
+        <div class="eg-credits-badge">DAWN SURVIVED &bull; YOU ESCAPED!</div>
+        <h2 class="eg-credits-title">DUSKWOOD INN</h2>
+        <div class="eg-credits-stats">
+          <span>TRUE EXIT ROOM: <strong id="credits-exit-room">THE DINING ROOM</strong></span>
+          <span id="credits-turns-survived">0 TURNS SURVIVED</span>
+        </div>
+
+        <div class="eg-credits-scroll-frame">
+          <div class="eg-credits-roll">
+            <div class="eg-cr-group">
+              <span>AUTHOR &amp; CREATOR</span>
+              <strong>hung190207</strong>
+            </div>
+            <div class="eg-cr-group">
+              <span>CONCEPT &amp; GAME DIRECTION</span>
+              <strong>DUSKWOOD INN PROJECT</strong>
+            </div>
+            <div class="eg-cr-group">
+              <span>INSPIRED BY &amp; REFERENCES</span>
+              <strong>THE CABIN GAME &mdash; BY TWISTED CORRIDOR (STEAM)<br>BETRAYAL AT THE HOUSE ON THE HILL (BOARD GAME)</strong>
+            </div>
+            <div class="eg-cr-group">
+              <span>PIXEL ART &amp; CABIN ARCHITECTURE</span>
+              <strong>12 HANDCRAFTED ROOMS, MAZE ATTIC &amp; MORNING FOREST</strong>
+            </div>
+            <div class="eg-cr-group">
+              <span>ENTITIES &amp; SURVIVAL EVENTS</span>
+              <strong>THE HOLLOW HARVESTER &bull; THE CORNER MAN &bull; ATTIC GHOST<br>THE TALL MAN &bull; JACK-IN-THE-BOX &bull; THE NEIGHBOR</strong>
+            </div>
+            <div class="eg-cr-group">
+              <span>CLUE &amp; DEDUCTION SYSTEM</span>
+              <strong>THE GRANDFATHER CLOCK &bull; PAST PLAYER &bull; CORRUPT PAINTING<br>PARANORMAL ALTERATION &bull; CHICKEN DECOR &bull; TIC-TAC-TOE</strong>
+            </div>
+            <div class="eg-cr-group">
+              <span>MUSIC &amp; SOUNDTRACK</span>
+              <strong>LOBBY MUSIC: DON'T GO &mdash; FIVE NIGHTS AT FREDDY'S 3<br>VICTORY BGM: REUNITED (UNDERTALE) &mdash; TOBY FOX<br>DEFEAT BGM: GAME OVER &mdash; AZALI<br>AND MORE...</strong>
+            </div>
+            <div class="eg-cr-group">
+              <span>THANK YOU FOR PLAYING</span>
+              <strong>SAFE TRAVELS BEYOND DUSKWOOD FOREST.</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="action-row" style="width:100%;">
+          <button type="button" class="silver-btn mini-btn subtle-btn" data-game-action="exit-to-lobby">[ RETURN TO LOBBY ]</button>
+          <button type="button" class="silver-btn mini-btn primary-btn" data-game-action="retry-endgame">[ PLAY AGAIN ]</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- In-Game Pause Menu -->
+    <div id="pause-overlay" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+      <div class="silver-panel modal-box modal-sm">
+        <div class="panel-header">
+          <h2 id="pause-title">PAUSED</h2>
+          <button class="icon-close-btn" data-game-action="resume-game" aria-label="Close">X</button>
+        </div>
+        <div class="modal-body stack-gap">
+          <button class="silver-btn primary-btn" data-game-action="resume-game">[ RESUME ]</button>
+          <button class="silver-btn" data-game-action="open-tome">[ HOW TO PLAY ]</button>
+          <button class="silver-btn" data-game-action="open-options">[ OPTIONS ]</button>
+          <button class="silver-btn subtle-btn" data-game-action="exit-to-lobby">[ RETURN TO LOBBY ]</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Fullscreen Blackout Fade Curtain -->
+  <div id="fade-curtain" class="fade-curtain" aria-hidden="true"></div>
+
+  <!-- ==================== MODAL: PLAY MODE SELECT ==================== -->
+  <div id="modal-play" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="play-title">
+    <div class="silver-panel modal-box modal-sm">
+      <div class="panel-header">
+        <h2 id="play-title">SELECT MODE</h2>
+        <button class="icon-close-btn" data-close="modal-play" aria-label="Close">X</button>
+      </div>
+
+      <div id="play-mode-select" class="modal-body stack-gap">
+        <button class="silver-btn mode-btn" data-action="select-single">
+          <span class="mode-title">[ SINGLEPLAYER ]</span>
+          <span class="mode-desc">Face the cabin alone until dawn.</span>
+        </button>
+        <button class="silver-btn mode-btn" data-action="select-multi">
+          <span class="mode-title">[ MULTIPLAYER ]</span>
+          <span class="mode-desc">Co-op table for 1 - 4 travelers.</span>
+        </button>
+        <button class="silver-btn subtle-btn" data-close="modal-play">[ BACK ]</button>
+      </div>
+
+      <div id="play-single-panel" class="modal-body stack-gap hidden">
+        <div class="info-strip">
+          <span>TRAVELER:</span>
+          <strong id="sp-player-name">SURVIVOR</strong>
+        </div>
+
+        <div class="option-group">
+          <label class="group-label">DIFFICULTY</label>
+          <div class="segmented-row">
+            <button class="silver-btn seg-btn active" data-difficulty="NORMAL">NORMAL</button>
+            <button class="silver-btn seg-btn" data-difficulty="NIGHTMARE">NIGHTMARE</button>
+          </div>
+          <p id="difficulty-note" class="helper-note">Standard Hollow Harvester pace. Balanced Omen deck.</p>
+        </div>
+
+        <div class="action-row">
+          <button class="silver-btn subtle-btn" data-action="back-to-modes">[ BACK ]</button>
+          <button class="silver-btn primary-btn" data-action="start-single">[ ENTER CABIN ]</button>
+        </div>
+      </div>
+
+      <div id="play-multi-panel" class="modal-body stack-gap hidden">
+        <div class="segmented-row">
+          <button class="silver-btn seg-btn active" data-mp-tab="host">HOST TABLE</button>
+          <button class="silver-btn seg-btn" data-mp-tab="join">JOIN TABLE</button>
+        </div>
+
+        <div id="mp-host-view" class="stack-gap-sm">
+          <div class="room-code-bar">
+            <span class="room-label">TABLE CODE</span>
+            <span id="host-room-code" class="room-code">DUSK</span>
+            <button class="silver-btn mini-btn" data-action="copy-code">COPY</button>
+            <button class="silver-btn mini-btn" data-action="regen-code">NEW</button>
+          </div>
+
+          <div class="seat-grid" id="mp-seat-grid">
+            <div class="seat-card occupied">
+              <span class="seat-num">SEAT 1 (HOST)</span>
+              <strong id="mp-seat-1-name">SURVIVOR</strong>
+              <span class="seat-status ready">READY</span>
+            </div>
+            <div class="seat-card">
+              <span class="seat-num">SEAT 2</span>
+              <span>EMPTY CHAIR</span>
+              <span class="seat-status">WAITING...</span>
+            </div>
+            <div class="seat-card">
+              <span class="seat-num">SEAT 3</span>
+              <span>EMPTY CHAIR</span>
+              <span class="seat-status">WAITING...</span>
+            </div>
+            <div class="seat-card">
+              <span class="seat-num">SEAT 4</span>
+              <span>EMPTY CHAIR</span>
+              <span class="seat-status">WAITING...</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="mp-join-view" class="stack-gap-sm hidden">
+          <label class="group-label" for="join-code-input">ENTER 4-LETTER TABLE CODE</label>
+          <div class="join-input-row">
+            <input
+              id="join-code-input"
+              class="silver-input code-input"
+              type="text"
+              maxlength="4"
+              placeholder="XXXX"
+              autocomplete="off"
+            />
+            <button class="silver-btn primary-btn" data-action="join-room">[ JOIN ]</button>
+          </div>
+          <p id="join-feedback" class="helper-note">Ask your host for their 4-letter table code.</p>
+        </div>
+
+        <div class="action-row">
+          <button class="silver-btn subtle-btn" data-action="back-to-modes">[ BACK ]</button>
+          <button class="silver-btn primary-btn" id="btn-launch-mp" data-action="start-multi">[ START TABLE ]</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: HOW TO PLAY (OPEN BOOK + CARD CODEX) ==================== -->
+  <div id="modal-howto" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="howto-title">
+    <div class="silver-panel book-shell">
+      <div class="panel-header book-top-bar">
+        <div class="book-title-group">
+          <h2 id="howto-title">SURVIVOR'S TOME</h2>
+          <div class="book-tabs" role="tablist">
+            <button class="silver-btn mini-btn book-tab active" data-book-tab="rules">RULES</button>
+            <button class="silver-btn mini-btn book-tab" data-book-tab="codex">
+              CARDS (<span id="codex-count-badge">0/0</span>)
+            </button>
+          </div>
+        </div>
+        <button class="icon-close-btn" data-close="modal-howto" aria-label="Close">X</button>
+      </div>
+
+      <div class="book-binding">
+        <div id="book-tab-rules" class="book-spread">
+          <article class="book-page page-left">
+            <div class="page-chapter">CHAPTER I &bull; THE NIGHT</div>
+            <h3 class="page-heading">CORE OBJECTIVE</h3>
+            <p class="book-text">
+              Trapped inside <strong>Duskwood Inn</strong>, your group must survive from
+              <strong>12:00 PM until 12:00 AM (Midnight)</strong> and flee through the true
+              <strong>Sanctuary Room</strong>.
+            </p>
+            <p class="book-text">
+              Each candidate room is bound to a unique set of <strong>3 Omens</strong>.
+              Build rooms, test Omens, and eliminate false exits before the final chime.
+            </p>
+
+            <h3 class="page-heading">OPENING &amp; TURN SEQUENCE</h3>
+            <ol class="book-list">
+              <li><strong>Table Intro:</strong> Once all survivors sit at the table, your piece rises from XII and circles the track before dealing <strong>The Cellar</strong> (no one holds cards before this).</li>
+              <li><strong>Turn 1:</strong> Place <strong>The Cellar</strong> adjacent to The Dining Room. Each survivor is then dealt <strong>3 random cards</strong>, and your piece moves <strong>+15 min</strong> every turn after.</li>
+              <li><strong>Turn 2:</strong> Guaranteed draw of <strong>The Hollow Harvester</strong>. After laying it down, the Harvester rises at <strong>XII</strong> after <strong>3 turns</strong> and hunts <strong>+30 min/turn</strong>.</li>
+            </ol>
+
+            <h3 class="page-heading">THE HOLLOW HARVESTER</h3>
+            <p class="book-text">
+              A dark presence stalks your shared <strong>Lantern</strong> along the night
+              clock. If it catches you, the group has <strong>1 last turn</strong> to play a
+              <strong>Chime Card</strong> and pull away — or everyone is lost.
+            </p>
+            <div class="page-num">I</div>
+          </article>
+
+          <div class="book-spine" aria-hidden="true"></div>
+
+          <article class="book-page page-right">
+            <div class="page-chapter">CHAPTER II &bull; THE FIVE CARD TYPES</div>
+            <h3 class="page-heading">DECK CATEGORIES</h3>
+            <ul class="book-deck-list">
+              <li>
+                <span class="deck-tag tag-blueprint">ROOM (BLUEPRINT)</span>
+                <span>Builds rooms &amp; hallways. <strong>The Cellar</strong> must be placed first.</span>
+              </li>
+              <li>
+                <span class="deck-tag tag-omen">CLUE (OMEN)</span>
+                <span>Placed on the <strong>Candle Tray</strong>; top Omen manifests clues inside matching rooms.</span>
+              </li>
+              <li>
+                <span class="deck-tag tag-chime">PROGRESS (CHIME)</span>
+                <span>Most common cards. <strong>+30m / +60m</strong> move ONLY your piece while the Hollow Harvester stays still!</span>
+              </li>
+              <li>
+                <span class="deck-tag tag-ward">LIFESAVER (WARD)</span>
+                <span>Pushes the <strong>Hollow Harvester</strong> back on the clock track to buy safety.</span>
+              </li>
+              <li>
+                <span class="deck-tag tag-hex">EVENT (HEX)</span>
+                <span>Drawing a Hex interrupts your turn for a lethal trial. Fallen players skip the clock <strong>+1 HOUR</strong>.</span>
+              </li>
+            </ul>
+            <div class="page-num">II</div>
+          </article>
+        </div>
+
+        <div id="book-tab-codex" class="book-spread hidden">
+          <section class="book-page page-left codex-list-page">
+            <div class="page-chapter">COMPENDIUM &bull; DISCOVERED CARDS</div>
+            <div class="codex-filters" id="codex-filters">
+              <button class="codex-filter-btn active" data-codex-filter="ALL">ALL</button>
+              <button class="codex-filter-btn" data-codex-filter="BLUEPRINT">ROOM</button>
+              <button class="codex-filter-btn" data-codex-filter="OMEN">CLUE</button>
+              <button class="codex-filter-btn" data-codex-filter="CHIME">PROGRESS</button>
+              <button class="codex-filter-btn" data-codex-filter="WARD">LIFESAVER</button>
+              <button class="codex-filter-btn" data-codex-filter="HEX">EVENT</button>
+            </div>
+            <div class="codex-grid" id="codex-card-grid"></div>
+            <div class="page-num">III</div>
+          </section>
+
+          <div class="book-spine" aria-hidden="true"></div>
+
+          <section class="book-page page-right codex-detail-page" id="codex-detail-pane"></section>
+        </div>
+      </div>
+
+      <div class="panel-footer">
+        <span class="save-hint">UNKNOWN CARDS APPEAR AS BLACK SILHOUETTES UNTIL ENCOUNTERED</span>
+        <button class="silver-btn primary-btn" data-close="modal-howto">[ CLOSE BOOK ]</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: CHARACTER CUSTOMIZER ==================== -->
+  <div id="modal-customize" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="cust-title">
+    <div class="silver-panel modal-box modal-lg">
+      <div class="panel-header">
+        <h2 id="cust-title">CUSTOMIZE SURVIVOR</h2>
+        <button class="icon-close-btn" data-close="modal-customize" aria-label="Close">X</button>
+      </div>
+
+      <div class="customizer-layout">
+        <div class="preview-column">
+          <div class="sprite-stage">
+            <canvas id="character-canvas" width="160" height="208"></canvas>
+          </div>
+
+          <div class="preview-controls">
+            <button class="silver-btn mini-btn" data-action="flip-dir" id="btn-flip-dir">FACE: RIGHT</button>
+            <button class="silver-btn mini-btn" data-action="toggle-walk" id="btn-toggle-walk">ANIM: IDLE</button>
+            <button class="silver-btn mini-btn" data-action="toggle-lantern" id="btn-toggle-lantern">LANTERN: ON</button>
+          </div>
+
+          <div class="name-block">
+            <label class="group-label" for="player-name-input">SURVIVOR NAME</label>
+            <input
+              id="player-name-input"
+              class="silver-input"
+              type="text"
+              maxlength="14"
+              value="SURVIVOR"
+              autocomplete="off"
+            />
+          </div>
+
+          <div class="preview-bottom-actions">
+            <button class="silver-btn mini-btn" data-action="randomize-char">[ RANDOM ]</button>
+            <button class="silver-btn mini-btn" data-action="reset-char">[ DEFAULT ]</button>
+          </div>
+        </div>
+
+        <div class="controls-column" id="customizer-controls"></div>
+      </div>
+
+      <div class="panel-footer">
+        <span class="save-hint" id="cust-save-status">CHANGES SAVED AUTOMATICALLY</span>
+        <button class="silver-btn primary-btn" data-close="modal-customize">[ DONE ]</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: OPTIONS ==================== -->
+  <div id="modal-options" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="opt-title">
+    <div class="silver-panel modal-box modal-sm">
+      <div class="panel-header">
+        <h2 id="opt-title">OPTIONS</h2>
+        <button class="icon-close-btn" data-close="modal-options" aria-label="Close">X</button>
+      </div>
+
+      <div class="modal-body stack-gap">
+        <div class="option-row">
+          <label for="opt-bgm-vol">LOBBY BGM VOLUME</label>
+          <div class="slider-wrap">
+            <input id="opt-bgm-vol" type="range" min="0" max="100" value="55" />
+            <span id="opt-bgm-label">55%</span>
+          </div>
+        </div>
+
+        <div class="option-row">
+          <label for="opt-sfx-vol">SFX VOLUME</label>
+          <div class="slider-wrap">
+            <input id="opt-sfx-vol" type="range" min="0" max="100" value="65" />
+            <span id="opt-sfx-label">65%</span>
+          </div>
+        </div>
+
+        <div class="option-row">
+          <span>AMBIENT MIST &amp; ASH</span>
+          <button class="silver-btn mini-btn" id="opt-toggle-particles" data-action="toggle-particles">ON</button>
+        </div>
+
+        <div class="option-row">
+          <span>SUBTLE PIXEL SCANLINES</span>
+          <button class="silver-btn mini-btn" id="opt-toggle-scanlines" data-action="toggle-scanlines">OFF</button>
+        </div>
+
+        <div class="action-row end-align">
+          <button class="silver-btn primary-btn" data-close="modal-options">[ SAVE &amp; CLOSE ]</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: CREDITS ==================== -->
+  <div id="modal-credits" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="cred-title">
+    <div class="silver-panel modal-box modal-credits-box">
+      <div class="panel-header">
+        <h2 id="cred-title">CREDITS</h2>
+        <button class="icon-close-btn" data-close="modal-credits" aria-label="Close">X</button>
+      </div>
+
+      <div class="modal-body stack-gap credits-body">
+        <div class="credit-entry credit-highlight">
+          <span class="credit-role">AUTHOR &amp; CREATOR</span>
+          <strong>hung190207</strong>
+        </div>
+        <div class="credit-entry">
+          <span class="credit-role">CONCEPT &amp; DIRECTION</span>
+          <strong>DUSKWOOD INN PROJECT</strong>
+        </div>
+        <div class="credit-entry credit-highlight">
+          <span class="credit-role">INSPIRED BY &amp; REFERENCES</span>
+          <ul class="credit-list">
+            <li><strong>The Cabin Game</strong> &mdash; by <strong>Twisted Corridor</strong> (Steam)</li>
+            <li><strong>Betrayal at the House on the Hill</strong> &mdash; Board Game (Avalon Hill / Bruce Glassco)</li>
+          </ul>
+        </div>
+        <div class="credit-entry">
+          <span class="credit-role">GENRE</span>
+          <strong>CO-OP PIXEL BOARD-HORROR</strong>
+        </div>
+        <div class="credit-entry">
+          <span class="credit-role">LOBBY MUSIC</span>
+          <strong>"DON'T GO" (FNAF 3 / PIANO FALLBACK)</strong>
+        </div>
+        <div class="credit-entry">
+          <span class="credit-role">MUSIC &amp; SOUNDTRACK</span>
+          <ul class="credit-list">
+            <li><span>Lobby Music:</span> <strong>Don't Go &mdash; Five Nights at Freddy's 3</strong></li>
+            <li><span>Victory BGM:</span> <strong>Reunited (Undertale) &mdash; Toby Fox</strong></li>
+            <li><span>Defeat BGM:</span> <strong>game over &mdash; AZALI</strong></li>
+            <li><em>...and more</em></li>
+          </ul>
+        </div>
+        <div class="credit-entry">
+          <span class="credit-role">BUILD STATUS</span>
+          <strong>PHASE 4: GUARANTEED DRAW PITY, SHUFFLE HAND, THE THIEF &amp; THE NEIGHBOR</strong>
+        </div>
+
+        <div class="action-row end-align">
+          <button class="silver-btn primary-btn" data-close="modal-credits">[ CLOSE ]</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MULTIPLAYER LAUNCH PLACEHOLDER ==================== -->
+  <div id="launch-screen" class="launch-backdrop hidden" aria-live="polite">
+    <div class="silver-panel launch-box">
+      <canvas id="launch-avatar-canvas" width="120" height="156"></canvas>
+      <h2 id="launch-heading">OPENING CO-OP TABLE...</h2>
+      <p id="launch-subtext">PREPARING MULTIPLAYER LOBBY</p>
+      <div class="pixel-progress">
+        <div class="pixel-progress-fill" id="launch-progress-fill"></div>
+      </div>
+      <button class="silver-btn subtle-btn hidden" id="btn-return-title" data-action="cancel-launch">
+        [ RETURN TO TITLE ]
+      </button>
+    </div>
+  </div>
+
+  <!-- Structured Game Scripts (classic defer so index.html runs directly via file://) -->
+  <script defer src="js/data/config.js"></script>
+  <script defer src="js/data/cards.js"></script>
+  <script defer src="js/data/paintings.js"></script>
+  <script defer src="js/core/audio.js"></script>
+  <script defer src="js/core/character.js"></script>
+  <script defer src="js/lobby/background.js"></script>
+  <script defer src="js/lobby/customizer.js"></script>
+  <script defer src="js/lobby/tome.js"></script>
+  <script defer src="js/world/intro.js"></script>
+  <script defer src="js/world/parlor.js"></script>
+  <script defer src="js/world/rooms.js"></script>
+  <script defer src="js/world/book.js"></script>
+  <script defer src="js/world/clues.js"></script>
+  <script defer src="js/world/attic.js"></script>
+  <script defer src="js/world/stalkers.js"></script>
+  <script defer src="js/world/musical.js"></script>
+  <script defer src="js/world/basement.js"></script>
+  <script defer src="js/world/staylit.js"></script>
+  <script defer src="js/world/knight.js"></script>
+  <script defer src="js/world/endgame.js"></script>
+  <script defer src="js/world/events.js"></script>
+  <script defer src="js/world/table-view.js"></script>
+  <script defer src="js/world/game.js"></script>
+  <script defer src="js/lobby/menus.js"></script>
+  <script defer src="js/main.js"></script>
+</body>
+</html>
