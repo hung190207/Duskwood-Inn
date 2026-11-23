@@ -928,3 +928,458 @@
   height: 100%;
   display: block;
 }
+
+/* ==================== SURVIVOR'S TOME MULTI-SPREAD GAME MANUAL (RULES TAB) ==================== */
+.tome-rules-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tome-chapter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.tome-chapter-btn {
+  padding: 5px 12px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+  background: rgba(8, 11, 17, 0.82);
+  border: 1.5px solid var(--silver-deep);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease, color 0.12s ease;
+}
+
+.tome-chapter-btn:hover {
+  color: var(--text-white);
+  border-color: var(--silver-mid);
+  background: rgba(24, 30, 42, 0.9);
+}
+
+.tome-chapter-btn.active {
+  color: var(--text-white);
+  border-color: var(--silver-bright);
+  background: rgba(44, 54, 72, 0.92);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+.tome-manual-spread {
+  min-height: 468px;
+}
+
+.tome-page {
+  padding: 16px 22px 12px;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tome-page-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tome-header {
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.tome-heading {
+  font-family: var(--font-title);
+  font-size: 13px;
+  letter-spacing: 1.6px;
+  color: var(--text-white);
+  text-shadow: 2px 2px 0 #07090d;
+}
+
+.tome-flourish-svg {
+  width: min(215px, 84%);
+  height: 18px;
+  display: block;
+  margin: 2px auto 0;
+}
+
+.tome-cover-page {
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.tome-cover-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2.2px;
+  color: var(--silver-mid);
+}
+
+.tome-cover-title {
+  font-family: var(--font-title);
+  font-size: 20px;
+  letter-spacing: 2px;
+  color: var(--text-white);
+  text-shadow: 3px 3px 0 #07090d;
+}
+
+.tome-cover-sub {
+  font-family: var(--font-ui);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--accent-lantern);
+}
+
+.tome-cover-art {
+  width: 82px;
+  height: 108px;
+  margin: 6px 0;
+}
+
+.tome-cover-runner-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.tome-cover-note {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  max-width: 300px;
+}
+
+.tome-cover-note strong {
+  color: var(--text-white);
+}
+
+.tome-toc-list {
+  margin: auto 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.tome-toc-row {
+  display: flex;
+  align-items: baseline;
+  width: 100%;
+  padding: 3px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-white);
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.12s ease, transform 0.1s ease, border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.tome-toc-row:hover {
+  color: var(--accent-lantern);
+  background: rgba(34, 42, 58, 0.55);
+  border-color: var(--silver-dark);
+  transform: translateX(3px);
+}
+
+.tome-toc-dots {
+  flex: 1 1 auto;
+  border-bottom: 2px dotted rgba(188, 198, 212, 0.48);
+  margin: 0 7px;
+  transform: translateY(-3px);
+}
+
+.tome-toc-num {
+  font-family: var(--font-title);
+  font-size: 11px;
+  color: var(--silver-bright);
+}
+
+.tome-lead {
+  font-size: 15px;
+  line-height: 1.38;
+  color: var(--text-white);
+}
+
+.tome-accent-red {
+  color: #ff8e8e;
+}
+
+.tome-bullet {
+  font-size: 14px;
+  line-height: 1.38;
+  color: var(--text-muted);
+}
+
+.tome-howto-cards-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 2px 0 4px;
+}
+
+.tome-howto-card-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.tome-mini-card {
+  border: 1.5px solid #2b1d12;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.65);
+}
+
+.tome-card-cap {
+  font-size: 12.5px;
+  line-height: 1.15;
+  color: var(--text-muted);
+}
+
+.tome-howto-event-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 2px 0;
+}
+
+.tome-death-warn-row {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: rgba(74, 18, 22, 0.42);
+  border: 1px solid rgba(224, 96, 96, 0.45);
+}
+
+.tome-death-warn-text {
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #ffb4b4;
+}
+
+.tome-stagger-stack {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 10px;
+}
+
+.tome-stagger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tome-stagger-row.compact-gap {
+  gap: 10px;
+  margin: 3px 0;
+}
+
+.tome-vignette {
+  flex: 0 0 144px;
+  height: 98px;
+  border: 2px solid var(--silver-dark);
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.68);
+}
+
+.tome-crimson-rule {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #ff9c9c;
+  text-align: center;
+  padding: 5px 8px;
+  background: rgba(74, 18, 22, 0.38);
+  border: 1px dashed rgba(235, 110, 110, 0.48);
+  margin: 2px 0;
+}
+
+.tome-footnote {
+  margin-top: auto;
+  padding-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--accent-lantern);
+}
+
+.tome-footnote strong {
+  color: var(--text-white);
+}
+
+.tome-open-list {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.tome-open-list strong {
+  color: var(--text-white);
+}
+
+.tome-controls-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.tome-key-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  background: rgba(6, 8, 13, 0.72);
+  border: 1px solid var(--silver-deep);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tome-key-row kbd {
+  min-width: 40px;
+  text-align: center;
+  padding: 2px 5px;
+  font-family: var(--font-title);
+  font-size: 8px;
+  color: var(--text-white);
+  background: rgba(24, 30, 42, 0.92);
+  border: 1px solid var(--silver-mid);
+}
+
+.tome-clue-doc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  background: rgba(7, 9, 14, 0.56);
+  border: 1px solid var(--silver-deep);
+}
+
+.tome-doc-text {
+  flex: 1 1 auto;
+}
+
+.tome-sub-accent {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--accent-lantern);
+  margin-bottom: 2px;
+  line-height: 1.22;
+}
+
+.tome-desc {
+  font-size: 13px;
+  line-height: 1.38;
+  color: var(--text-muted);
+  padding-left: 8px;
+}
+
+.tome-art-plate {
+  flex: 0 0 76px;
+  height: 78px;
+  padding: 4px;
+  background: linear-gradient(155deg, #f4eee1 0%, #e4d6b7 100%);
+  border: 2px solid var(--silver-dark);
+  border-radius: 3px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tome-art-plate.tilt-right {
+  transform: rotate(6deg);
+}
+
+.tome-tips-stack {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 8px;
+}
+
+.tome-tips-stack > div {
+  padding: 7px 9px;
+  background: rgba(7, 9, 14, 0.54);
+  border: 1px solid var(--silver-deep);
+}
+
+.tome-page-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(188, 198, 212, 0.22);
+}
+
+.tome-page-footer.left {
+  justify-content: space-between;
+}
+
+.tome-page-footer.right {
+  justify-content: space-between;
+}
+
+.tome-page-num {
+  font-family: var(--font-title);
+  font-size: 10px;
+  color: var(--silver-mid);
+}
+
+.tome-nav-btn {
+  padding: 4px 10px;
+  font-family: var(--font-title);
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  color: var(--text-white);
+  background: rgba(18, 23, 34, 0.88);
+  border: 1.5px solid var(--silver-mid);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease, opacity 0.12s ease;
+}
+
+.tome-nav-btn:hover:not(:disabled) {
+  border-color: var(--accent-lantern);
+  background: rgba(38, 46, 64, 0.94);
+}
+
+.tome-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+@media (max-width: 780px) {
+  .tome-howto-cards-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .tome-controls-grid {
+    grid-template-columns: 1fr;
+  }
+  .tome-vignette {
+    flex: 0 0 118px;
+    height: 82px;
+  }
+}

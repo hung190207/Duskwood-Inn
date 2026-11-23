@@ -249,18 +249,19 @@ window.Duskwood = window.Duskwood || {};
       </svg>`;
   }
 
-  function woodVignetteSVG(kind) {
+  function woodVignetteSVG(kind, idPrefix) {
+    const p = idPrefix || "";
     if (kind === "player_track") {
       return `
         <svg viewBox="0 0 150 105" class="fb-photo-svg" aria-hidden="true">
           <defs>
-            <radialGradient id="wd1" cx="50%" cy="48%" r="58%">
+            <radialGradient id="${p}wd1" cx="50%" cy="48%" r="58%">
               <stop offset="0%" stop-color="#9c734c"/>
               <stop offset="68%" stop-color="#6b4a2e"/>
               <stop offset="100%" stop-color="#362213"/>
             </radialGradient>
           </defs>
-          <rect width="150" height="105" fill="url(#wd1)"/>
+          <rect width="150" height="105" fill="url(#${p}wd1)"/>
           <path d="M-10,20 Q75,5 160,22" fill="none" stroke="#2b180c" stroke-width="3" opacity="0.45"/>
           <path d="M-10,58 Q75,78 160,55" fill="none" stroke="#361f10" stroke-width="8" opacity="0.48"/>
           <path d="M-10,58 Q75,78 160,55" fill="none" stroke="#1c0f08" stroke-width="1.6"/>
@@ -279,13 +280,13 @@ window.Duskwood = window.Duskwood || {};
       return `
         <svg viewBox="0 0 150 105" class="fb-photo-svg" aria-hidden="true">
           <defs>
-            <radialGradient id="wd2" cx="50%" cy="50%" r="58%">
+            <radialGradient id="${p}wd2" cx="50%" cy="50%" r="58%">
               <stop offset="0%" stop-color="#9e7650"/>
               <stop offset="70%" stop-color="#69482d"/>
               <stop offset="100%" stop-color="#301e11"/>
             </radialGradient>
           </defs>
-          <rect width="150" height="105" fill="url(#wd2)"/>
+          <rect width="150" height="105" fill="url(#${p}wd2)"/>
           <path d="M65,-5 Q102,48 52,110" fill="none" stroke="#2c190d" stroke-width="14" opacity="0.32"/>
           <path d="M65,-5 Q102,48 52,110" fill="none" stroke="#1a0e07" stroke-width="1.8"/>
           <path d="M84,-5 Q118,48 70,110" fill="none" stroke="#1a0e07" stroke-width="1.4" opacity="0.65"/>
@@ -303,13 +304,13 @@ window.Duskwood = window.Duskwood || {};
       return `
         <svg viewBox="0 0 150 105" class="fb-photo-svg" aria-hidden="true">
           <defs>
-            <radialGradient id="wd3" cx="50%" cy="50%" r="58%">
+            <radialGradient id="${p}wd3" cx="50%" cy="50%" r="58%">
               <stop offset="0%" stop-color="#a37a52"/>
               <stop offset="70%" stop-color="#6b4a2e"/>
               <stop offset="100%" stop-color="#2e1c0f"/>
             </radialGradient>
           </defs>
-          <rect width="150" height="105" fill="url(#wd3)"/>
+          <rect width="150" height="105" fill="url(#${p}wd3)"/>
           <path d="M-8,82 Q75,68 158,34" fill="none" stroke="#2e1a0e" stroke-width="12" opacity="0.35"/>
           <path d="M-8,82 Q75,68 158,34" fill="none" stroke="#1a0e07" stroke-width="1.6"/>
           <ellipse cx="44" cy="83" rx="14" ry="5" fill="rgba(16,8,4,0.6)"/>
@@ -328,13 +329,13 @@ window.Duskwood = window.Duskwood || {};
       return `
         <svg viewBox="0 0 155 108" class="fb-photo-svg" aria-hidden="true">
           <defs>
-            <radialGradient id="wd4" cx="50%" cy="48%" r="58%">
+            <radialGradient id="${p}wd4" cx="50%" cy="48%" r="58%">
               <stop offset="0%" stop-color="#9e754d"/>
               <stop offset="72%" stop-color="#5c3d24"/>
               <stop offset="100%" stop-color="#29180d"/>
             </radialGradient>
           </defs>
-          <rect width="155" height="108" fill="url(#wd4)"/>
+          <rect width="155" height="108" fill="url(#${p}wd4)"/>
           <polygon points="40,30 100,14 128,58 68,78" fill="#4f331e" stroke="#1c1008" stroke-width="2.2"/>
           <polygon points="68,78 128,58 128,74 68,94" fill="#331e10" stroke="#140b05" stroke-width="2"/>
           <polygon points="40,30 68,78 68,94 40,46" fill="#26160c" stroke="#140b05" stroke-width="2"/>
@@ -347,13 +348,13 @@ window.Duskwood = window.Duskwood || {};
     return `
       <svg viewBox="0 0 155 108" class="fb-photo-svg" aria-hidden="true">
         <defs>
-          <radialGradient id="wd5" cx="50%" cy="35%" r="65%">
+          <radialGradient id="${p}wd5" cx="50%" cy="35%" r="65%">
             <stop offset="0%" stop-color="#9c744c"/>
             <stop offset="62%" stop-color="#4d321d"/>
             <stop offset="100%" stop-color="#140d09"/>
           </radialGradient>
         </defs>
-        <rect width="155" height="108" fill="url(#wd5)"/>
+        <rect width="155" height="108" fill="url(#${p}wd5)"/>
         <path d="M8,16 Q77,64 147,16" fill="none" stroke="#24140a" stroke-width="18" opacity="0.45"/>
         <rect x="44" y="24" width="18" height="24" rx="1" fill="#f3ebd4" stroke="#24180f" stroke-width="1.4"/>
         <rect x="68" y="26" width="18" height="24" rx="1" fill="#f3ebd4" stroke="#24180f" stroke-width="1.4"/>
@@ -828,12 +829,15 @@ window.Duskwood = window.Duskwood || {};
     CLUE_ITEMS,
     EXIT_ROOMS,
     EXIT_ROOM_MAP,
+    CARD_CORNERS_SVG,
+    COVER_RUNNER_SVG,
     init,
     open,
     close,
     toggle,
     resetNotes,
     getClueArtSVG,
+    woodVignetteSVG,
     isOpen: () => isOpen
   };
 })(window.Duskwood);

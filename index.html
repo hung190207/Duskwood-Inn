@@ -901,65 +901,34 @@
       </div>
 
       <div class="book-binding">
-        <div id="book-tab-rules" class="book-spread">
-          <article class="book-page page-left">
-            <div class="page-chapter">CHAPTER I &bull; THE NIGHT</div>
-            <h3 class="page-heading">CORE OBJECTIVE</h3>
-            <p class="book-text">
-              Trapped inside <strong>Duskwood Inn</strong>, your group must survive from
-              <strong>12:00 PM until 12:00 AM (Midnight)</strong> and flee through the true
-              <strong>Sanctuary Room</strong>.
-            </p>
-            <p class="book-text">
-              Each candidate room is bound to a unique set of <strong>3 Omens</strong>.
-              Build rooms, test Omens, and eliminate false exits before the final chime.
-            </p>
+        <div id="book-tab-rules" class="tome-rules-wrap">
+          <div class="tome-chapter-bar" role="navigation" aria-label="Game Manual Chapters">
+            <button type="button" class="tome-chapter-btn active" data-tome-jump="0">CONTENTS</button>
+            <button type="button" class="tome-chapter-btn" data-tome-jump="1">HOW-TO</button>
+            <button type="button" class="tome-chapter-btn" data-tome-jump="2">CLUE GUIDE</button>
+            <button type="button" class="tome-chapter-btn" data-tome-jump="3">CLUE TYPES</button>
+            <button type="button" class="tome-chapter-btn" data-tome-jump="4">TIPS</button>
+          </div>
 
-            <h3 class="page-heading">OPENING &amp; TURN SEQUENCE</h3>
-            <ol class="book-list">
-              <li><strong>Table Intro:</strong> Once all survivors sit at the table, your piece rises from XII and circles the track before dealing <strong>The Cellar</strong> (no one holds cards before this).</li>
-              <li><strong>Turn 1:</strong> Place <strong>The Cellar</strong> adjacent to The Dining Room. Each survivor is then dealt <strong>3 random cards</strong>, and your piece moves <strong>+15 min</strong> every turn after.</li>
-              <li><strong>Turn 2:</strong> Guaranteed draw of <strong>The Hollow Harvester</strong>. After laying it down, the Harvester rises at <strong>XII</strong> after <strong>3 turns</strong> and hunts <strong>+30 min/turn</strong>.</li>
-            </ol>
+          <div class="book-spread tome-manual-spread">
+            <article class="book-page page-left tome-page">
+              <div class="tome-page-body" id="tome-rules-left"></div>
+              <div class="tome-page-footer left">
+                <button type="button" class="tome-nav-btn" id="tome-prev-btn" data-tome-nav="prev" title="Previous Page [Left Arrow]" aria-label="Previous Page">&lt; PREV</button>
+                <span class="tome-page-num" id="tome-num-left">0</span>
+              </div>
+            </article>
 
-            <h3 class="page-heading">THE HOLLOW HARVESTER</h3>
-            <p class="book-text">
-              A dark presence stalks your shared <strong>Lantern</strong> along the night
-              clock. If it catches you, the group has <strong>1 last turn</strong> to play a
-              <strong>Chime Card</strong> and pull away — or everyone is lost.
-            </p>
-            <div class="page-num">I</div>
-          </article>
+            <div class="book-spine" aria-hidden="true"></div>
 
-          <div class="book-spine" aria-hidden="true"></div>
-
-          <article class="book-page page-right">
-            <div class="page-chapter">CHAPTER II &bull; THE FIVE CARD TYPES</div>
-            <h3 class="page-heading">DECK CATEGORIES</h3>
-            <ul class="book-deck-list">
-              <li>
-                <span class="deck-tag tag-blueprint">ROOM (BLUEPRINT)</span>
-                <span>Builds rooms &amp; hallways. <strong>The Cellar</strong> must be placed first.</span>
-              </li>
-              <li>
-                <span class="deck-tag tag-omen">CLUE (OMEN)</span>
-                <span>Placed on the <strong>Candle Tray</strong>; top Omen manifests clues inside matching rooms.</span>
-              </li>
-              <li>
-                <span class="deck-tag tag-chime">PROGRESS (CHIME)</span>
-                <span>Most common cards. <strong>+30m / +60m</strong> move ONLY your piece while the Hollow Harvester stays still!</span>
-              </li>
-              <li>
-                <span class="deck-tag tag-ward">LIFESAVER (WARD)</span>
-                <span>Pushes the <strong>Hollow Harvester</strong> back on the clock track to buy safety.</span>
-              </li>
-              <li>
-                <span class="deck-tag tag-hex">EVENT (HEX)</span>
-                <span>Drawing a Hex interrupts your turn for a lethal trial. Fallen players skip the clock <strong>+1 HOUR</strong>.</span>
-              </li>
-            </ul>
-            <div class="page-num">II</div>
-          </article>
+            <article class="book-page page-right tome-page">
+              <div class="tome-page-body" id="tome-rules-right"></div>
+              <div class="tome-page-footer right">
+                <span class="tome-page-num" id="tome-num-right">1</span>
+                <button type="button" class="tome-nav-btn" id="tome-next-btn" data-tome-nav="next" title="Next Page [Right Arrow]" aria-label="Next Page">NEXT &gt;</button>
+              </div>
+            </article>
+          </div>
         </div>
 
         <div id="book-tab-codex" class="book-spread hidden">
