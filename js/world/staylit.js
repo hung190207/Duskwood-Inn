@@ -279,6 +279,7 @@ window.Duskwood = window.Duskwood || {};
   // ==================== 3. START / WIN / DEATH / UPDATE ====================
   function startStayInLightEvent(matchState) {
     if (!matchState) return null;
+    if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "stay_in_the_light");
 
     const savedLights = snapshotRoomLights(matchState);
 
@@ -335,6 +336,9 @@ window.Duskwood = window.Duskwood || {};
     restoreRoomLights(matchState, sl.savedLights);
     sl.active = false;
     matchState.stayLitEvent = null;
+    if (App.Events && App.Events.onEventWonBroadcast) {
+      App.Events.onEventWonBroadcast(matchState, "stay_in_the_light", "90 SECONDS SURVIVED!\nTHE SHADOW BEAST FADES — CELLAR DOOR UNLOCKED.");
+    }
 
     App.Audio.clockChime();
     if (App.Events && App.Events.showSmudgeBanner) {
@@ -352,35 +356,15 @@ window.Duskwood = window.Duskwood || {};
     const sl = matchState && matchState.stayLitEvent;
     if (!sl) return;
 
-    if (App.Audio && App.Audio.stopLightSwitchSurge) App.Audio.stopLightSwitchSurge();
-    restoreRoomLights(matchState, sl.savedLights);
-    sl.active = false;
-    matchState.stayLitEvent = null;
-    const pen = (App.Events && App.Events.applyDeathTimePenalty)
-      ? App.Events.applyDeathTimePenalty(matchState)
-      : { label: "+1 HOUR" };
+    const res = (App.Events && App.Events.onLocalPlayerEventDeath)
+      ? App.Events.onLocalPlayerEventDeath(matchState, "stay_in_the_light", "shadow_hunter", "THE SHADOW BEAST CAUGHT YOU IN THE DARK!")
+      : { keepEventRunning: false };
 
-    if (App.GameWorld && App.GameWorld.respawnInCellar) {
-      App.GameWorld.respawnInCellar();
-    }
-
-    const showDeathBanner = () => {
-      if (App.Events && App.Events.showSmudgeBanner) {
-        App.Events.showSmudgeBanner(
-          `THE SHADOW BEAST CAUGHT YOU IN THE DARK!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-          { danger: true, typingDurationSec: 2.8, showChoices: false }
-        );
-        setTimeout(() => {
-          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-        }, 3600);
-      }
-    };
-
-    if (App.Jumpscare && App.Jumpscare.trigger) {
-      App.Jumpscare.trigger("shadow_hunter", { onComplete: showDeathBanner });
-    } else {
-      App.Audio.hexAlert();
-      showDeathBanner();
+    if (!res.keepEventRunning) {
+      if (App.Audio && App.Audio.stopLightSwitchSurge) App.Audio.stopLightSwitchSurge();
+      restoreRoomLights(matchState, sl.savedLights);
+      sl.active = false;
+      matchState.stayLitEvent = null;
     }
   }
 
@@ -474,6 +458,10 @@ window.Duskwood = window.Duskwood || {};
     // Double-check if Hound is standing inside a lit room -> vanish immediately!
     if (sl.litRoomKeys.has(h.roomKey)) {
       vanishHoundOnLightContact(sl, h.roomKey, h.x, h.y);
+      return;
+    }
+
+    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
       return;
     }
 

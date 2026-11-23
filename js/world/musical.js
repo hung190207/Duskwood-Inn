@@ -375,6 +375,7 @@ window.Duskwood = window.Duskwood || {};
 
   function startMusicalRoomsEvent(matchState, player) {
     if (!matchState) return null;
+    if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "musical_rooms");
 
     const savedLights = snapshotRoomLights(matchState);
     // Shut OFF all cabin lights during the 10-second Giant Monkey reveal!
@@ -750,6 +751,9 @@ window.Duskwood = window.Duskwood || {};
     restoreRoomLights(matchState, mr.savedLights);
     mr.active = false;
     matchState.musicalEvent = null;
+    if (App.Events && App.Events.onEventWonBroadcast) {
+      App.Events.onEventWonBroadcast(matchState, "musical_rooms", `${TARGET_POPCORNS} POPCORNS DELIVERED!\nTHE GIANT MONKEY VANISHES — CELLAR DOOR UNLOCKED.`);
+    }
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
@@ -768,41 +772,35 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Audio && App.Audio.stopMusicalBox) App.Audio.stopMusicalBox();
     if (App.Audio && App.Audio.stopMonkeySfx) App.Audio.stopMonkeySfx();
+    mr.charging = false;
+    mr.holdingPopcornId = null;
+
     if (isMultiplayerMatch(matchState) && App.Network && App.Network.getLocalPlayerId) {
-      App.Network.sendGameAction("MP_MUSICAL_PLAYER_DEAD", {
-        playerId: App.Network.getLocalPlayerId()
-      });
+      const localPid = App.Network.getLocalPlayerId();
+      mr.deadPlayerIds = mr.deadPlayerIds || new Set();
+      mr.deadPlayerIds.add(localPid);
+      App.Network.sendGameAction("MP_MUSICAL_PLAYER_DEAD", { playerId: localPid });
     }
 
-    savePersistentMusicalProps(matchState, mr);
-    restoreRoomLights(matchState, mr.savedLights);
-    mr.active = false;
-    matchState.musicalEvent = null;
-    const pen = (App.Events && App.Events.applyDeathTimePenalty)
-      ? App.Events.applyDeathTimePenalty(matchState)
-      : { label: "+1 HOUR" };
+    const res = (App.Events && App.Events.onLocalPlayerEventDeath)
+      ? App.Events.onLocalPlayerEventDeath(matchState, "musical_rooms", "giant_monkey", "THE GIANT MONKEY CAUGHT YOU!")
+      : { keepEventRunning: false };
 
-    if (App.GameWorld && App.GameWorld.respawnInCellar) {
-      App.GameWorld.respawnInCellar();
+    if (!res.keepEventRunning) {
+      savePersistentMusicalProps(matchState, mr);
+      restoreRoomLights(matchState, mr.savedLights);
+      mr.active = false;
+      matchState.musicalEvent = null;
     }
+  }
 
-    const showDeathBanner = () => {
-      if (App.Events && App.Events.showSmudgeBanner) {
-        App.Events.showSmudgeBanner(
-          `THE GIANT MONKEY CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-          { danger: true, typingDurationSec: 2.8, showChoices: false }
-        );
-        setTimeout(() => {
-          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-        }, 3600);
-      }
-    };
-
-    if (App.Jumpscare && App.Jumpscare.trigger) {
-      App.Jumpscare.trigger("giant_monkey", { onComplete: showDeathBanner });
-    } else {
-      App.Audio.hexAlert();
-      showDeathBanner();
+  function forceEndFromNetwork(matchState) {
+    if (App.Audio && App.Audio.stopMusicalBox) App.Audio.stopMusicalBox();
+    if (App.Audio && App.Audio.stopMonkeySfx) App.Audio.stopMonkeySfx();
+    if (matchState && matchState.musicalEvent) {
+      savePersistentMusicalProps(matchState, matchState.musicalEvent);
+      matchState.musicalEvent.active = false;
+      matchState.musicalEvent = null;
     }
   }
 
@@ -920,6 +918,10 @@ window.Duskwood = window.Duskwood || {};
 
     // 4. Giant Monkey Chase Stage — Find & enter the Glowing Red Room to stop the Monkey and resume throwing!
     if (mr.stage === "CHASE") {
+      if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
+        if (App.Audio && App.Audio.setMonkeySfxAttenuation) App.Audio.setMonkeySfxAttenuation(0);
+        return;
+      }
       const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
       const occ = getRedRoomOccupancy(matchState);
 
@@ -1310,6 +1312,7 @@ window.Duskwood = window.Duskwood || {};
     onKeyFUp,
     update,
     handleNetworkMessage,
+    forceEndFromNetwork,
     drawCardboardBox,
     getLightMultiplier,
     getRoomRenderables,

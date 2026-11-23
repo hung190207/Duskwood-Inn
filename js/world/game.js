@@ -54,6 +54,10 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function enterMatchedRoom(dir) {
+    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState)) {
+      App.Audio.close();
+      return false;
+    }
     if (App.Endgame && App.Endgame.isLockedInChosenRoom(gameState)) {
       return false;
     }
@@ -255,6 +259,24 @@ window.Duskwood = window.Duskwood || {};
   function syncAtticHud() {
     const bar = document.getElementById("attic-hud-bar");
     if (!bar) return;
+
+    const specHud = App.Events && App.Events.getSpectatorHudInfo
+      ? App.Events.getSpectatorHudInfo(gameState)
+      : null;
+
+    if (specHud) {
+      bar.classList.remove("hidden");
+      const progEl = document.getElementById("attic-hud-progress");
+      const heldEl = document.getElementById("attic-hud-held");
+      const msgEl = document.getElementById("attic-hud-notice");
+      if (progEl) progEl.textContent = specHud.title;
+      if (heldEl) heldEl.textContent = specHud.sub;
+      if (msgEl) {
+        msgEl.textContent = "";
+        msgEl.classList.add("hidden");
+      }
+      return;
+    }
 
     const endgameHud = App.Endgame && App.Endgame.getHudSummary
       ? App.Endgame.getHudSummary(gameState)
@@ -675,6 +697,10 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function enterFirstPersonTable() {
+    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState)) {
+      showDialogue("You are dead and locked inside The Cellar until the event ends! Press [1] or [2] to spectate living players.");
+      return;
+    }
     if (App.Events && App.Events.isCuttingCornersActive(gameState)) {
       return;
     }
@@ -916,13 +942,16 @@ window.Duskwood = window.Duskwood || {};
       }
     }
 
-    // 1. Check connected open doorways first (works in ALL rooms, sealed during Final Judgment!)
+    // 1. Check connected open doorways first (works in ALL rooms, sealed during Final Judgment or MP Cellar Lockdown!)
     if (!(App.Endgame && App.Endgame.isLockedInChosenRoom(gameState)))
     for (const portal of DOOR_PORTALS) {
       const conn = getConnectedNeighbor(portal.dir);
       if (!conn) continue;
       const dist = Math.hypot(player.x - portal.x, player.y - portal.y);
       if (dist <= 22) {
+        if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState)) {
+          return { type: "cellar_locked", prompt: "CELLAR DOOR LOCKED UNTIL EVENT ENDS  |  [1] BACK  [2] FORWARD" };
+        }
         if (App.Knight && App.Knight.isActive(gameState) && !App.Knight.canPlayerChangeRoom(gameState)) {
           return { type: "knight_move_spent", prompt: "1 / 1 ROOM MOVED — WAIT FOR NEXT TURN" };
         }
@@ -1266,7 +1295,7 @@ window.Duskwood = window.Duskwood || {};
           }
         }
       }
-      if (!(App.Endgame && App.Endgame.isLockedInChosenRoom(gameState)) && (!App.Knight || !App.Knight.isActive(gameState) || App.Knight.canPlayerChangeRoom(gameState))) {
+      if (!(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState)) && !(App.Endgame && App.Endgame.isLockedInChosenRoom(gameState)) && (!App.Knight || !App.Knight.isActive(gameState) || App.Knight.canPlayerChangeRoom(gameState))) {
         for (const portal of DOOR_PORTALS) {
           if (portal.trigger(player.x, player.y) && getConnectedNeighbor(portal.dir)) {
             enterMatchedRoom(portal.dir);
@@ -1422,10 +1451,41 @@ window.Duskwood = window.Duskwood || {};
 
     let camOffX = 0;
     let camOffY = 0;
+    const specTarget = (App.Events && App.Events.getSpectateTarget) ? App.Events.getSpectateTarget(gameState) : null;
     const inAtticNow = Boolean(App.Attic && App.Attic.isPlayerInAttic(gameState));
-    const inBasementNow = Boolean(App.Basement && App.Basement.isActive(gameState));
+    const inBasementNow = Boolean(App.Basement && (App.Basement.isLocalInBasementView ? App.Basement.isLocalInBasementView(gameState) : App.Basement.isActive(gameState)));
     const inForestNow = Boolean(App.Endgame && App.Endgame.isInForestExit(gameState));
-    if (inForestNow) {
+
+    if (specTarget) {
+      // Spectating a living teammate while dead & locked inside The Cellar!
+      const specProxy = {
+        spectatePlayerId: specTarget.playerId,
+        x: specTarget.x,
+        y: specTarget.y,
+        facing: specTarget.facing || 1,
+        seated: Boolean(specTarget.seated),
+        chairId: typeof specTarget.chairId === "number" ? specTarget.chairId : 0,
+        moving: Boolean(specTarget.moving),
+        sprinting: Boolean(specTarget.sprinting),
+        crouching: Boolean(specTarget.crouching),
+        lanternOn: Boolean(specTarget.lanternOn),
+        facingCorner: Boolean(specTarget.facingCorner)
+      };
+      if (specTarget.inAttic && App.Attic && App.Attic.renderViewport) {
+        const cam = App.Attic.renderViewport(rbCtx, timeSec, specProxy, specTarget.character, gameState);
+        camOffX = cam.camX || 0;
+        camOffY = cam.camY || 0;
+      } else if (specTarget.inBasement && App.Basement && App.Basement.renderViewport) {
+        const cam = App.Basement.renderViewport(rbCtx, timeSec, specProxy, specTarget.character, gameState);
+        camOffX = cam.camX || 0;
+        camOffY = cam.camY || 0;
+      } else if ((specTarget.roomX || 0) === 0 && (specTarget.roomY || 0) === 0) {
+        App.GameRoom.render(rbCtx, timeSec, lightLevel, specProxy, specTarget.character, gameState);
+      } else {
+        const specRoom = (gameState.roomMap && gameState.roomMap[`${specTarget.roomX || 0},${specTarget.roomY || 0}`]) || getCurrentRoomObj();
+        App.CabinRooms.renderRoom(rbCtx, specRoom, timeSec, lightLevel, specProxy, specTarget.character, gameState);
+      }
+    } else if (inForestNow) {
       App.Endgame.renderForestExitViewport(rbCtx, timeSec, player, App.Config.state.character, gameState);
     } else if (inBasementNow) {
       const cam = App.Basement.renderViewport(rbCtx, timeSec, player, App.Config.state.character, gameState);
@@ -1466,6 +1526,7 @@ window.Duskwood = window.Duskwood || {};
 
     // Sync local position/pose & interpolate remote Co-op teammates
     const localDeadSpec = Boolean(App.Endgame && App.Endgame.isLocalDeadSpectator && App.Endgame.isLocalDeadSpectator(gameState));
+    const localDeadEvent = Boolean(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState));
     const localInCar = Boolean(App.Endgame && App.Endgame.isLocalInCar && App.Endgame.isLocalInCar(gameState));
     if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
       App.Network.updateRemoteInterpolation(dt);
@@ -1484,27 +1545,38 @@ window.Duskwood = window.Duskwood || {};
         facingCorner: player.facingCorner,
         inForest: inForestNow,
         inCar: localInCar,
+        inAttic: inAtticNow,
+        inBasement: inBasementNow,
+        deadInEvent: localDeadEvent,
         deadSpectator: localDeadSpec
       });
     }
 
     // Draw crisp high-res player name above local & remote Co-op characters (hide during car/slide cutscenes!)
     if (!(App.Endgame && App.Endgame.isCutsceneBlocking(gameState)) && !(App.Basement && App.Basement.isSlideCutscene(gameState))) {
-      const nameLight = (inAtticNow || inBasementNow || inForestNow) ? 0.95 : lightLevel;
-      if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && !inAtticNow && !inBasementNow) {
+      const viewInAttic = specTarget ? Boolean(specTarget.inAttic) : inAtticNow;
+      const viewInBasement = specTarget ? Boolean(specTarget.inBasement) : inBasementNow;
+      const nameLight = (viewInAttic || viewInBasement || inForestNow) ? 0.95 : lightLevel;
+      const viewRoomX = specTarget ? (specTarget.roomX || 0) : gameState.currentRoomCoord.x;
+      const viewRoomY = specTarget ? (specTarget.roomY || 0) : gameState.currentRoomCoord.y;
+
+      if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && !viewInAttic && !viewInBasement) {
         if (inForestNow && App.Network.getAllRemotePlayers) {
           App.Network.getAllRemotePlayers().forEach((rp) => {
             if (!rp.inForest || rp.inCar || rp.deadSpectator) return;
             drawNameplateAt(rp.x, rp.y, rp.name, ox, oy, scale, nameLight, camOffX, camOffY, true);
           });
         } else if (!inForestNow) {
-          App.Network.getRemotePlayersInRoom(gameState.currentRoomCoord.x, gameState.currentRoomCoord.y).forEach((rp) => {
-            if (rp.deadSpectator || rp.inForest || rp.inCar) return;
+          App.Network.getRemotePlayersInRoom(viewRoomX, viewRoomY).forEach((rp) => {
+            if (rp.deadSpectator || rp.inForest || rp.inCar || rp.inAttic || rp.inBasement) return;
+            if (rp.deadInEvent && specTarget) return;
             drawNameplateAt(rp.x, rp.y, rp.name, ox, oy, scale, nameLight, camOffX, camOffY, true);
           });
         }
       }
-      if (!localDeadSpec && !localInCar) {
+      if (specTarget) {
+        drawNameplateAt(specTarget.x, specTarget.y, specTarget.name, ox, oy, scale, nameLight, camOffX, camOffY, true);
+      } else if (!localDeadSpec && !localInCar) {
         drawPlayerNameplate(ox, oy, scale, nameLight, camOffX, camOffY);
       }
     }
@@ -1752,6 +1824,28 @@ window.Duskwood = window.Duskwood || {};
         return;
       }
 
+      // MP Cellar Lockdown Spectator Controls: [1] Back, [2] Forward, [0] Return to Cellar view
+      if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState)) {
+        if (e.code === "Digit1" || e.code === "Numpad1") {
+          e.preventDefault();
+          App.Events.cycleSpectateTarget(gameState, -1);
+          syncHud();
+          return;
+        }
+        if (e.code === "Digit2" || e.code === "Numpad2") {
+          e.preventDefault();
+          App.Events.cycleSpectateTarget(gameState, 1);
+          syncHud();
+          return;
+        }
+        if (e.code === "Digit0" || e.code === "Numpad0") {
+          e.preventDefault();
+          App.Events.exitSpectateToCellar(gameState);
+          syncHud();
+          return;
+        }
+      }
+
       if (e.code === "KeyT") {
         e.preventDefault();
         enterFirstPersonTable();
@@ -1937,6 +2031,20 @@ window.Duskwood = window.Duskwood || {};
             App.Stalkers.onLightSwitchToggled(gameState);
           }
           syncHud();
+          return;
+        }
+        if (msg.action.startsWith("MP_EVENT_")) {
+          if (App.Events && App.Events.handleMpEventNetwork) {
+            App.Events.handleMpEventNetwork(msg.action, p, gameState);
+            syncHud();
+          }
+          return;
+        }
+        if (msg.action.startsWith("MP_ATTIC_")) {
+          if (App.Attic && App.Attic.handleNetworkMessage) {
+            App.Attic.handleNetworkMessage(msg.action, p, gameState);
+            syncHud();
+          }
           return;
         }
         if (msg.action.startsWith("MP_MUSICAL_")) {

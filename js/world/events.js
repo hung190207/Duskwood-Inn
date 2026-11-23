@@ -400,6 +400,338 @@ window.Duskwood = window.Duskwood || {};
       activeMonsters: [],
       triggeredHistory: []
     };
+    matchState.mpEventLock = null;
+  }
+
+  // ==================== MULTIPLAYER EVENT CELLAR LOCKDOWN & SPECTATOR ENGINE ====================
+  function isMpEventMode(matchState) {
+    return Boolean(
+      matchState &&
+      matchState.mode === "MULTIPLAYER" &&
+      App.Network &&
+      App.Network.isMultiplayerMatch &&
+      App.Network.isMultiplayerMatch()
+    );
+  }
+
+  function beginMpEventSession(matchState, eventKey) {
+    if (!matchState) return;
+    matchState.mpEventLock = {
+      active: true,
+      eventKey: eventKey || "event",
+      deadIds: new Set(),
+      localLockedInCellar: false,
+      spectateTargetId: null
+    };
+  }
+
+  function clearMpEventSession(matchState) {
+    if (!matchState) return;
+    matchState.mpEventLock = null;
+  }
+
+  function isLocalLockedInCellar(matchState) {
+    return Boolean(
+      matchState &&
+      matchState.mpEventLock &&
+      matchState.mpEventLock.active &&
+      matchState.mpEventLock.localLockedInCellar
+    );
+  }
+
+  function isPlayerDeadInEvent(matchState, playerId) {
+    const lk = matchState && matchState.mpEventLock;
+    return Boolean(lk && lk.active && lk.deadIds && lk.deadIds.has(playerId));
+  }
+
+  function getLivingEventSeats(matchState) {
+    if (!isMpEventMode(matchState) || !App.Network || !App.Network.getAllMatchSeats) return [];
+    const lk = matchState.mpEventLock;
+    const deadSet = (lk && lk.deadIds) || new Set();
+    return App.Network.getAllMatchSeats().filter((s) => !deadSet.has(s.playerId));
+  }
+
+  function getSpectatableLivingTeammates(matchState) {
+    if (!isMpEventMode(matchState) || !App.Network) return [];
+    const localPid = App.Network.getLocalPlayerId();
+    const lk = matchState.mpEventLock;
+    const deadSet = (lk && lk.deadIds) || new Set();
+    const remotes = App.Network.getAllRemotePlayers ? App.Network.getAllRemotePlayers() : [];
+    return remotes
+      .filter((rp) => rp.playerId !== localPid && !deadSet.has(rp.playerId) && !rp.deadInEvent)
+      .sort((a, b) => (a.seatIdx || 0) - (b.seatIdx || 0));
+  }
+
+  function getSpectateTarget(matchState) {
+    if (!isLocalLockedInCellar(matchState)) return null;
+    const lk = matchState.mpEventLock;
+    const living = getSpectatableLivingTeammates(matchState);
+    if (!living.length) {
+      lk.spectateTargetId = null;
+      return null;
+    }
+    if (!lk.spectateTargetId) return null; // Currently viewing own Cellar
+    const found = living.find((rp) => rp.playerId === lk.spectateTargetId);
+    if (found) return found;
+    // Previously spectated teammate died -> automatically shift to first remaining living teammate!
+    lk.spectateTargetId = living[0].playerId;
+    return living[0];
+  }
+
+  // dir = -1 for [1] BACK, dir = +1 for [2] FORWARD
+  function cycleSpectateTarget(matchState, dir) {
+    if (!isLocalLockedInCellar(matchState)) return null;
+    const lk = matchState.mpEventLock;
+    const living = getSpectatableLivingTeammates(matchState);
+    if (!living.length) {
+      lk.spectateTargetId = null;
+      return null;
+    }
+    const curIdx = lk.spectateTargetId
+      ? living.findIndex((rp) => rp.playerId === lk.spectateTargetId)
+      : -1;
+    let nextIdx;
+    if (curIdx < 0) {
+      nextIdx = dir < 0 ? living.length - 1 : 0;
+    } else {
+      nextIdx = (curIdx + (dir < 0 ? -1 : 1) + living.length) % living.length;
+    }
+    lk.spectateTargetId = living[nextIdx].playerId;
+    if (App.Audio && App.Audio.click) App.Audio.click();
+    return living[nextIdx];
+  }
+
+  function exitSpectateToCellar(matchState) {
+    if (!isLocalLockedInCellar(matchState)) return;
+    matchState.mpEventLock.spectateTargetId = null;
+    if (App.Audio && App.Audio.click) App.Audio.click();
+  }
+
+  function getSpectatorHudInfo(matchState) {
+    if (!isLocalLockedInCellar(matchState)) return null;
+    const living = getSpectatableLivingTeammates(matchState);
+    const target = getSpectateTarget(matchState);
+    const aliveCount = living.length;
+    if (target) {
+      let locName = "CABIN";
+      if (target.inAttic) locName = "THE ATTIC";
+      else if (target.inBasement) locName = "THE BASEMENT";
+      else {
+        const rk = `${target.roomX || 0},${target.roomY || 0}`;
+        const rObj = matchState.roomMap && matchState.roomMap[rk];
+        locName = (rObj && (rObj.fullName || rObj.name)) || "CABIN";
+      }
+      return {
+        isSpectating: true,
+        targetName: target.name || "TEAMMATE",
+        locName,
+        aliveCount,
+        title: `SPECTATING: ${(target.name || "TEAMMATE").toUpperCase()} (${locName})`,
+        sub: `[1] BACK  •  [2] FORWARD  •  [0] CELLAR  |  LIVING: ${aliveCount}  •  CELLAR LOCKED UNTIL EVENT ENDS`
+      };
+    }
+    return {
+      isSpectating: false,
+      aliveCount,
+      title: `LOCKED IN THE CELLAR (DEAD) • ${aliveCount} SURVIVOR${aliveCount === 1 ? "" : "S"} STILL IN EVENT`,
+      sub: aliveCount > 0
+        ? "PRESS [1] BACK OR [2] FORWARD TO SPECTATE LIVING PLAYERS • DOOR UNLOCKS WHEN EVENT ENDS"
+        : "WAITING FOR EVENT TO END..."
+    };
+  }
+
+  // Quietly ends & cleans up ANY currently active event when all MP players die or someone wins!
+  function forceCleanupActiveEventForMpEnd(matchState, eventKey, won, bannerMsg) {
+    if (!matchState) return;
+    clearMpEventSession(matchState);
+
+    if (matchState.atticEvent) {
+      if (App.Attic && App.Attic.forceEndFromNetwork) {
+        App.Attic.forceEndFromNetwork(matchState, won);
+      } else {
+        if (App.Audio && App.Audio.stopAtticGhostLoop) App.Audio.stopAtticGhostLoop();
+        if (App.Audio && App.Audio.stopExorcismSfx) App.Audio.stopExorcismSfx();
+        matchState.atticEvent = null;
+      }
+    }
+    if (matchState.tallManEvent) {
+      matchState.archFlickerLight = 1.0;
+      matchState.tallManEvent = null;
+    }
+    if (matchState.redBalloonsEvent) {
+      if (App.Audio && App.Audio.stopClownLaughLoop) App.Audio.stopClownLaughLoop();
+      if (App.Audio && App.Audio.stopBalloonsSfxLoop) App.Audio.stopBalloonsSfxLoop();
+      matchState.redBalloonsEvent = null;
+    }
+    if (matchState.feelingSmallEvent) {
+      if (App.Stalkers && App.Stalkers.cleanup) App.Stalkers.cleanup(matchState);
+      else matchState.feelingSmallEvent = null;
+    }
+    if (matchState.musicalEvent) {
+      if (App.Musical && App.Musical.forceEndFromNetwork) {
+        App.Musical.forceEndFromNetwork(matchState, won);
+      } else if (App.Musical && App.Musical.cleanup) {
+        App.Musical.cleanup(matchState);
+      }
+    }
+    if (matchState.basementEvent) {
+      if (App.Basement && App.Basement.forceEndFromNetwork) {
+        App.Basement.forceEndFromNetwork(matchState, won);
+      } else if (App.Basement && App.Basement.cleanup) {
+        App.Basement.cleanup(matchState);
+      }
+    }
+    if (matchState.stayLitEvent) {
+      if (App.StayLit && App.StayLit.cleanup) App.StayLit.cleanup(matchState);
+    }
+    if (matchState.knightEvent) {
+      if (App.Knight && App.Knight.forceEndFromNetwork) {
+        App.Knight.forceEndFromNetwork(matchState, won);
+      } else if (App.Knight && App.Knight.cleanup) {
+        App.Knight.cleanup(matchState);
+      }
+    }
+    if (matchState.events && matchState.events.cuttingCorners && matchState.events.cuttingCorners.stage !== "DONE") {
+      matchState.events.cuttingCorners.stage = "DONE";
+      matchState.events.globalLightsOut = false;
+      matchState.events.cuttingCornersNpc = null;
+    }
+
+    turnAllLightsOn(matchState);
+
+    if (bannerMsg) {
+      showSmudgeBanner(bannerMsg, {
+        success: Boolean(won),
+        danger: !won,
+        typingDurationSec: 2.8,
+        showChoices: false
+      });
+      setTimeout(() => { hideSmudgeBanner(); }, 3800);
+    }
+  }
+
+  // Centralized Multiplayer death handler for ALL 9 Events!
+  // Returns { keepEventRunning: boolean, allDead: boolean, penalty: { label, penaltyMin } }
+  function onLocalPlayerEventDeath(matchState, eventKey, monsterId, killerText) {
+    const pen = applyDeathTimePenalty(matchState, 1);
+
+    if (!isMpEventMode(matchState)) {
+      if (App.GameWorld && App.GameWorld.respawnInCellar) App.GameWorld.respawnInCellar();
+      const showSp = () => {
+        showSmudgeBanner(`${killerText}\nRESPAWNING IN THE CELLAR (${pen.label})...`, {
+          danger: true, typingDurationSec: 2.8, showChoices: false
+        });
+        setTimeout(() => hideSmudgeBanner(), 3600);
+      };
+      if (App.Jumpscare && App.Jumpscare.trigger && monsterId) {
+        App.Jumpscare.trigger(monsterId, { onComplete: showSp });
+      } else {
+        App.Audio.hexAlert();
+        showSp();
+      }
+      return { keepEventRunning: false, allDead: true, penalty: pen };
+    }
+
+    // MULTIPLAYER: mark local player dead & lock them inside The Cellar!
+    if (!matchState.mpEventLock || !matchState.mpEventLock.active) {
+      beginMpEventSession(matchState, eventKey);
+    }
+    const lk = matchState.mpEventLock;
+    const localPid = App.Network.getLocalPlayerId();
+    lk.deadIds.add(localPid);
+    lk.localLockedInCellar = true;
+    lk.spectateTargetId = null;
+
+    App.Network.sendGameAction("MP_EVENT_PLAYER_DEAD", {
+      eventKey,
+      playerId: localPid
+    });
+
+    if (App.GameWorld && App.GameWorld.respawnInCellar) {
+      App.GameWorld.respawnInCellar();
+    }
+
+    const livingLeft = getLivingEventSeats(matchState);
+    const allDead = livingLeft.length === 0;
+
+    if (allDead) {
+      App.Network.sendGameAction("MP_EVENT_END", {
+        eventKey,
+        won: false,
+        bannerMsg: `ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS — RETURN TO THE ROUND TABLE.`
+      });
+      clearMpEventSession(matchState);
+    }
+
+    const showMp = () => {
+      const msg = allDead
+        ? `${killerText}\nALL PLAYERS DIED (${pen.label}) — CELLAR DOOR UNLOCKED!`
+        : `${killerText}\nLOCKED IN THE CELLAR (${pen.label}) — PRESS [1] / [2] TO SPECTATE LIVING PLAYERS!`;
+      showSmudgeBanner(msg, { danger: true, typingDurationSec: 3.0, showChoices: false });
+      setTimeout(() => hideSmudgeBanner(), 4400);
+    };
+
+    if (App.Jumpscare && App.Jumpscare.trigger && monsterId) {
+      App.Jumpscare.trigger(monsterId, { onComplete: showMp });
+    } else {
+      App.Audio.hexAlert();
+      showMp();
+    }
+
+    return { keepEventRunning: !allDead, allDead, penalty: pen };
+  }
+
+  function onEventWonBroadcast(matchState, eventKey, winMsg) {
+    clearMpEventSession(matchState);
+    if (isMpEventMode(matchState)) {
+      App.Network.sendGameAction("MP_EVENT_END", {
+        eventKey,
+        won: true,
+        bannerMsg: winMsg || "EVENT CLEARED!\nTHE CELLAR DOOR UNLOCKS."
+      });
+    }
+  }
+
+  function handleMpEventNetwork(action, payload, matchState) {
+    if (!matchState || !action) return false;
+    const p = payload || {};
+
+    if (action === "MP_EVENT_PLAYER_DEAD" && p.playerId) {
+      if (!matchState.mpEventLock || !matchState.mpEventLock.active) {
+        beginMpEventSession(matchState, p.eventKey);
+      }
+      const lk = matchState.mpEventLock;
+      lk.deadIds.add(p.playerId);
+
+      // If spectating the teammate who just died, auto-shift to next living player!
+      if (lk.localLockedInCellar && lk.spectateTargetId === p.playerId) {
+        const nextLiving = getSpectatableLivingTeammates(matchState);
+        lk.spectateTargetId = nextLiving.length ? nextLiving[0].playerId : null;
+      }
+
+      // Check if ALL players are now dead -> end event & unlock Cellar for everyone!
+      if (getLivingEventSeats(matchState).length === 0) {
+        forceCleanupActiveEventForMpEnd(
+          matchState,
+          p.eventKey,
+          false,
+          "ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS — RETURN TO THE ROUND TABLE."
+        );
+      }
+      return true;
+    }
+
+    if (action === "MP_EVENT_END") {
+      forceCleanupActiveEventForMpEnd(
+        matchState,
+        p.eventKey,
+        Boolean(p.won),
+        p.bannerMsg || (p.won ? "EVENT CLEARED!\nTHE CELLAR DOOR UNLOCKS." : "ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS.")
+      );
+      return true;
+    }
+
+    return false;
   }
 
   function isGlobalLightsOut(matchState) {
@@ -567,6 +899,7 @@ window.Duskwood = window.Duskwood || {};
       App.GameWorld.forceStandUpForEvent();
     }
 
+    beginMpEventSession(matchState, "cutting_corners");
     cc.stage = "SCRAMBLE";
     cc.timer = 10.0;
     cc.questions = buildCuttingCornersQuestions(matchState);
@@ -650,25 +983,34 @@ window.Duskwood = window.Duskwood || {};
 
   function finishCuttingCornersCleanup(matchState, player, died) {
     const cc = matchState.events.cuttingCorners;
-    if (cc) cc.stage = "DONE";
-
-    matchState.events.globalLightsOut = false;
-    matchState.events.cuttingCornersNpc = null;
-    turnAllLightsOn(matchState);
-    hideSmudgeBanner();
-
     if (player) {
       player.facingCorner = false;
       player.cornerLock = null;
     }
 
     if (died) {
-      // Apply SP (+1h) or MP (+30m) death time penalty to BOTH Player & Harvester pawns!
-      applyDeathTimePenalty(matchState);
-      if (App.GameWorld && App.GameWorld.respawnInCellar) {
-        App.GameWorld.respawnInCellar();
+      if (isMpEventMode(matchState)) {
+        const res = onLocalPlayerEventDeath(matchState, "cutting_corners", null, "THE CORNER MAN CAUGHT YOU!");
+        if (res.keepEventRunning) {
+          // Local player locked in Cellar while teammates finish Cutting Corners!
+          if (cc) cc.stage = "LOCKED_DEAD";
+          return;
+        }
+      } else {
+        applyDeathTimePenalty(matchState);
+        if (App.GameWorld && App.GameWorld.respawnInCellar) {
+          App.GameWorld.respawnInCellar();
+        }
       }
+    } else {
+      onEventWonBroadcast(matchState, "cutting_corners", "CUTTING CORNERS SURVIVED!\nTHE CELLAR DOOR UNLOCKS.");
     }
+
+    if (cc) cc.stage = "DONE";
+    matchState.events.globalLightsOut = false;
+    matchState.events.cuttingCornersNpc = null;
+    turnAllLightsOn(matchState);
+    hideSmudgeBanner();
   }
 
   function submitCuttingCornersChoice(matchState, player, turnAround) {
@@ -938,6 +1280,18 @@ window.Duskwood = window.Duskwood || {};
     isAnyEventActive,
     turnAllLightsOn,
     applyDeathTimePenalty,
+    beginMpEventSession,
+    clearMpEventSession,
+    isMpEventMode,
+    isLocalLockedInCellar,
+    isPlayerDeadInEvent,
+    getSpectateTarget,
+    cycleSpectateTarget,
+    exitSpectateToCellar,
+    getSpectatorHudInfo,
+    onLocalPlayerEventDeath,
+    onEventWonBroadcast,
+    handleMpEventNetwork,
     onEventCardDrawn,
     checkCuttingCornersTrigger,
     submitCuttingCornersChoice,

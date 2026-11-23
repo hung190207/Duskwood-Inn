@@ -1955,6 +1955,9 @@ window.Duskwood = window.Duskwood || {};
     }
     if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
       App.Network.getRemotePlayersInRoom(room.x, room.y).forEach((rp) => {
+        if (rp.deadSpectator || rp.inForest || rp.inCar || rp.inAttic || rp.inBasement) return;
+        if (rp.deadInEvent && room.id !== "bp_cellar") return;
+        if (player && player.spectatePlayerId && rp.playerId === player.spectatePlayerId) return;
         roomActors.push({
           y: rp.y,
           draw: () => {

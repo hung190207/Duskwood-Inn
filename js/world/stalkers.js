@@ -346,6 +346,7 @@ window.Duskwood = window.Duskwood || {};
   // ==================== 2. THE TALL MAN EVENT ENGINE ====================
   function startTallManEvent(matchState) {
     if (!matchState) return null;
+    if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "tall_man");
 
     const savedLights = snapshotRoomLights(matchState);
     // Turn ALL built rooms' light switches ON (including Main Parlor / Dining Room!)
@@ -440,34 +441,15 @@ window.Duskwood = window.Duskwood || {};
     const tm = matchState && matchState.tallManEvent;
     if (!tm) return;
 
-    restoreRoomLights(matchState, tm.savedLights);
-    matchState.archFlickerLight = 1.0;
-    matchState.tallManEvent = null;
-    const pen = (App.Events && App.Events.applyDeathTimePenalty)
-      ? App.Events.applyDeathTimePenalty(matchState)
-      : { label: "+1 HOUR" };
+    const res = (App.Events && App.Events.onLocalPlayerEventDeath)
+      ? App.Events.onLocalPlayerEventDeath(matchState, "tall_man", "tall_man", "THE TALL MAN FOUND YOU IN THE LIGHT!")
+      : { keepEventRunning: false };
 
-    if (App.GameWorld && App.GameWorld.respawnInCellar) {
-      App.GameWorld.respawnInCellar();
-    }
-
-    const showDeathBanner = () => {
-      if (App.Events && App.Events.showSmudgeBanner) {
-        App.Events.showSmudgeBanner(
-          `THE TALL MAN FOUND YOU IN THE LIGHT!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-          { danger: true, typingDurationSec: 2.8, showChoices: false }
-        );
-        setTimeout(() => {
-          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-        }, 3600);
-      }
-    };
-
-    if (App.Jumpscare && App.Jumpscare.trigger) {
-      App.Jumpscare.trigger("tall_man", { onComplete: showDeathBanner });
-    } else {
-      App.Audio.hexAlert();
-      showDeathBanner();
+    if (!res.keepEventRunning) {
+      restoreRoomLights(matchState, tm.savedLights);
+      matchState.archFlickerLight = 1.0;
+      tm.active = false;
+      matchState.tallManEvent = null;
     }
   }
 
@@ -501,6 +483,9 @@ window.Duskwood = window.Duskwood || {};
         restoreRoomLights(matchState, tm.savedLights);
         tm.active = false;
         matchState.tallManEvent = null;
+        if (App.Events && App.Events.onEventWonBroadcast) {
+          App.Events.onEventWonBroadcast(matchState, "tall_man", "ALL LIGHTS EXTINGUISHED!\nTHE TALL MAN HAS VANISHED — CELLAR UNLOCKED.");
+        }
       }
       return;
     }
@@ -511,6 +496,9 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
 
+    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
+      return;
+    }
     const m = tm.monster;
     const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
     const roomIsLit = Boolean(matchState.roomLightStates && matchState.roomLightStates[pRoomKey] === true);
@@ -585,6 +573,7 @@ window.Duskwood = window.Duskwood || {};
 
   function startRedBalloonsEvent(matchState) {
     if (!matchState) return null;
+    if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "red_balloons");
 
     const savedLights = snapshotRoomLights(matchState);
     // Turn ALL room lights OFF — player can ONLY use handheld Lantern `[F]`!
@@ -694,6 +683,9 @@ window.Duskwood = window.Duskwood || {};
       restoreRoomLights(matchState, rb.savedLights);
       rb.active = false;
       matchState.redBalloonsEvent = null;
+      if (App.Events && App.Events.onEventWonBroadcast) {
+        App.Events.onEventWonBroadcast(matchState, "red_balloons", "GOLDEN BALLOON POPPED!\nTHE CLOWN VANISHES — CELLAR DOOR UNLOCKED.");
+      }
 
       if (App.Events && App.Events.showSmudgeBanner) {
         App.Events.showSmudgeBanner("GOLDEN BALLOON POPPED!\nTHE CLOWN VANISHES INTO SILENCE.", {
@@ -749,34 +741,14 @@ window.Duskwood = window.Duskwood || {};
     if (App.Audio && App.Audio.stopClownLaughLoop) App.Audio.stopClownLaughLoop();
     if (App.Audio && App.Audio.stopBalloonsSfxLoop) App.Audio.stopBalloonsSfxLoop();
 
-    restoreRoomLights(matchState, rb.savedLights);
-    rb.active = false;
-    matchState.redBalloonsEvent = null;
-    const pen = (App.Events && App.Events.applyDeathTimePenalty)
-      ? App.Events.applyDeathTimePenalty(matchState)
-      : { label: "+1 HOUR" };
+    const res = (App.Events && App.Events.onLocalPlayerEventDeath)
+      ? App.Events.onLocalPlayerEventDeath(matchState, "red_balloons", "balloon_stalker", "THE JACK-IN-THE-BOX CAUGHT YOU!")
+      : { keepEventRunning: false };
 
-    if (App.GameWorld && App.GameWorld.respawnInCellar) {
-      App.GameWorld.respawnInCellar();
-    }
-
-    const showDeathBanner = () => {
-      if (App.Events && App.Events.showSmudgeBanner) {
-        App.Events.showSmudgeBanner(
-          `THE JACK-IN-THE-BOX CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-          { danger: true, typingDurationSec: 2.8, showChoices: false }
-        );
-        setTimeout(() => {
-          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-        }, 3600);
-      }
-    };
-
-    if (App.Jumpscare && App.Jumpscare.trigger) {
-      App.Jumpscare.trigger("balloon_stalker", { onComplete: showDeathBanner });
-    } else {
-      App.Audio.hexAlert();
-      showDeathBanner();
+    if (!res.keepEventRunning) {
+      restoreRoomLights(matchState, rb.savedLights);
+      rb.active = false;
+      matchState.redBalloonsEvent = null;
     }
   }
 
@@ -833,6 +805,11 @@ window.Duskwood = window.Duskwood || {};
     // Grace period at event start so player can hit [C] to Crouch
     if (rb.crouchGraceTimer > 0) {
       rb.crouchGraceTimer = Math.max(0, rb.crouchGraceTimer - dt);
+    }
+
+    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
+      if (App.Audio && App.Audio.setBalloonsSfxAttenuation) App.Audio.setBalloonsSfxAttenuation(0);
+      return;
     }
 
     // Monster Spawn Trigger: spawns whenever any player is NOT crouching (after grace OR moving uncrouched)!
@@ -1174,6 +1151,7 @@ window.Duskwood = window.Duskwood || {};
 
   function startFeelingSmallEvent(matchState) {
     if (!matchState) return null;
+    if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "feeling_small");
 
     const savedLights = snapshotRoomLights(matchState);
     // Turn ALL built rooms' lights ON so they all flicker together for 10 seconds!
@@ -1297,37 +1275,16 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Audio && App.Audio.stopToyTrainLoop) App.Audio.stopToyTrainLoop();
 
-    // Keep the Toy Train (with stacked shapes) & remaining wooden shape blocks in the cabin!
-    savePersistentFeelingSmallProps(matchState, fs);
+    const res = (App.Events && App.Events.onLocalPlayerEventDeath)
+      ? App.Events.onLocalPlayerEventDeath(matchState, "feeling_small", "ceiling_crawler", "THE PUPPET CAUGHT YOU!")
+      : { keepEventRunning: false };
 
-    restoreRoomLights(matchState, fs.savedLights);
-    fs.active = false;
-    matchState.feelingSmallEvent = null;
-    const pen = (App.Events && App.Events.applyDeathTimePenalty)
-      ? App.Events.applyDeathTimePenalty(matchState)
-      : { label: "+1 HOUR" };
-
-    if (App.GameWorld && App.GameWorld.respawnInCellar) {
-      App.GameWorld.respawnInCellar();
-    }
-
-    const showDeathBanner = () => {
-      if (App.Events && App.Events.showSmudgeBanner) {
-        App.Events.showSmudgeBanner(
-          `THE PUPPET CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-          { danger: true, typingDurationSec: 2.8, showChoices: false }
-        );
-        setTimeout(() => {
-          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-        }, 3600);
-      }
-    };
-
-    if (App.Jumpscare && App.Jumpscare.trigger) {
-      App.Jumpscare.trigger("ceiling_crawler", { onComplete: showDeathBanner });
-    } else {
-      App.Audio.hexAlert();
-      showDeathBanner();
+    if (!res.keepEventRunning) {
+      // Keep the Toy Train (with stacked shapes) & remaining wooden shape blocks in the cabin!
+      savePersistentFeelingSmallProps(matchState, fs);
+      restoreRoomLights(matchState, fs.savedLights);
+      fs.active = false;
+      matchState.feelingSmallEvent = null;
     }
   }
 
@@ -1393,6 +1350,9 @@ window.Duskwood = window.Duskwood || {};
         restoreRoomLights(matchState, fs.savedLights);
         fs.active = false;
         matchState.feelingSmallEvent = null;
+        if (App.Events && App.Events.onEventWonBroadcast) {
+          App.Events.onEventWonBroadcast(matchState, "feeling_small", "ALL 4 SHAPES DELIVERED!\nTHE PUPPET COLLAPSES — CELLAR DOOR UNLOCKED.");
+        }
 
         if (App.Events && App.Events.showSmudgeBanner) {
           App.Events.showSmudgeBanner(
@@ -1508,6 +1468,10 @@ window.Duskwood = window.Duskwood || {};
         fs.notice = "TIME'S UP! THE PUPPET IS COMING FOR YOU!";
         fs.noticeTimer = 6.0;
       }
+      return;
+    }
+
+    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
       return;
     }
 
@@ -1840,6 +1804,7 @@ window.Duskwood = window.Duskwood || {};
     if (App.Audio && App.Audio.stopBalloonsSfxLoop) App.Audio.stopBalloonsSfxLoop();
     if (App.Audio && App.Audio.stopToyTrainLoop) App.Audio.stopToyTrainLoop();
     if (matchState) {
+      if (matchState.feelingSmallEvent) savePersistentFeelingSmallProps(matchState, matchState.feelingSmallEvent);
       matchState.tallManEvent = null;
       matchState.redBalloonsEvent = null;
       matchState.feelingSmallEvent = null;

@@ -699,6 +699,9 @@ window.Duskwood = window.Duskwood || {};
         facingCorner: Boolean(st.facingCorner),
         inForest: Boolean(st.inForest),
         inCar: Boolean(st.inCar),
+        inAttic: Boolean(st.inAttic),
+        inBasement: Boolean(st.inBasement),
+        deadInEvent: Boolean(st.deadInEvent),
         deadSpectator: Boolean(st.deadSpectator)
       };
       remotePlayers.set(pid, rp);
@@ -724,6 +727,9 @@ window.Duskwood = window.Duskwood || {};
     rp.facingCorner = Boolean(st.facingCorner);
     rp.inForest = Boolean(st.inForest);
     rp.inCar = Boolean(st.inCar);
+    rp.inAttic = Boolean(st.inAttic);
+    rp.inBasement = Boolean(st.inBasement);
+    rp.deadInEvent = Boolean(st.deadInEvent);
     rp.deadSpectator = Boolean(st.deadSpectator);
     if (seat && seat.name) rp.name = seat.name;
     if (seat && seat.character) rp.character = cloneCharacter(seat.character);

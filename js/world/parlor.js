@@ -842,7 +842,8 @@ window.Duskwood = window.Duskwood || {};
     }
     if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
       App.Network.getRemotePlayersInRoom(0, 0).forEach((rp) => {
-        if (rp.deadSpectator || rp.inForest || rp.inCar) return;
+        if (rp.deadSpectator || rp.deadInEvent || rp.inForest || rp.inCar || rp.inAttic || rp.inBasement) return;
+        if (player && player.spectatePlayerId && rp.playerId === player.spectatePlayerId) return;
         const chairObj = CHAIRS[rp.chairId] || CHAIRS[0];
         renderables.push({
           y: rp.seated ? chairObj.y + 1 : rp.y,

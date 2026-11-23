@@ -470,6 +470,7 @@ window.Duskwood = window.Duskwood || {};
   // ==================== 5. START / UPDATE / WIN / LOSE LIFECYCLE ====================
   function startBasementEvent(matchState, player) {
     if (!matchState) return null;
+    if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "the_basement");
     if (!staticMazeCanvas) buildStaticBasementMaze();
 
     const savedLights = snapshotRoomLights(matchState);
@@ -600,6 +601,9 @@ window.Duskwood = window.Duskwood || {};
 
     bm.active = false;
     matchState.basementEvent = null;
+    if (App.Events && App.Events.onEventWonBroadcast) {
+      App.Events.onEventWonBroadcast(matchState, "the_basement", "ALL 5 FUSE BOXES REPAIRED!\nTHE BASEMENT LIFTS BACK UP — CELLAR DOOR UNLOCKED.");
+    }
     matchState.currentRoomCoord = { x: 0, y: 0 };
     if (player) {
       player.seated = false;
@@ -618,35 +622,22 @@ window.Duskwood = window.Duskwood || {};
     if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
     if (App.Audio && App.Audio.stopBasementSlide) App.Audio.stopBasementSlide();
 
-    restoreRoomLights(matchState, bm.savedLights);
-    bm.active = false;
-    matchState.basementEvent = null;
-    const pen = (App.Events && App.Events.applyDeathTimePenalty)
-      ? App.Events.applyDeathTimePenalty(matchState)
-      : { label: "+1 HOUR" };
+    const res = (App.Events && App.Events.onLocalPlayerEventDeath)
+      ? App.Events.onLocalPlayerEventDeath(matchState, "the_basement", "sparky", "THE CHAINSAW MONSTER CAUGHT YOU!")
+      : { keepEventRunning: false };
 
-    if (App.GameWorld && App.GameWorld.respawnInCellar) {
-      App.GameWorld.respawnInCellar();
-    }
-
-    const showDeathBanner = () => {
-      if (App.Events && App.Events.showSmudgeBanner) {
-        App.Events.showSmudgeBanner(
-          `THE CHAINSAW MONSTER CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-          { danger: true, typingDurationSec: 2.8, showChoices: false }
-        );
-        setTimeout(() => {
-          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-        }, 3600);
-      }
-    };
-
-    if (App.Jumpscare && App.Jumpscare.trigger) {
-      App.Jumpscare.trigger("sparky", { onComplete: showDeathBanner });
+    if (res.keepEventRunning) {
+      // Dead local player exits Basement maze to locked Cellar while teammates keep fixing fuse boxes!
+      bm.localDeadInCellar = true;
     } else {
-      App.Audio.hexAlert();
-      showDeathBanner();
+      restoreRoomLights(matchState, bm.savedLights);
+      bm.active = false;
+      matchState.basementEvent = null;
     }
+  }
+
+  function forceEndFromNetwork(matchState) {
+    cleanup(matchState);
   }
 
   function syncChainsawSpatialAudio(bm, player) {
@@ -666,7 +657,7 @@ window.Duskwood = window.Duskwood || {};
 
   function update(dt, matchState, player) {
     const bm = matchState && matchState.basementEvent;
-    if (!bm || !bm.active) {
+    if (!bm || !bm.active || bm.localDeadInCellar) {
       if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
       return;
     }
@@ -1111,7 +1102,12 @@ window.Duskwood = window.Duskwood || {};
 
   function isInBasementMap(matchState) {
     const bm = matchState && matchState.basementEvent;
-    return Boolean(bm && bm.active && (bm.stage === "PRE_START_5S" || bm.stage === "PLAYING"));
+    return Boolean(bm && bm.active && !bm.localDeadInCellar && (bm.stage === "PRE_START_5S" || bm.stage === "PLAYING"));
+  }
+
+  function isLocalInBasementView(matchState) {
+    const bm = matchState && matchState.basementEvent;
+    return Boolean(bm && bm.active && !bm.localDeadInCellar);
   }
 
   function isSlideCutscene(matchState) {
@@ -1143,7 +1139,9 @@ window.Duskwood = window.Duskwood || {};
     getPrompt,
     renderViewport,
     getHudSummary,
+    forceEndFromNetwork,
     isActive,
+    isLocalInBasementView,
     isInBasementMap,
     isSlideCutscene,
     isRepairModalOpen,

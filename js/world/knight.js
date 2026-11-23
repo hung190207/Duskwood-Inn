@@ -312,6 +312,7 @@ window.Duskwood = window.Duskwood || {};
   // ==================== 2. START / ROTATE / TURN RESOLUTION / WIN / DEATH ====================
   function startKnightEvent(matchState) {
     if (!matchState) return null;
+    if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "the_knight");
 
     const savedLights = snapshotRoomLights(matchState);
     // Lights ON during the 10-second Player Turn!
@@ -488,8 +489,8 @@ window.Duskwood = window.Duskwood || {};
     kn.notice = `LIGHTS OUT — HEAVY ARMOR FOOTSTEPS ECHO (${!kn.statue.activated ? "STATUE DORMANT — ROTATE IT [E] FIRST" : statueMoved ? "STATUE SLID 1 ROOM" : "STATUE AT DEAD END"})...`;
     kn.noticeTimer = 2.2;
 
-    // 3. Same-Room Kill Check!
-    if (kn.knight.roomKey === pRoomKey) {
+    // 3. Same-Room Kill Check (skip if local player is already dead & locked in Cellar!)
+    if (!(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) && kn.knight.roomKey === pRoomKey) {
       setTimeout(() => {
         if (matchState.knightEvent && matchState.knightEvent.active) {
           triggerKnightDeath(matchState, `THE KNIGHT STEPPED INTO ${knightRoomName} WITH YOU!`);
@@ -529,6 +530,9 @@ window.Duskwood = window.Duskwood || {};
     restoreRoomLights(matchState, kn.savedLights);
     kn.active = false;
     matchState.knightEvent = null;
+    if (App.Events && App.Events.onEventWonBroadcast) {
+      App.Events.onEventWonBroadcast(matchState, "the_knight", "THE DEMON STATUE REACHED THE DESTINATION!\nTHE KNIGHT COLLAPSES — CELLAR DOOR UNLOCKED.");
+    }
 
     App.Audio.clockChime();
     if (App.Events && App.Events.showSmudgeBanner) {
@@ -550,37 +554,27 @@ window.Duskwood = window.Duskwood || {};
     if (App.Audio && App.Audio.stopKnightFootstep) App.Audio.stopKnightFootstep();
     if (App.Audio && App.Audio.stopPawnMove) App.Audio.stopPawnMove();
 
-    // Preserve the Demon Statue where it stood when the event ended!
-    savePersistentKnightStatue(matchState, kn, false);
+    const res = (App.Events && App.Events.onLocalPlayerEventDeath)
+      ? App.Events.onLocalPlayerEventDeath(matchState, "the_knight", "the_knight", reasonMsg || "THE KNIGHT KILLED YOU!")
+      : { keepEventRunning: false };
 
-    restoreRoomLights(matchState, kn.savedLights);
-    kn.active = false;
-    matchState.knightEvent = null;
-    const pen = (App.Events && App.Events.applyDeathTimePenalty)
-      ? App.Events.applyDeathTimePenalty(matchState)
-      : { label: "+1 HOUR" };
-
-    if (App.GameWorld && App.GameWorld.respawnInCellar) {
-      App.GameWorld.respawnInCellar();
+    if (!res.keepEventRunning) {
+      // Preserve the Demon Statue where it stood when the event ended!
+      savePersistentKnightStatue(matchState, kn, false);
+      restoreRoomLights(matchState, kn.savedLights);
+      kn.active = false;
+      matchState.knightEvent = null;
     }
+  }
 
-    const showDeathBanner = () => {
-      if (App.Events && App.Events.showSmudgeBanner) {
-        App.Events.showSmudgeBanner(
-          `${reasonMsg || "THE KNIGHT KILLED YOU!"}\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-          { danger: true, typingDurationSec: 2.8, showChoices: false }
-        );
-        setTimeout(() => {
-          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-        }, 3600);
-      }
-    };
-
-    if (App.Jumpscare && App.Jumpscare.trigger) {
-      App.Jumpscare.trigger("the_knight", { onComplete: showDeathBanner });
-    } else {
-      App.Audio.hexAlert();
-      showDeathBanner();
+  function forceEndFromNetwork(matchState, won) {
+    closeTableGlanceModal(true);
+    if (App.Audio && App.Audio.stopKnightFootstep) App.Audio.stopKnightFootstep();
+    if (App.Audio && App.Audio.stopPawnMove) App.Audio.stopPawnMove();
+    if (matchState && matchState.knightEvent) {
+      savePersistentKnightStatue(matchState, matchState.knightEvent, Boolean(won));
+      matchState.knightEvent.active = false;
+      matchState.knightEvent = null;
     }
   }
 
@@ -884,6 +878,7 @@ window.Duskwood = window.Duskwood || {};
     renderTableOrbsOnParlorTable,
     getRoomInteractable,
     getHudSummary,
+    forceEndFromNetwork,
     isActive,
     isDarkPhase,
     cleanup

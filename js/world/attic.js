@@ -464,17 +464,71 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
+  function isMpMatch(matchState) {
+    return Boolean(App.Events && App.Events.isMpEventMode && App.Events.isMpEventMode(matchState));
+  }
+
+  function getLocalPlayerIdSafe() {
+    return (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : "local";
+  }
+
+  function getLocalPlayerNameSafe() {
+    const raw = (App.Config && App.Config.state && App.Config.state.character && App.Config.state.character.name) || "SURVIVOR";
+    return raw.toUpperCase();
+  }
+
+  function buildAtticSyncPayload(att, extra) {
+    return Object.assign({
+      ladderRoomKey: att.ladderRoomKey,
+      ladderRoomCoord: att.ladderRoomCoord,
+      ladderRoomName: att.ladderRoomName,
+      ladderPos: att.ladderPos,
+      occupantPlayerId: att.occupantPlayerId || null,
+      occupantName: att.occupantName || "",
+      placedCount: att.placedCount || 0,
+      won: Boolean(att.won),
+      candle: { x: att.candle.x, y: att.candle.y, held: Boolean(att.candle.held) },
+      totems: (att.totems || []).map((t) => ({
+        uid: t.uid, id: t.id, name: t.name, short: t.short,
+        x: t.x, y: t.y, surface: t.surface, origX: t.origX, origY: t.origY,
+        placed: Boolean(t.placed), held: Boolean(t.held), obsolete: Boolean(t.obsolete), slotIdx: t.slotIdx
+      }))
+    }, extra || {});
+  }
+
+  function broadcastAtticSync(matchState, actionName, extra) {
+    if (!isMpMatch(matchState) || !matchState.atticEvent) return;
+    App.Network.sendGameAction(actionName || "MP_ATTIC_SYNC", buildAtticSyncPayload(matchState.atticEvent, extra));
+  }
+
   function getRoomLadderInteractable(room, matchState) {
     const att = matchState && matchState.atticEvent;
     if (!att || !att.active || !room) return null;
+    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
+      return null;
+    }
     const roomKey = `${room.x},${room.y}`;
     if (roomKey !== att.ladderRoomKey) return null;
+
+    const localPid = getLocalPlayerIdSafe();
+    if (att.occupantPlayerId && att.occupantPlayerId !== localPid) {
+      return {
+        id: "attic_ladder_busy",
+        x: att.ladderPos.x,
+        y: att.ladderPos.y,
+        r: 24,
+        busy: true,
+        prompt: `ATTIC OCCUPIED BY ${att.occupantName || "ANOTHER PLAYER"} (1 AT A TIME)`
+      };
+    }
+
     return {
       id: "attic_ladder_up",
       x: att.ladderPos.x,
       y: att.ladderPos.y,
       r: 24,
-      prompt: "[E] CLIMB UP TO THE ATTIC"
+      busy: false,
+      prompt: `[E] CLIMB UP TO THE ATTIC (${att.placedCount || 0}/5 TOTEMS)`
     };
   }
 
@@ -505,6 +559,9 @@ window.Duskwood = window.Duskwood || {};
   function startAtticEvent(matchState) {
     if (!matchState) return null;
     if (!staticMazeCanvas) buildStaticMaze();
+    if (App.Events && App.Events.beginMpEventSession) {
+      App.Events.beginMpEventSession(matchState, "the_attic");
+    }
 
     // Choose a random built room for the pull-down Attic Ladder (exclude underground Cellar if other rooms exist!)
     const builtRooms = Object.values(matchState.roomMap || {});
@@ -544,6 +601,8 @@ window.Duskwood = window.Duskwood || {};
       active: true,
       inAttic: false,
       won: false,
+      occupantPlayerId: null,
+      occupantName: "",
       ladderRoomKey,
       ladderRoomCoord: { x: chosenRoom.x, y: chosenRoom.y },
       ladderRoomName: chosenRoom.fullName || chosenRoom.name || "CABIN ROOM",
@@ -591,15 +650,45 @@ window.Duskwood = window.Duskwood || {};
       }, 6200);
     }
 
+    // In Multiplayer, Host broadcasts canonical ladder room & 10 totem coordinates so all players share one Attic!
+    if (isMpMatch(matchState) && App.Network.isHost()) {
+      broadcastAtticSync(matchState, "MP_ATTIC_INIT");
+    }
+
     return matchState.atticEvent;
   }
 
   function enterAttic(matchState, player) {
     const att = matchState && matchState.atticEvent;
     if (!att || !att.active) return false;
+    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
+      return false;
+    }
+
+    const localPid = getLocalPlayerIdSafe();
+    if (att.occupantPlayerId && att.occupantPlayerId !== localPid) {
+      App.Audio.close();
+      setNotice(att, `${att.occupantName || "ANOTHER PLAYER"} IS ALREADY IN THE ATTIC (ONLY 1 AT A TIME)!`, 3.2);
+      return false;
+    }
+
     if (!staticMazeCanvas) buildStaticMaze();
 
     att.inAttic = true;
+    att.occupantPlayerId = localPid;
+    att.occupantName = getLocalPlayerNameSafe();
+    att.holdingCandle = false;
+    att.heldTotemId = null;
+
+    // Reset Ghost cleanly for the climber entering The Attic (while keeping ALL totem progress!)
+    if (!att.won) {
+      att.ghost.active = false;
+      att.ghost.state = "IDLE";
+      att.ghost.alpha = 0;
+      att.ghost.path = [];
+      att.ghost.nextSpawnTimer = 9.0 + Math.random() * 5.0;
+    }
+
     // Save return position downstairs & force player's handheld Lantern OFF!
     att.returnCoord = { x: matchState.currentRoomCoord.x, y: matchState.currentRoomCoord.y };
     att.returnX = att.ladderPos.x;
@@ -612,10 +701,42 @@ window.Duskwood = window.Duskwood || {};
     player.y = LADDER_POS.y - 6;
     player.facing = 1;
 
+    broadcastAtticSync(matchState, "MP_ATTIC_SYNC");
+
     if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-    setNotice(att, "NO LANTERNS ALLOWED — PRESS [F] TO PICK UP THE CANDLE & 5 TOTEMS.", 5.0);
+    setNotice(
+      att,
+      att.placedCount > 0
+        ? `CONTINUING RITUAL (${att.placedCount}/5 TOTEMS PLACED) — NO LANTERNS ALLOWED!`
+        : "NO LANTERNS ALLOWED — PRESS [F] TO PICK UP THE CANDLE & 5 TOTEMS.",
+      5.0
+    );
     App.Audio.doorTransition();
     return true;
+  }
+
+  function releaseHeldItemsForNextClimber(att, player) {
+    if (!att) return;
+    // Return candle to Summoning Circle so the next climber always has a visible light source!
+    att.holdingCandle = false;
+    att.candle.held = false;
+    att.candle.x = CIRCLE_CENTER.x;
+    att.candle.y = CIRCLE_CENTER.y + 18;
+
+    // Drop any held totem cleanly back into the Attic maze so no totem is ever lost!
+    const heldTotem = getHeldTotem(att);
+    if (heldTotem) {
+      heldTotem.held = false;
+      if (player && !collidesInAttic(player.x, player.y)) {
+        heldTotem.x = player.x;
+        heldTotem.y = player.y;
+        heldTotem.surface = "floor";
+      } else {
+        heldTotem.x = heldTotem.origX;
+        heldTotem.y = heldTotem.origY;
+      }
+    }
+    att.heldTotemId = null;
   }
 
   function exitAtticDownLadder(matchState, player) {
@@ -623,6 +744,8 @@ window.Duskwood = window.Duskwood || {};
     if (!att || !att.inAttic) return false;
 
     att.inAttic = false;
+    att.occupantPlayerId = null;
+    att.occupantName = "";
     player.lanternOn = Boolean(att.prevLanternState);
     matchState.currentRoomCoord = { x: att.ladderRoomCoord.x, y: att.ladderRoomCoord.y };
     player.x = att.returnX || att.ladderPos.x;
@@ -630,9 +753,20 @@ window.Duskwood = window.Duskwood || {};
 
     const didWin = Boolean(att.won);
     if (didWin) {
-      // Completed the ritual and climbed back down via the same ladder -> Event Finished!
+      // 1 single success ends The Attic for ALL players & unlocks Cellar doors!
       att.active = false;
       matchState.atticEvent = null;
+      if (App.Events && App.Events.onEventWonBroadcast) {
+        App.Events.onEventWonBroadcast(
+          matchState,
+          "the_attic",
+          "THE ATTIC RITUAL IS COMPLETE!\nTHE GHOST HAS BEEN BANISHED — CELLAR DOOR UNLOCKED."
+        );
+      }
+    } else {
+      // Climbed back down alive before finishing -> unlock Attic & keep progress synced for next climber!
+      releaseHeldItemsForNextClimber(att, null);
+      broadcastAtticSync(matchState, "MP_ATTIC_SYNC");
     }
 
     if (App.Audio && App.Audio.stopAtticGhostLoop) App.Audio.stopAtticGhostLoop();
@@ -683,6 +817,7 @@ window.Duskwood = window.Duskwood || {};
       } else {
         setNotice(att, `PLACED ${heldTotem.name} ON THE CIRCLE (${att.placedCount}/5)!`, 2.8);
       }
+      broadcastAtticSync(matchState, "MP_ATTIC_SYNC");
       return true;
     }
 
@@ -1047,37 +1182,78 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Audio && App.Audio.stopAtticGhostLoop) App.Audio.stopAtticGhostLoop();
 
-    // End Attic event with +1 HOUR penalty & Cellar respawn (consistent with all fatal Events!)
+    // Preserve ALL totem placement progress & release held items safely for the next climber!
+    releaseHeldItemsForNextClimber(att, player);
     att.inAttic = false;
-    att.active = false;
+    att.occupantPlayerId = null;
+    att.occupantName = "";
+    att.ghost.active = false;
+    att.ghost.state = "IDLE";
+    att.ghost.alpha = 0;
+    att.ghost.path = [];
     player.lanternOn = Boolean(att.prevLanternState);
-    matchState.atticEvent = null;
-    const pen = (App.Events && App.Events.applyDeathTimePenalty)
-      ? App.Events.applyDeathTimePenalty(matchState)
-      : { label: "+1 HOUR" };
 
-    if (App.GameWorld && App.GameWorld.respawnInCellar) {
-      App.GameWorld.respawnInCellar();
-    }
+    const deadName = getLocalPlayerNameSafe();
+    const res = (App.Events && App.Events.onLocalPlayerEventDeath)
+      ? App.Events.onLocalPlayerEventDeath(matchState, "the_attic", "attic_stalker", "THE ATTIC STALKER CAUGHT YOU!")
+      : { keepEventRunning: false };
 
-    const showDeathBanner = () => {
-      if (App.Events && App.Events.showSmudgeBanner) {
-        App.Events.showSmudgeBanner(
-          `THE ATTIC STALKER CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-          { danger: true, typingDurationSec: 2.8, showChoices: false }
-        );
-        setTimeout(() => {
-          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-        }, 3600);
-      }
-    };
-
-    if (App.Jumpscare && App.Jumpscare.trigger) {
-      App.Jumpscare.trigger("attic_stalker", { onComplete: showDeathBanner });
+    if (res.keepEventRunning) {
+      // MULTIPLAYER: Keep Attic OPEN with all placed totems preserved so another living player can climb up & continue!
+      broadcastAtticSync(matchState, "MP_ATTIC_SYNC", {
+        reopenedByDeath: true,
+        deadPlayerName: deadName
+      });
     } else {
-      App.Audio.hexAlert();
-      showDeathBanner();
+      // Singleplayer OR all MP players are now dead -> terminate Attic event completely
+      att.active = false;
+      matchState.atticEvent = null;
     }
+  }
+
+  function forceEndFromNetwork(matchState) {
+    if (App.Audio && App.Audio.stopAtticGhostLoop) App.Audio.stopAtticGhostLoop();
+    if (App.Audio && App.Audio.stopExorcismSfx) App.Audio.stopExorcismSfx();
+    if (matchState && matchState.atticEvent) {
+      matchState.atticEvent.inAttic = false;
+      matchState.atticEvent.active = false;
+      matchState.atticEvent = null;
+    }
+  }
+
+  function handleNetworkMessage(action, payload, matchState) {
+    if (!matchState || !action) return false;
+    const p = payload || {};
+
+    if (action === "MP_ATTIC_INIT" || action === "MP_ATTIC_SYNC") {
+      if (!matchState.atticEvent) return false;
+      const att = matchState.atticEvent;
+      if (p.ladderRoomKey) att.ladderRoomKey = p.ladderRoomKey;
+      if (p.ladderRoomCoord) att.ladderRoomCoord = p.ladderRoomCoord;
+      if (p.ladderRoomName) att.ladderRoomName = p.ladderRoomName;
+      if (p.ladderPos) att.ladderPos = p.ladderPos;
+      att.occupantPlayerId = p.occupantPlayerId || null;
+      att.occupantName = p.occupantName || "";
+      if (typeof p.placedCount === "number") att.placedCount = p.placedCount;
+      if (typeof p.won === "boolean") att.won = p.won;
+      if (p.candle && !att.inAttic) {
+        att.candle.x = p.candle.x;
+        att.candle.y = p.candle.y;
+        att.candle.held = Boolean(p.candle.held);
+      }
+      if (Array.isArray(p.totems) && !att.inAttic) {
+        att.totems = p.totems.map((t) => Object.assign({}, t));
+      }
+      if (p.reopenedByDeath && !att.inAttic) {
+        setNotice(
+          att,
+          `${p.deadPlayerName || "A TEAMMATE"} FELL IN THE ATTIC! LADDER REOPENED (${att.placedCount}/5 TOTEMS SAVED)!`,
+          5.5
+        );
+      }
+      return true;
+    }
+    return false;
   }
 
   // ==================== 9. CONTEXTUAL PROMPT & HUD SUMMARY ====================
@@ -1224,10 +1400,12 @@ window.Duskwood = window.Duskwood || {};
     mctx.globalCompositeOperation = "destination-out";
 
     // (a) Dim flickering Candle light (held or resting on floor) — deliberately tight radius!
-    const candX = (att.holdingCandle ? player.x + player.facing * 6 : att.candle.x) - camX;
-    const candY = (att.holdingCandle ? player.y - 8 : att.candle.y - 4) - camY;
+    const isSpecView = Boolean(player && player.spectatePlayerId);
+    const candHeld = att.holdingCandle || isSpecView;
+    const candX = (candHeld ? player.x + player.facing * 6 : att.candle.x) - camX;
+    const candY = (candHeld ? player.y - 8 : att.candle.y - 4) - camY;
     const flick = 1.0 + Math.sin(timeSec * 12.4) * 0.045 + Math.sin(timeSec * 23.1) * 0.025;
-    const candR = (att.holdingCandle ? 46 : 34) * flick;
+    const candR = (candHeld ? 46 : 34) * flick;
     const cGrad = mctx.createRadialGradient(candX, candY, 3, candX, candY, candR);
     cGrad.addColorStop(0, "rgba(0,0,0,0.95)");
     cGrad.addColorStop(0.50, "rgba(0,0,0,0.58)");
@@ -1359,6 +1537,8 @@ window.Duskwood = window.Duskwood || {};
     getRoomLadderInteractable,
     renderRoomLadder,
     renderViewport,
+    handleNetworkMessage,
+    forceEndFromNetwork,
     isAtticActive,
     isPlayerInAttic
   };
