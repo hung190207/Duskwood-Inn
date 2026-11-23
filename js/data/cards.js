@@ -652,11 +652,11 @@ window.Duskwood = window.Duskwood || {};
   //   - HEX (EVENT)      : 12%  -> ~40% per 4-player round
   //   - WARD (LIFESAVER) :  8%  -> Rare clutch Harvester pushback
   const DRAW_WEIGHTS = {
-    CHIME:     0.52,
+    CHIME:     0.555,
     BLUEPRINT: 0.05,
     OMEN:      0.04,
     HEX:       0.28,
-    WARD:      0.11
+    WARD:      0.075
   };
 
   // Rich, diverse internal Progress (CHIME) card weights — specials appear frequently!
@@ -779,10 +779,10 @@ window.Duskwood = window.Duskwood || {};
 
       if (wRoom === 0) {
         // Once all 11 rooms are placed/held, normalize remaining non-pity rolls to balanced late-game pacing
-        wChime = 0.58;
+        wChime = 0.61;
         wOmen  = canDrawClue ? 0.08 : 0;
         wHex   = canDrawHex ? 0.25 : 0;
-        wWard  = 0.09;
+        wWard  = 0.06;
       }
 
       const catEntries = [

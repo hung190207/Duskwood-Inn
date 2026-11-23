@@ -711,8 +711,10 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
     if (App.Endgame && App.Endgame.isEndgameActive(gameState)) {
-      showDialogue("12:00 AM — The game has ended. Find your way out!");
-      return;
+      if (!App.Endgame.canInspectTableMap || !App.Endgame.canInspectTableMap(gameState)) {
+        showDialogue("12:00 AM — The game has ended. Find your way out!");
+        return;
+      }
     }
     if (!isInDiningRoom()) {
       showDialogue("Return to The Dining Room and sit at the round table first.");
@@ -850,6 +852,9 @@ window.Duskwood = window.Duskwood || {};
       if (gameState.neighborEncounter && gameState.neighborEncounter.active) {
         return { type: "seated", prompt: "[E] STAND UP & ANSWER THE DOOR" };
       }
+      if (App.Endgame && App.Endgame.canInspectTableMap && App.Endgame.canInspectTableMap(gameState)) {
+        return { type: "seated", prompt: "[T] CHECK ROOM MAP   |   [E] STAND UP" };
+      }
       return { type: "seated", prompt: "[T] FIRST-PERSON TABLE VIEW   |   [E] STAND UP" };
     }
 
@@ -924,10 +929,20 @@ window.Duskwood = window.Duskwood || {};
 
     // 2. Dining Room chairs & props
     if (isInDiningRoom()) {
-      for (const chair of App.GameRoom.CHAIRS) {
-        const dist = Math.hypot(player.x - chair.x, player.y - chair.y);
-        if (dist <= 22) {
-          return { type: "chair", chair, prompt: `[E] SIT AT TABLE (${chair.label})` };
+      const egActive = Boolean(App.Endgame && App.Endgame.isEndgameActive(gameState));
+      const egCanMap = Boolean(App.Endgame && App.Endgame.canInspectTableMap && App.Endgame.canInspectTableMap(gameState));
+      if (!egActive || egCanMap) {
+        for (const chair of App.GameRoom.CHAIRS) {
+          const dist = Math.hypot(player.x - chair.x, player.y - chair.y);
+          if (dist <= 22) {
+            return {
+              type: "chair",
+              chair,
+              prompt: egCanMap
+                ? `[E] CHECK ROOM MAP (${chair.label})`
+                : `[E] SIT AT TABLE (${chair.label})`
+            };
+          }
         }
       }
 
@@ -1257,6 +1272,9 @@ window.Duskwood = window.Duskwood || {};
       App.TableView.renderFrame(timeSec, dt);
       if (App.Events && App.Events.update && !paused) {
         App.Events.update(dt, gameState, player, getCurrentRoomObj());
+      }
+      if (App.Endgame && App.Endgame.update && !paused) {
+        App.Endgame.update(dt, gameState, player);
       }
       return;
     }

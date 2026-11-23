@@ -293,7 +293,7 @@ window.Duskwood = window.Duskwood || {};
     // Brown packing tape & "BOX" / counter stencil
     px(ctx, cx - 4, cy + 3, 8, 6, "#8c6336");
     ctx.fillStyle = "#362010";
-    ctx.font = "bold 6px monospace";
+    ctx.font = "700 6px 'Pixelify Sans', monospace";
     ctx.textAlign = "center";
     ctx.fillText(`${scored}/${TARGET_POPCORNS}`, cx, cy + 13);
 

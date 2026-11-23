@@ -216,7 +216,7 @@ window.Duskwood = window.Duskwood || {};
     // 7. Etched 12-Hour Clock Groove divided into 48 exact 15-minute notches (720 min total)
     //    Each hour (60m) has its Roman numeral + 3 radial carved ticks (:15, :30, :45)
     const ROMAN = ["XII", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI"];
-    c.font = "bold 7px monospace";
+    c.font = "700 7px 'Pixelify Sans', monospace";
     c.textAlign = "center";
     c.textBaseline = "middle";
 
@@ -856,6 +856,10 @@ window.Duskwood = window.Duskwood || {};
   }
 
 
+
+  function isMidnightMapOnly() {
+    return Boolean(matchStateRef && matchStateRef.setupPhase === "MIDNIGHT");
+  }
 
   function isInputLocked() {
     return (
@@ -1583,7 +1587,8 @@ window.Duskwood = window.Duskwood || {};
   // ==================== 3. RENDER 6 O'CLOCK WOODEN PEDESTAL ====================
   function renderPedestal() {
     const phase = matchStateRef.setupPhase;
-    const locked = isInputLocked();
+    const mapOnly = isMidnightMapOnly();
+    const locked = isInputLocked() || mapOnly;
     const canDrawNormal = !locked && (phase === "PLAYING" || phase === "LAST_CHANCE") && turnStep === 1;
     const canDrawTurn2 = !locked && phase === "TURN_2_HARVESTER" && turnStep === 1;
     const canDraw = canDrawNormal || canDrawTurn2;
@@ -1605,13 +1610,17 @@ window.Duskwood = window.Duskwood || {};
       else if (phase === "TURN_1_CELLAR") plaque.textContent = "Place The Cellar";
       else if (phase === "TURN_2_HARVESTER") plaque.textContent = turnStep === 1 ? "Draw Turn 2 Card" : "Play Harvester";
       else if (phase === "LAST_CHANCE") plaque.textContent = "LAST CHANCE!";
-      else if (phase === "MIDNIGHT") plaque.textContent = "12:00 AM - ESCAPE!";
+      else if (phase === "MIDNIGHT") plaque.textContent = "12:00 AM - MAP ONLY";
       else if (phase === "GAME_OVER") plaque.textContent = "Turn Ended";
       else plaque.textContent = turnStep === 1 ? "It is Your Turn" : "Play a Card";
     }
 
     if (deckCount) {
-      deckCount.textContent = canDrawTurn2 ? "DRAW HARVESTER" : `DRAW (${deck.length})`;
+      deckCount.textContent = mapOnly
+        ? "GAME ENDED"
+        : canDrawTurn2
+          ? "DRAW HARVESTER"
+          : `DRAW (${deck.length})`;
     }
     if (deckBtn) {
       deckBtn.classList.toggle("draw-ready", canDraw);
@@ -1682,7 +1691,19 @@ window.Duskwood = window.Duskwood || {};
 
     bar.innerHTML = "";
     const phase = matchStateRef.setupPhase;
-    const locked = isInputLocked() || phase === "GAME_OVER";
+    const mapOnly = isMidnightMapOnly();
+    const locked = isInputLocked() || phase === "GAME_OVER" || mapOnly;
+
+    const drawKeyPrompt = document.getElementById("fp-key-draw-btn");
+    if (drawKeyPrompt) {
+      drawKeyPrompt.classList.toggle("hidden", mapOnly);
+    }
+
+    if (mapOnly) {
+      const rotateKeyPrompt = document.getElementById("fp-key-rotate-btn");
+      if (rotateKeyPrompt) rotateKeyPrompt.classList.add("hidden");
+      return;
+    }
 
     const total = hand.length;
     const mid = (total - 1) / 2;
@@ -1853,8 +1874,10 @@ window.Duskwood = window.Duskwood || {};
       stepTag.textContent = "LAST CHANCE!";
       stepDesc.textContent = "Harvester caught you! Play Progress or Ward this turn or lose!";
     } else if (phase === "MIDNIGHT") {
-      stepTag.textContent = "12:00 AM!";
-      stepDesc.textContent = "Final chime! Stand up and flee to the Sanctuary Room";
+      const eg = matchStateRef.endgame;
+      const secs = eg && eg.stage === "CHOOSE_20S" ? Math.max(0, Math.ceil(eg.countdown || 0)) : null;
+      stepTag.textContent = secs !== null ? `12:00 AM • ${secs}S` : "12:00 AM • MAP";
+      stepDesc.textContent = "Map View Only — Check your room layout (drag/scroll), then Stand Up [E] & head to the Exit Room!";
     } else if (phase === "GAME_OVER") {
       stepTag.textContent = "CAUGHT";
       stepDesc.textContent = "The Hollow Harvester claimed the table";
@@ -1869,7 +1892,7 @@ window.Duskwood = window.Duskwood || {};
     if (stepTag) {
       stepTag.classList.toggle(
         "tag-danger",
-        phase === "LAST_CHANCE" || phase === "GAME_OVER" || anim.harvesterRisingNow
+        phase === "LAST_CHANCE" || phase === "MIDNIGHT" || phase === "GAME_OVER" || anim.harvesterRisingNow
       );
     }
     if (clockEl) clockEl.textContent = formatClock(anim.activeStep && anim.activeStep.type === 'MOVE_PLAYER' ? Math.round(anim.visualPlayerMinutes / 15) * 15 : matchStateRef.clockMinutes);
@@ -2525,7 +2548,7 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function handleDrawDeck() {
-    if (pendingDrawnCard || anim.drawAnimating || isInputLocked()) return;
+    if (pendingDrawnCard || anim.drawAnimating || isInputLocked() || isMidnightMapOnly()) return;
     if (App.Audio.warmUpDrawCard) App.Audio.warmUpDrawCard();
     const phase = matchStateRef.setupPhase;
 
@@ -3006,8 +3029,8 @@ window.Duskwood = window.Duskwood || {};
         <path d="M150,150 L${x0.toFixed(1)},${y0.toFixed(1)} A138,138 0 0,1 ${x1.toFixed(1)},${y1.toFixed(1)} Z"
               fill="${w.color}" stroke="#1a120c" stroke-width="2.4"/>
         <g transform="rotate(${midDeg.toFixed(1)} 150 150)">
-          <text x="150" y="42" text-anchor="middle" font-family="'IM Fell English SC', Georgia, serif" font-size="10.5" font-weight="700" fill="#f7eed8">${w.sys}</text>
-          <text x="150" y="58" text-anchor="middle" font-family="'Special Elite', monospace" font-size="8.5" font-weight="700" fill="#e8cfa0">${w.label}</text>
+          <text x="150" y="42" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-size="10.5" font-weight="700" fill="#f7eed8">${w.sys}</text>
+          <text x="150" y="58" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-size="8.5" font-weight="700" fill="#e8cfa0">${w.label}</text>
         </g>`;
     }
     return `
@@ -3015,7 +3038,7 @@ window.Duskwood = window.Duskwood || {};
         <circle cx="150" cy="150" r="144" fill="#2b1b10" stroke="#c9a452" stroke-width="4"/>
         ${slices}
         <circle cx="150" cy="150" r="24" fill="#1e130c" stroke="#e3c068" stroke-width="3"/>
-        <text x="150" y="154" text-anchor="middle" font-family="'IM Fell English SC', serif" font-size="11" font-weight="700" fill="#f7e3b2">THIEF</text>
+        <text x="150" y="154" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-size="11" font-weight="700" fill="#f7e3b2">THIEF</text>
       </svg>`;
   }
 
@@ -3344,7 +3367,7 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function confirmPlaySelected() {
-    if (isInputLocked()) return;
+    if (isInputLocked() || isMidnightMapOnly()) return;
     if (matchStateRef.setupPhase === "TURN_2_HARVESTER" && turnStep === 2) {
       playTurn2Harvester();
       return;
@@ -3568,12 +3591,14 @@ window.Duskwood = window.Duskwood || {};
       }
       if (isInputLocked()) return;
       if (e.code === "KeyD") {
+        if (isMidnightMapOnly()) return;
         e.preventDefault();
         handleDrawDeck();
       } else if (e.code === "KeyG") {
         e.preventDefault();
         openTrayModal();
       } else if (e.code === "KeyR") {
+        if (isMidnightMapOnly()) return;
         e.preventDefault();
         rotateSelectedRoom(1);
       }

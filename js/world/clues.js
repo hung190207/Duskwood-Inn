@@ -586,7 +586,7 @@ window.Duskwood = window.Duskwood || {};
     const cy = Math.round(y);
 
     // Legible scratched chalk "HELP US" with dark outline so it reads cleanly!
-    c.font = "bold 6px monospace";
+    c.font = "700 6px 'Pixelify Sans', monospace";
     c.textAlign = "center";
     c.fillStyle = "rgba(12, 8, 6, 0.85)";
     c.fillText("HELP US", cx + 1, cy - 8);
@@ -956,10 +956,10 @@ window.Duskwood = window.Duskwood || {};
           <rect x="104" y="44" width="112" height="106" fill="#4f2f1c" stroke="#180d07" stroke-width="4"/>
           <circle cx="160" cy="96" r="42" fill="#c9a44c" stroke="#24150b" stroke-width="4"/>
           <circle cx="160" cy="96" r="36" fill="#f4ebd2" stroke="#594225" stroke-width="2"/>
-          <text x="160" y="72" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="11" fill="#1f150e">XII</text>
-          <text x="186" y="100" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="10" fill="#1f150e">III</text>
-          <text x="160" y="128" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="10" fill="#1f150e">VI</text>
-          <text x="134" y="100" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="10" fill="#1f150e">IX</text>
+          <text x="160" y="72" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="11" fill="#1f150e">XII</text>
+          <text x="186" y="100" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="10" fill="#1f150e">III</text>
+          <text x="160" y="128" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="10" fill="#1f150e">VI</text>
+          <text x="134" y="100" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="10" fill="#1f150e">IX</text>
           <line x1="160" y1="96" x2="160" y2="70" stroke="#1c120d" stroke-width="3.5" stroke-linecap="round"/>
           <line x1="160" y1="96" x2="160" y2="77" stroke="#7a1b1b" stroke-width="2.2" stroke-linecap="round"/>
           <circle cx="160" cy="96" r="3.5" fill="#1c120d"/>
@@ -979,7 +979,7 @@ window.Duskwood = window.Duskwood || {};
           <line x1="0" y1="65" x2="320" y2="65" stroke="#140d09" stroke-width="3"/>
           <line x1="0" y1="130" x2="320" y2="130" stroke="#140d09" stroke-width="3"/>
           <line x1="0" y1="195" x2="320" y2="195" stroke="#140d09" stroke-width="3"/>
-          <text x="160" y="64" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-weight="700" font-size="34" fill="#d9ceba" opacity="0.82" transform="rotate(-4 160 64)">Help us</text>
+          <text x="160" y="64" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-style="italic" font-weight="700" font-size="34" fill="#d9ceba" opacity="0.82" transform="rotate(-4 160 64)">Help us</text>
           <path d="M108,162 C102,118 126,92 160,92 C194,92 218,118 212,162 C208,184 194,192 190,208 L190,228 L130,228 L130,208 C126,192 112,184 108,162 Z" fill="#dfd4bc" stroke="#18120d" stroke-width="4"/>
           <ellipse cx="138" cy="154" rx="16" ry="19" fill="#140f0c"/>
           <ellipse cx="182" cy="154" rx="16" ry="19" fill="#140f0c"/>
@@ -1038,7 +1038,7 @@ window.Duskwood = window.Duskwood || {};
         ${
           headless
             ? `<path d="M104,132 L126,118 L116,138 Z" fill="#7a2420" stroke="#240808" stroke-width="2.5"/>
-               <text x="160" y="74" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="15" fill="#7a1818">HEADLESS — FAKE CLUE!</text>`
+               <text x="160" y="74" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="15" fill="#7a1818">HEADLESS — FAKE CLUE!</text>`
             : `<path d="M102,134 C96,114 98,92 110,84 C122,78 134,88 132,104 C130,114 134,122 136,126 Z" fill="${bodyCol}" stroke="#140e0a" stroke-width="3"/>
                <path d="M104,84 C100,72 110,66 116,74 C122,64 134,70 130,84 Z" fill="#a82d2d" stroke="#420d0d" stroke-width="2"/>
                <path d="M98,96 L80,103 L99,109 Z" fill="#d99a2e" stroke="#472d0b" stroke-width="2"/>

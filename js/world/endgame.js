@@ -183,6 +183,11 @@ window.Duskwood = window.Duskwood || {};
     return Boolean(eg && eg.active && (eg.stage === "JUDGMENT_SHAKE" || eg.stage === "PRE_LOSE_DARK"));
   }
 
+  function canInspectTableMap(matchState) {
+    const eg = matchState && matchState.endgame;
+    return Boolean(eg && eg.active && (eg.stage === "ALARM_3X" || eg.stage === "CHOOSE_20S"));
+  }
+
   function isDaylightWinMode(matchState) {
     const eg = matchState && matchState.endgame;
     return Boolean(eg && eg.active && (eg.stage === "WIN_DAWN_CABIN" || eg.stage === "WIN_FOREST" || eg.stage === "WIN_CAR_DRIVE" || eg.stage === "WIN_CREDITS"));
@@ -298,7 +303,7 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
-        "THE GAME HAS ENDED.\nCHOOSE THE ROOM YOU BELIEVE IS THE EXIT WITHIN 20 SECONDS...",
+        "THE GAME HAS ENDED.\nCHOOSE THE EXIT ROOM WITHIN 20 SECONDS (SIT AT THE TABLE [E] TO CHECK YOUR MAP)...",
         {
           subtag: "12:00 AM — FINAL CHOICE",
           countdown: 20,
@@ -360,6 +365,9 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
     if (App.FieldBook && App.FieldBook.isOpen()) App.FieldBook.close(true);
+    if (App.GameWorld && App.GameWorld.forceStandUpForEvent) {
+      App.GameWorld.forceStandUpForEvent();
+    }
 
     const rk = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
     const chosenRoom = (matchState.roomMap && matchState.roomMap[rk]) || { id: "dining_room", fullName: "THE DINING ROOM" };
@@ -957,10 +965,15 @@ window.Duskwood = window.Duskwood || {};
 
     if (eg.stage === "CHOOSE_20S") {
       eg.countdown -= dt;
+      const secs = Math.max(0, Math.ceil(eg.countdown));
       const countEl = document.getElementById("event-smudge-count");
       if (countEl) {
-        countEl.textContent = String(Math.max(0, Math.ceil(eg.countdown)));
+        countEl.textContent = String(secs);
         countEl.classList.remove("hidden");
+      }
+      if (App.TableView && App.TableView.isOpen && App.TableView.isOpen()) {
+        const tagEl = document.getElementById("fp-step-tag");
+        if (tagEl) tagEl.textContent = `12:00 AM • ${secs}S`;
       }
       if (eg.countdown <= 0) {
         beginJudgmentLockdown(matchState);
@@ -1089,6 +1102,7 @@ window.Duskwood = window.Duskwood || {};
     getGlobalFlickerMultiplier,
     isEndgameActive,
     isLockedInChosenRoom,
+    canInspectTableMap,
     isDaylightWinMode,
     isInForestExit,
     isCutsceneBlocking,

@@ -1776,7 +1776,7 @@ window.Duskwood = window.Duskwood || {};
         // Eerie scratched wall text + wall mirror on Variant II corridors
         const gx = Math.min(rightBound - 32, midX + 22);
         c.fillStyle = "rgba(218, 212, 198, 0.48)";
-        c.font = "bold 5px monospace";
+        c.font = "700 5px 'Pixelify Sans', monospace";
         c.textAlign = "center";
         c.fillText("WELCOME TO", gx, 72);
         c.fillText("REALITY", gx, 79);

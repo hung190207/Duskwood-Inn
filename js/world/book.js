@@ -147,7 +147,7 @@ window.Duskwood = window.Duskwood || {};
     if (id === "past_player") {
       return `
         <svg viewBox="0 0 76 78" class="fb-ink-svg" aria-hidden="true">
-          <text x="38" y="23" text-anchor="middle" font-family="'Special Elite', Georgia, serif" font-style="italic" font-weight="700" font-size="16" fill="#18120d" transform="rotate(-6 38 23)">Help us</text>
+          <text x="38" y="23" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-style="italic" font-weight="700" font-size="16" fill="#18120d" transform="rotate(-6 38 23)">Help us</text>
           <path d="M22,49 C20,35 28,28 38,28 C48,28 56,35 54,49 C53,55 49,58 47,63 L47,70 L29,70 L29,63 C27,58 23,55 22,49 Z" fill="#dfd5be" stroke="#18120d" stroke-width="2.1"/>
           <ellipse cx="31" cy="46" rx="5" ry="5.8" fill="#18120d"/>
           <ellipse cx="45" cy="46" rx="5" ry="5.8" fill="#18120d"/>
@@ -341,7 +341,7 @@ window.Duskwood = window.Duskwood || {};
           <polygon points="50,33 96,21 116,53 70,66" fill="#f3ebd6" stroke="#24180f" stroke-width="1.6"/>
           <circle cx="83" cy="43" r="6" fill="#2b2016" opacity="0.8"/>
           <polygon points="78,86 118,73 122,80 82,93" fill="#f7eed8" stroke="#24180f" stroke-width="1.4"/>
-          <text x="98" y="75" text-anchor="middle" font-family="Georgia, serif" font-size="8" fill="#e6cfa0" transform="rotate(-18 98 75)">It is Your Turn</text>
+          <text x="98" y="75" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-size="8" fill="#e6cfa0" transform="rotate(-18 98 75)">It is Your Turn</text>
         </svg>`;
     }
     return `
