@@ -195,8 +195,8 @@ window.Duskwood = window.Duskwood || {};
       glyph: "CE",
       name: "THE CELLAR",
       shortName: "CELLAR",
-      shortEffect: "1 door • Dead-end (Turn 1)",
-      effect: "Dead-end room (1 door). Mandatory Turn 1 card connected directly to The Dining Room. Survivors eliminated during a Hex Event respawn here.",
+      shortEffect: "1-way • Respawn Room (Turn 1)",
+      effect: "One-way dead-end room (enter ONLY by dying in an Event, then exit back out). Counts as a room ONLY for Cutting Corners — excluded from all other Events.",
       lore: "Cold stone steps descend into damp earth where fallen guests await the dawn.",
       meta: { exits: 1, shape: "dead_end", baseDoors: ["N"], mandatoryFirst: true, holdsDowned: true, roomStyle: "cellar" }
     },

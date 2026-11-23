@@ -401,6 +401,7 @@ window.Duskwood = window.Duskwood || {};
       triggeredHistory: []
     };
     matchState.mpEventLock = null;
+    matchState.cellarSpectate = { active: false, targetId: null };
   }
 
   // ==================== MULTIPLAYER EVENT CELLAR LOCKDOWN & SPECTATOR ENGINE ====================
@@ -414,20 +415,36 @@ window.Duskwood = window.Duskwood || {};
     );
   }
 
+  function isPlayerInCellarRoom(matchState) {
+    if (!matchState || !matchState.roomMap || !matchState.currentRoomCoord) return false;
+    const rk = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+    const r = matchState.roomMap[rk];
+    return Boolean(r && r.id === "bp_cellar");
+  }
+
+  function ensureCellarSpectateState(matchState) {
+    if (!matchState) return null;
+    if (!matchState.cellarSpectate) {
+      matchState.cellarSpectate = { active: false, targetId: null };
+    }
+    return matchState.cellarSpectate;
+  }
+
   function beginMpEventSession(matchState, eventKey) {
     if (!matchState) return;
     matchState.mpEventLock = {
       active: true,
       eventKey: eventKey || "event",
       deadIds: new Set(),
-      localLockedInCellar: false,
-      spectateTargetId: null
+      localLockedInCellar: false
     };
+    matchState.cellarSpectate = { active: false, targetId: null };
   }
 
   function clearMpEventSession(matchState) {
     if (!matchState) return;
     matchState.mpEventLock = null;
+    matchState.cellarSpectate = { active: false, targetId: null };
   }
 
   function isLocalLockedInCellar(matchState) {
@@ -462,56 +479,94 @@ window.Duskwood = window.Duskwood || {};
       .sort((a, b) => (a.seatIdx || 0) - (b.seatIdx || 0));
   }
 
+  function canSpectateInCellar(matchState) {
+    if (!isMpEventMode(matchState)) return false;
+    if (!isLocalLockedInCellar(matchState) && !isPlayerInCellarRoom(matchState)) return false;
+    return getSpectatableLivingTeammates(matchState).length > 0;
+  }
+
+  function isSpectatingActive(matchState) {
+    const cs = matchState && matchState.cellarSpectate;
+    if (!cs || !cs.active) return false;
+    if (!canSpectateInCellar(matchState)) {
+      cs.active = false;
+      cs.targetId = null;
+      return false;
+    }
+    return true;
+  }
+
+  function toggleSpectateMode(matchState) {
+    if (!matchState) return false;
+    const cs = ensureCellarSpectateState(matchState);
+    if (cs.active) {
+      cs.active = false;
+      cs.targetId = null;
+      if (App.Audio && App.Audio.click) App.Audio.click();
+      return false;
+    }
+    if (!canSpectateInCellar(matchState)) {
+      if (App.Audio && App.Audio.close) App.Audio.close();
+      return false;
+    }
+    const living = getSpectatableLivingTeammates(matchState);
+    cs.active = true;
+    cs.targetId = living[0].playerId;
+    if (App.Audio && App.Audio.click) App.Audio.click();
+    return true;
+  }
+
   function getSpectateTarget(matchState) {
-    if (!isLocalLockedInCellar(matchState)) return null;
-    const lk = matchState.mpEventLock;
+    if (!isSpectatingActive(matchState)) return null;
+    const cs = matchState.cellarSpectate;
     const living = getSpectatableLivingTeammates(matchState);
     if (!living.length) {
-      lk.spectateTargetId = null;
+      cs.active = false;
+      cs.targetId = null;
       return null;
     }
-    if (!lk.spectateTargetId) return null; // Currently viewing own Cellar
-    const found = living.find((rp) => rp.playerId === lk.spectateTargetId);
+    const found = living.find((rp) => rp.playerId === cs.targetId);
     if (found) return found;
     // Previously spectated teammate died -> automatically shift to first remaining living teammate!
-    lk.spectateTargetId = living[0].playerId;
+    cs.targetId = living[0].playerId;
     return living[0];
   }
 
-  // dir = -1 for [1] BACK, dir = +1 for [2] FORWARD
+  // dir = -1 for [Q] PREV, dir = +1 for [E] NEXT
   function cycleSpectateTarget(matchState, dir) {
-    if (!isLocalLockedInCellar(matchState)) return null;
-    const lk = matchState.mpEventLock;
+    if (!isSpectatingActive(matchState)) return null;
+    const cs = matchState.cellarSpectate;
     const living = getSpectatableLivingTeammates(matchState);
     if (!living.length) {
-      lk.spectateTargetId = null;
+      cs.active = false;
+      cs.targetId = null;
       return null;
     }
-    const curIdx = lk.spectateTargetId
-      ? living.findIndex((rp) => rp.playerId === lk.spectateTargetId)
-      : -1;
-    let nextIdx;
-    if (curIdx < 0) {
-      nextIdx = dir < 0 ? living.length - 1 : 0;
-    } else {
-      nextIdx = (curIdx + (dir < 0 ? -1 : 1) + living.length) % living.length;
-    }
-    lk.spectateTargetId = living[nextIdx].playerId;
+    const curIdx = Math.max(0, living.findIndex((rp) => rp.playerId === cs.targetId));
+    const nextIdx = (curIdx + (dir < 0 ? -1 : 1) + living.length) % living.length;
+    cs.targetId = living[nextIdx].playerId;
     if (App.Audio && App.Audio.click) App.Audio.click();
     return living[nextIdx];
   }
 
-  function exitSpectateToCellar(matchState) {
-    if (!isLocalLockedInCellar(matchState)) return;
-    matchState.mpEventLock.spectateTargetId = null;
-    if (App.Audio && App.Audio.click) App.Audio.click();
+  function exitSpectateToCellar(matchState, silent) {
+    if (!matchState || !matchState.cellarSpectate) return;
+    if (!matchState.cellarSpectate.active) return;
+    matchState.cellarSpectate.active = false;
+    matchState.cellarSpectate.targetId = null;
+    if (!silent && App.Audio && App.Audio.click) App.Audio.click();
   }
 
   function getSpectatorHudInfo(matchState) {
-    if (!isLocalLockedInCellar(matchState)) return null;
+    if (!isMpEventMode(matchState)) return null;
+    const locked = isLocalLockedInCellar(matchState);
+    const inCellar = isPlayerInCellarRoom(matchState);
+    if (!locked && !inCellar) return null;
+
     const living = getSpectatableLivingTeammates(matchState);
     const target = getSpectateTarget(matchState);
     const aliveCount = living.length;
+
     if (target) {
       let locName = "CABIN";
       if (target.inAttic) locName = "THE ATTIC";
@@ -527,17 +582,31 @@ window.Duskwood = window.Duskwood || {};
         locName,
         aliveCount,
         title: `SPECTATING: ${(target.name || "TEAMMATE").toUpperCase()} (${locName})`,
-        sub: `[1] BACK  •  [2] FORWARD  •  [0] CELLAR  |  LIVING: ${aliveCount}  •  CELLAR LOCKED UNTIL EVENT ENDS`
+        sub: `[Q] PREV PLAYER  •  [E] NEXT PLAYER  •  [P] EXIT SPECTATE  |  LIVING: ${aliveCount}`
       };
     }
-    return {
-      isSpectating: false,
-      aliveCount,
-      title: `LOCKED IN THE CELLAR (DEAD) • ${aliveCount} SURVIVOR${aliveCount === 1 ? "" : "S"} STILL IN EVENT`,
-      sub: aliveCount > 0
-        ? "PRESS [1] BACK OR [2] FORWARD TO SPECTATE LIVING PLAYERS • DOOR UNLOCKS WHEN EVENT ENDS"
-        : "WAITING FOR EVENT TO END..."
-    };
+
+    if (locked) {
+      return {
+        isSpectating: false,
+        aliveCount,
+        title: `LOCKED IN THE CELLAR (DEAD) • ${aliveCount} SURVIVOR${aliveCount === 1 ? "" : "S"} ALIVE`,
+        sub: aliveCount > 0
+          ? "PRESS [P] TO SPECTATE LIVING PLAYERS  •  CELLAR DOOR UNLOCKS WHEN EVENT ENDS"
+          : "WAITING FOR EVENT TO END..."
+      };
+    }
+
+    if (inCellar && aliveCount > 0) {
+      return {
+        isSpectating: false,
+        aliveCount,
+        title: `THE CELLAR (ONE-WAY EXIT) • ${aliveCount} PLAYER${aliveCount === 1 ? "" : "S"} ALIVE`,
+        sub: "PRESS [P] TO SPECTATE OTHER PLAYERS  •  WALK OUT TO RETURN TO THE DINING ROOM"
+      };
+    }
+
+    return null;
   }
 
   // Quietly ends & cleans up ANY currently active event when all MP players die or someone wins!
@@ -640,7 +709,7 @@ window.Duskwood = window.Duskwood || {};
     const localPid = App.Network.getLocalPlayerId();
     lk.deadIds.add(localPid);
     lk.localLockedInCellar = true;
-    lk.spectateTargetId = null;
+    matchState.cellarSpectate = { active: false, targetId: null };
 
     App.Network.sendGameAction("MP_EVENT_PLAYER_DEAD", {
       eventKey,
@@ -666,7 +735,7 @@ window.Duskwood = window.Duskwood || {};
     const showMp = () => {
       const msg = allDead
         ? `${killerText}\nALL PLAYERS DIED (${pen.label}) — CELLAR DOOR UNLOCKED!`
-        : `${killerText}\nLOCKED IN THE CELLAR (${pen.label}) — PRESS [1] / [2] TO SPECTATE LIVING PLAYERS!`;
+        : `${killerText}\nLOCKED IN THE CELLAR (${pen.label}) — PRESS [P] TO SPECTATE LIVING PLAYERS (Q / E TO SWITCH)!`;
       showSmudgeBanner(msg, { danger: true, typingDurationSec: 3.0, showChoices: false });
       setTimeout(() => hideSmudgeBanner(), 4400);
     };
@@ -703,10 +772,16 @@ window.Duskwood = window.Duskwood || {};
       const lk = matchState.mpEventLock;
       lk.deadIds.add(p.playerId);
 
-      // If spectating the teammate who just died, auto-shift to next living player!
-      if (lk.localLockedInCellar && lk.spectateTargetId === p.playerId) {
+      // If spectating the teammate who just died, auto-shift to next living player (or exit if none left)!
+      const cs = matchState.cellarSpectate;
+      if (cs && cs.active && cs.targetId === p.playerId) {
         const nextLiving = getSpectatableLivingTeammates(matchState);
-        lk.spectateTargetId = nextLiving.length ? nextLiving[0].playerId : null;
+        if (nextLiving.length) {
+          cs.targetId = nextLiving[0].playerId;
+        } else {
+          cs.active = false;
+          cs.targetId = null;
+        }
       }
 
       // Check if ALL players are now dead -> end event & unlock Cellar for everyone!
@@ -1204,6 +1279,7 @@ window.Duskwood = window.Duskwood || {};
     matchState.roomLightStates = matchState.roomLightStates || {};
     matchState.roomLightStates["0,0"] = true;
     Object.keys(matchState.roomMap || {}).forEach((rk) => {
+      if (matchState.roomMap[rk] && matchState.roomMap[rk].id === "bp_cellar") return;
       matchState.roomLightStates[rk] = true;
     });
   }
@@ -1285,6 +1361,10 @@ window.Duskwood = window.Duskwood || {};
     isMpEventMode,
     isLocalLockedInCellar,
     isPlayerDeadInEvent,
+    isPlayerInCellarRoom,
+    canSpectateInCellar,
+    isSpectatingActive,
+    toggleSpectateMode,
     getSpectateTarget,
     cycleSpectateTarget,
     exitSpectateToCellar,

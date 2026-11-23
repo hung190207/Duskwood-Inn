@@ -3178,7 +3178,7 @@ window.Duskwood = window.Duskwood || {};
       ...candleTray.map((c) => c.id)
     ];
 
-    const totalRoomsBuilt = Object.keys(matchStateRef.roomMap || {}).length;
+    const totalRoomsBuilt = Object.values(matchStateRef.roomMap || {}).filter((r) => r && r.id !== "bp_cellar").length;
     const card = App.CardsDB.drawWeightedCard({
       allowHex: true,
       isMultiplayer: matchStateRef.mode === "MULTIPLAYER",

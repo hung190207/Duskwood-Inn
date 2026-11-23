@@ -424,7 +424,7 @@ window.Duskwood = window.Duskwood || {};
   function buildWrongRoomShatterWaves(matchState, occupiedWrongKeys) {
     const sanctuaryId = getTrueExitRoomId(matchState);
     const roomMap = matchState.roomMap || {};
-    const wrongKeys = Object.keys(roomMap).filter((k) => roomMap[k].id !== sanctuaryId);
+    const wrongKeys = Object.keys(roomMap).filter((k) => roomMap[k].id !== sanctuaryId && roomMap[k].id !== "bp_cellar");
     const occSet = new Set((occupiedWrongKeys || []).filter((k) => wrongKeys.includes(k)));
 
     // Shuffle unoccupied wrong rooms first so occupied wrong rooms shatter dramatically on the FINAL wave!

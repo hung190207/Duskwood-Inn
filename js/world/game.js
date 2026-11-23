@@ -50,6 +50,8 @@ window.Duskwood = window.Duskwood || {};
     const ny = cur.y + portal.dy;
     const nb = gameState.roomMap[`${nx},${ny}`];
     if (!nb || !nb.doors || !nb.doors[portal.opp]) return null;
+    // The Cellar is strictly a 1-way room: you can ONLY exit FROM The Cellar, never walk INTO it!
+    if (nb.id === "bp_cellar" && cur.id !== "bp_cellar") return null;
     return { room: nb, portal };
   }
 
@@ -75,6 +77,9 @@ window.Duskwood = window.Duskwood || {};
     player.y = entryPortal ? entryPortal.spawnY : 126;
     if (entryPortal) player.facing = entryPortal.inwardFacing;
 
+    if (App.Events && App.Events.exitSpectateToCellar) {
+      App.Events.exitSpectateToCellar(gameState, true);
+    }
     roomTransitionAlpha = 0.92;
     roomTransitionCooldown = 0.35;
     closeDialogue();
@@ -698,7 +703,7 @@ window.Duskwood = window.Duskwood || {};
 
   function enterFirstPersonTable() {
     if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState)) {
-      showDialogue("You are dead and locked inside The Cellar until the event ends! Press [1] or [2] to spectate living players.");
+      showDialogue("You are dead and locked inside The Cellar until the event ends! Press [P] to spectate living players (Q / E to switch).");
       return;
     }
     if (App.Events && App.Events.isCuttingCornersActive(gameState)) {
@@ -950,7 +955,7 @@ window.Duskwood = window.Duskwood || {};
       const dist = Math.hypot(player.x - portal.x, player.y - portal.y);
       if (dist <= 22) {
         if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState)) {
-          return { type: "cellar_locked", prompt: "CELLAR DOOR LOCKED UNTIL EVENT ENDS  |  [1] BACK  [2] FORWARD" };
+          return { type: "cellar_locked", prompt: "CELLAR DOOR LOCKED UNTIL EVENT ENDS  |  PRESS [P] TO SPECTATE" };
         }
         if (App.Knight && App.Knight.isActive(gameState) && !App.Knight.canPlayerChangeRoom(gameState)) {
           return { type: "knight_move_spent", prompt: "1 / 1 ROOM MOVED — WAIT FOR NEXT TURN" };
@@ -1237,6 +1242,7 @@ window.Duskwood = window.Duskwood || {};
       App.TableView.isOpen() ||
       App.GameIntro.isBlockingInput() ||
       (App.Jumpscare && App.Jumpscare.isActive()) ||
+      (App.Events && App.Events.isSpectatingActive && App.Events.isSpectatingActive(gameState)) ||
       (App.Endgame && (App.Endgame.isCutsceneBlocking(gameState) || (App.Endgame.isLocalDeadSpectator && App.Endgame.isLocalDeadSpectator(gameState)) || (App.Endgame.isLocalInCar && App.Endgame.isLocalInCar(gameState)))) ||
       (App.Basement && (App.Basement.isSlideCutscene(gameState) || App.Basement.isRepairModalOpen(gameState)))
     ) {
@@ -1321,7 +1327,7 @@ window.Duskwood = window.Duskwood || {};
     const promptText = document.getElementById("hud-prompt-text");
     if (!promptEl || !promptText) return;
 
-    if (dialogueOpen || paintingOpen || neighborModalOpen || (App.FieldBook && App.FieldBook.isOpen()) || (App.Clues && App.Clues.isInspectOpen()) || (App.Knight && App.Knight.isTableGlanceOpen()) || App.TableView.isOpen() || paused || App.GameIntro.isBlockingInput()) {
+    if (dialogueOpen || paintingOpen || neighborModalOpen || (App.Events && App.Events.isSpectatingActive && App.Events.isSpectatingActive(gameState)) || (App.FieldBook && App.FieldBook.isOpen()) || (App.Clues && App.Clues.isInspectOpen()) || (App.Knight && App.Knight.isTableGlanceOpen()) || App.TableView.isOpen() || paused || App.GameIntro.isBlockingInput()) {
       promptEl.classList.add("hidden");
       return;
     }
@@ -1748,7 +1754,10 @@ window.Duskwood = window.Duskwood || {};
 
       if (e.code === "Escape") {
         e.preventDefault();
-        if (App.Basement && App.Basement.isRepairModalOpen(gameState)) App.Basement.closeBreakerModal(gameState, false);
+        if (App.Events && App.Events.isSpectatingActive && App.Events.isSpectatingActive(gameState)) {
+          App.Events.exitSpectateToCellar(gameState, false);
+          syncHud();
+        } else if (App.Basement && App.Basement.isRepairModalOpen(gameState)) App.Basement.closeBreakerModal(gameState, false);
         else if (App.Knight && App.Knight.isTableGlanceOpen()) App.Knight.closeTableGlanceModal(false);
         else if (App.FieldBook && App.FieldBook.isOpen()) App.FieldBook.close(false);
         else if (App.Clues && App.Clues.isInspectOpen()) App.Clues.closeInspectModal(false);
@@ -1824,25 +1833,27 @@ window.Duskwood = window.Duskwood || {};
         return;
       }
 
-      // MP Cellar Lockdown Spectator Controls: [1] Back, [2] Forward, [0] Return to Cellar view
-      if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState)) {
-        if (e.code === "Digit1" || e.code === "Numpad1") {
+      // Multiplayer Cellar Spectate Controls: [P] enter/exit Spectate, [Q] Prev player, [E] Next player
+      if (App.Events && App.Events.canSpectateInCellar && (App.Events.canSpectateInCellar(gameState) || (App.Events.isSpectatingActive && App.Events.isSpectatingActive(gameState)))) {
+        if (e.code === "KeyP") {
           e.preventDefault();
-          App.Events.cycleSpectateTarget(gameState, -1);
+          App.Events.toggleSpectateMode(gameState);
           syncHud();
           return;
         }
-        if (e.code === "Digit2" || e.code === "Numpad2") {
-          e.preventDefault();
-          App.Events.cycleSpectateTarget(gameState, 1);
-          syncHud();
-          return;
-        }
-        if (e.code === "Digit0" || e.code === "Numpad0") {
-          e.preventDefault();
-          App.Events.exitSpectateToCellar(gameState);
-          syncHud();
-          return;
+        if (App.Events.isSpectatingActive && App.Events.isSpectatingActive(gameState)) {
+          if (e.code === "KeyQ") {
+            e.preventDefault();
+            App.Events.cycleSpectateTarget(gameState, -1);
+            syncHud();
+            return;
+          }
+          if (e.code === "KeyE") {
+            e.preventDefault();
+            App.Events.cycleSpectateTarget(gameState, 1);
+            syncHud();
+            return;
+          }
         }
       }
 

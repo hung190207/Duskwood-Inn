@@ -99,6 +99,11 @@ window.Duskwood = window.Duskwood || {};
     return [{ x: 104, y: 126 }];
   }
 
+  function getEventRoomKeys(roomMap) {
+    const keys = Object.keys(roomMap || {}).filter((k) => roomMap[k] && roomMap[k].id !== "bp_cellar");
+    return keys.length ? keys : ["0,0"];
+  }
+
   function findNextStepRoom(roomMap, fromKey, toKey) {
     if (!roomMap || fromKey === toKey) return null;
     const queue = [fromKey];
@@ -117,7 +122,7 @@ window.Duskwood = window.Duskwood || {};
         if (!room.doors[d.dir]) continue;
         const nk = `${room.x + d.dx},${room.y + d.dy}`;
         const nb = roomMap[nk];
-        if (!nb || !nb.doors || !nb.doors[d.opp]) continue;
+        if (!nb || nb.id === "bp_cellar" || !nb.doors || !nb.doors[d.opp]) continue;
         if (visited.has(nk)) continue;
         visited.add(nk);
         parent[nk] = { prev: cur, dir: d.dir, opp: d.opp };
@@ -337,7 +342,7 @@ window.Duskwood = window.Duskwood || {};
 
   // ==================== 2. START / SPAWN POPCORN / CONTROLS ====================
   function spawnPopcorns(roomMap) {
-    const keys = Object.keys(roomMap || {});
+    const keys = getEventRoomKeys(roomMap);
     const list = [];
     let uid = 0;
 
@@ -456,8 +461,8 @@ window.Duskwood = window.Duskwood || {};
       ensureEnoughPopcorns(mr, matchState.roomMap);
     }
 
-    // Turn Dining Room & cabin lights ON in warm orange pulse mode!
-    Object.keys(matchState.roomMap || {}).forEach((k) => {
+    // Turn Dining Room & non-Cellar cabin lights ON in warm orange pulse mode!
+    getEventRoomKeys(matchState.roomMap).forEach((k) => {
       matchState.roomLightStates[k] = true;
     });
 
@@ -484,7 +489,7 @@ window.Duskwood = window.Duskwood || {};
 
   function pickRandomRedRoomKey(matchState, avoidKey) {
     const mr = matchState && matchState.musicalEvent;
-    const keys = Object.keys(matchState.roomMap || {});
+    const keys = getEventRoomKeys(matchState.roomMap);
     if (keys.length <= 1) return keys[0] || "0,0";
 
     // Prefer a room other than the player's current room & different from the previous Red Room
@@ -499,7 +504,7 @@ window.Duskwood = window.Duskwood || {};
     if (!mr || !mr.active) return;
 
     const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
-    const redKey = (forcedRedRoomKey && matchState.roomMap && matchState.roomMap[forcedRedRoomKey])
+    const redKey = (forcedRedRoomKey && matchState.roomMap && matchState.roomMap[forcedRedRoomKey] && matchState.roomMap[forcedRedRoomKey].id !== "bp_cellar")
       ? forcedRedRoomKey
       : pickRandomRedRoomKey(matchState, pRoomKey);
 
@@ -958,7 +963,7 @@ window.Duskwood = window.Duskwood || {};
           }
         }
         if (!foundOutside) {
-          const nonRed = Object.keys(matchState.roomMap || {}).find((k) => k !== mr.redRoomKey) || "0,0";
+          const nonRed = getEventRoomKeys(matchState.roomMap).find((k) => k !== mr.redRoomKey) || "0,0";
           targetRoomKey = nonRed;
           targetX = 104;
           targetY = 126;

@@ -101,7 +101,8 @@ window.Duskwood = window.Duskwood || {};
     if (!step) return null;
     const nk = `${room.x + step.dx},${room.y + step.dy}`;
     const nb = roomMap[nk];
-    if (!nb || !nb.doors || !nb.doors[step.opp]) return null;
+    // The Cellar is excluded from The Knight (neither Knight, Statue, nor Destination can use it!)
+    if (!nb || nb.id === "bp_cellar" || !nb.doors || !nb.doors[step.opp]) return null;
     return nk;
   }
 
@@ -315,9 +316,10 @@ window.Duskwood = window.Duskwood || {};
     if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "the_knight");
 
     const savedLights = snapshotRoomLights(matchState);
-    // Lights ON during the 10-second Player Turn!
+    // Lights ON during the 10-second Player Turn (excluding bp_cellar)!
     matchState.roomLightStates = {};
     Object.keys(matchState.roomMap || {}).forEach((k) => {
+      if (matchState.roomMap[k] && matchState.roomMap[k].id === "bp_cellar") return;
       matchState.roomLightStates[k] = true;
     });
 
@@ -609,6 +611,7 @@ window.Duskwood = window.Duskwood || {};
         kn.turnNumber += 1;
 
         Object.keys(matchState.roomMap || {}).forEach((k) => {
+          if (matchState.roomMap[k] && matchState.roomMap[k].id === "bp_cellar") return;
           matchState.roomLightStates[k] = true;
         });
 
@@ -655,7 +658,7 @@ window.Duskwood = window.Duskwood || {};
     if (!kn || !gridEl) return;
 
     const map = matchState.roomMap || {};
-    const rooms = Object.values(map);
+    const rooms = Object.values(map).filter((r) => r && r.id !== "bp_cellar");
     const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
 
     let minX = 0, maxX = 0, minY = 0, maxY = 0;

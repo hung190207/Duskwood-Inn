@@ -83,6 +83,11 @@ window.Duskwood = window.Duskwood || {};
     return { x: 104, y: 126 };
   }
 
+  function getEventRoomKeys(roomMap) {
+    const keys = Object.keys(roomMap || {}).filter((k) => roomMap[k] && roomMap[k].id !== "bp_cellar");
+    return keys.length ? keys : ["0,0"];
+  }
+
   // BFS across cabin graph. If `avoidLitSet` is passed, strongly prefers dark rooms!
   function findNextStepRoom(roomMap, fromKey, toKey, avoidLitSet) {
     if (!roomMap || fromKey === toKey) return null;
@@ -104,7 +109,7 @@ window.Duskwood = window.Duskwood || {};
           if (!room.doors[d.dir]) continue;
           const nk = `${room.x + d.dx},${room.y + d.dy}`;
           const nb = roomMap[nk];
-          if (!nb || !nb.doors || !nb.doors[d.opp]) continue;
+          if (!nb || nb.id === "bp_cellar" || !nb.doors || !nb.doors[d.opp]) continue;
           if (visited.has(nk)) continue;
           if (respectLit && avoidLitSet && avoidLitSet.has(nk) && nk !== toKey) continue;
           visited.add(nk);
@@ -201,7 +206,7 @@ window.Duskwood = window.Duskwood || {};
 
   // ==================== 2. RANDOM 2 LIT ROOMS PICKER ====================
   function pickTwoRandomLitRooms(matchState, prevLitKeys) {
-    const allKeys = Object.keys(matchState.roomMap || {});
+    const allKeys = getEventRoomKeys(matchState.roomMap);
     if (allKeys.length <= LIT_ROOMS_COUNT) return new Set(allKeys);
 
     const prevSet = prevLitKeys || new Set();
@@ -222,7 +227,7 @@ window.Duskwood = window.Duskwood || {};
     sl.cycleTimer = SWITCH_CYCLE;
 
     matchState.roomLightStates = {};
-    Object.keys(matchState.roomMap || {}).forEach((k) => {
+    getEventRoomKeys(matchState.roomMap).forEach((k) => {
       matchState.roomLightStates[k] = nextLit.has(k);
     });
 
@@ -252,7 +257,7 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function spawnHoundInDarkRoom(sl, matchState) {
-    const allKeys = Object.keys(matchState.roomMap || {});
+    const allKeys = getEventRoomKeys(matchState.roomMap);
     const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
     const darkKeys = allKeys.filter((k) => !sl.litRoomKeys.has(k));
     if (!darkKeys.length) return;
@@ -283,9 +288,9 @@ window.Duskwood = window.Duskwood || {};
 
     const savedLights = snapshotRoomLights(matchState);
 
-    // Turn ALL lights ON so every room flickers wildly during the 5-second warning!
+    // Turn ALL non-Cellar lights ON so every room flickers wildly during the 5-second warning!
     matchState.roomLightStates = {};
-    Object.keys(matchState.roomMap || {}).forEach((k) => {
+    getEventRoomKeys(matchState.roomMap).forEach((k) => {
       matchState.roomLightStates[k] = true;
     });
 
@@ -488,7 +493,7 @@ window.Duskwood = window.Duskwood || {};
       h.retargetTimer -= dt;
       const arrived = moveHoundStep(sl, h.patrolRoomKey, h.patrolX, h.patrolY, 40, dt, matchState.roomMap);
       if (h.active && (arrived || h.retargetTimer <= 0)) {
-        const darkKeys = Object.keys(matchState.roomMap || {}).filter((k) => !sl.litRoomKeys.has(k));
+        const darkKeys = getEventRoomKeys(matchState.roomMap).filter((k) => !sl.litRoomKeys.has(k));
         if (darkKeys.length) {
           const nextK = darkKeys[Math.floor(Math.random() * darkKeys.length)];
           const sp = getSafeSpotForRoom(matchState.roomMap[nextK]);

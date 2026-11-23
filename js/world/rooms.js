@@ -86,9 +86,10 @@ window.Duskwood = window.Duskwood || {};
     dirs.forEach(([d, dx, dy, opp]) => {
       if (!doors[d]) return;
       const nb = roomMap[`${room.x + dx},${room.y + dy}`];
-      if (nb && nb.doors && nb.doors[opp]) {
-        res[d] = true;
-      }
+      if (!nb || !nb.doors || !nb.doors[opp]) return;
+      // The Cellar is strictly a 1-way room: normal rooms cannot open a doorway INTO bp_cellar!
+      if (nb.id === "bp_cellar" && room.id !== "bp_cellar") return;
+      res[d] = true;
     });
     return res;
   }
@@ -725,23 +726,12 @@ window.Duskwood = window.Duskwood || {};
                         { x: 192, y: 126 };
 
 
-    const cSwX = doorDir === "N" ? 124 : 80;
-    const cSwY = 32;
-    drawWallLightSwitch(c, cSwX, cSwY, false);
-    interactables.push({
-      id: "room_light_switch", x: cSwX + 2, y: 58, r: 20,
-      type: "light_switch",
-      swX: cSwX, swY: cSwY,
-      prompt: "[E] TURN LIGHT ON"
-    });
-
     return {
       colliders,
       interactables,
       isCellar: true,
-      switchPos: { x: cSwX, y: cSwY },
-      darknessLevel: 0.87,
-      lights: [{ x: stairGlow.x, y: stairGlow.y, r: 52, color: "255, 214, 140", strength: 0.65, halo: 0.16, alwaysOn: true }]
+      darknessLevel: 0.72,
+      lights: [{ x: stairGlow.x, y: stairGlow.y, r: 62, color: "255, 214, 140", strength: 0.72, halo: 0.18, alwaysOn: true }]
     };
   }
 
@@ -1985,8 +1975,8 @@ window.Duskwood = window.Duskwood || {};
     const roomKey = `${room.x},${room.y}`;
     const globalBlackout = App.Events && App.Events.isGlobalLightsOut && App.Events.isGlobalLightsOut(matchState);
     const roomShattered = App.Endgame && App.Endgame.isRoomShattered && App.Endgame.isRoomShattered(roomKey, matchState);
-    // Rooms automatically start with overhead lights ON when built (OFF only if switched off / blackout / shattered!)
-    const roomLightsOn = !globalBlackout && !roomShattered && !(matchState && matchState.roomLightStates && matchState.roomLightStates[roomKey] === false);
+    // The Cellar has no light switch/bulb (always ambient stair glow + lantern); other rooms start lit unless switched off/blackout/shattered
+    const roomLightsOn = !data.isCellar && !globalBlackout && !roomShattered && !(matchState && matchState.roomLightStates && matchState.roomLightStates[roomKey] === false);
 
     // Live-draw the wall light switch toggle lever right on the room wall (ON = up, OFF = down)
     const swItem = (data.interactables || []).find((it) => it.type === "light_switch");
@@ -2022,7 +2012,7 @@ window.Duskwood = window.Duskwood || {};
         ctx.fillRect(lt.x - rad - 2, lt.y - rad - 2, rad * 2 + 4, rad * 2 + 4);
       });
     } else {
-      const baseDark = data.isCellar ? 0.88 : 0.84;
+      const baseDark = data.isCellar ? 0.72 : 0.84;
       const effDark = Math.min(0.96, baseDark + (1 - lightLevel) * 0.12);
 
       mctx.globalCompositeOperation = "source-over";

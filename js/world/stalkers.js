@@ -75,6 +75,11 @@ window.Duskwood = window.Duskwood || {};
     return { x: 104, y: 126 };
   }
 
+  function getEventRoomKeys(roomMap) {
+    const keys = Object.keys(roomMap || {}).filter((k) => roomMap[k] && roomMap[k].id !== "bp_cellar");
+    return keys.length ? keys : ["0,0"];
+  }
+
   function findNextStepRoom(roomMap, fromKey, toKey) {
     if (!roomMap || fromKey === toKey) return null;
     const queue = [fromKey];
@@ -93,7 +98,7 @@ window.Duskwood = window.Duskwood || {};
         if (!room.doors[d.dir]) continue;
         const nk = `${room.x + d.dx},${room.y + d.dy}`;
         const nb = roomMap[nk];
-        if (!nb || !nb.doors || !nb.doors[d.opp]) continue;
+        if (!nb || nb.id === "bp_cellar" || !nb.doors || !nb.doors[d.opp]) continue;
         if (visited.has(nk)) continue;
         visited.add(nk);
         parent[nk] = { prev: cur, dir: d.dir, opp: d.opp };
@@ -114,7 +119,7 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function pickFarRoomKey(roomMap, avoidCoord) {
-    const keys = Object.keys(roomMap || {});
+    const keys = getEventRoomKeys(roomMap);
     if (keys.length <= 1) return keys[0] || "0,0";
     const ax = avoidCoord ? avoidCoord.x : 0;
     const ay = avoidCoord ? avoidCoord.y : 0;
@@ -349,9 +354,10 @@ window.Duskwood = window.Duskwood || {};
     if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "tall_man");
 
     const savedLights = snapshotRoomLights(matchState);
-    // Turn ALL built rooms' light switches ON (including Main Parlor / Dining Room!)
+    // Turn ALL non-Cellar built rooms' light switches ON (Cellar has no light switch & does not count!)
+    const eventKeys = getEventRoomKeys(matchState.roomMap);
     matchState.roomLightStates = {};
-    Object.keys(matchState.roomMap || {}).forEach((k) => {
+    eventKeys.forEach((k) => {
       matchState.roomLightStates[k] = true;
     });
 
@@ -364,8 +370,8 @@ window.Duskwood = window.Duskwood || {};
       restoringLights: false,
       restoreTimer: 0,
       savedLights,
-      totalSwitches: Object.keys(matchState.roomMap || {}).length,
-      litRemaining: Object.keys(matchState.roomMap || {}).length,
+      totalSwitches: eventKeys.length,
+      litRemaining: eventKeys.length,
       monster: {
         roomKey: spawnKey,
         x: sp.x,
@@ -396,7 +402,7 @@ window.Duskwood = window.Duskwood || {};
 
   function countRemainingLitRooms(matchState) {
     let count = 0;
-    Object.keys(matchState.roomMap || {}).forEach((k) => {
+    getEventRoomKeys(matchState.roomMap).forEach((k) => {
       if (matchState.roomLightStates && matchState.roomLightStates[k] === true) {
         count += 1;
       }
@@ -501,8 +507,10 @@ window.Duskwood = window.Duskwood || {};
     }
     const m = tm.monster;
     const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
-    const roomIsLit = Boolean(matchState.roomLightStates && matchState.roomLightStates[pRoomKey] === true);
-    const playerVisibleInLight = roomIsLit || Boolean(player.lanternOn);
+    const pRoomObj = matchState.roomMap && matchState.roomMap[pRoomKey];
+    const inCellar = Boolean(pRoomObj && pRoomObj.id === "bp_cellar");
+    const roomIsLit = !inCellar && Boolean(matchState.roomLightStates && matchState.roomLightStates[pRoomKey] === true);
+    const playerVisibleInLight = !inCellar && (roomIsLit || Boolean(player.lanternOn));
 
     if (playerVisibleInLight) {
       if (m.state !== "CHASE") {
@@ -531,10 +539,11 @@ window.Duskwood = window.Duskwood || {};
       m.retargetTimer -= dt;
       const arrived = moveEntityAcrossCabin(m, m.patrolRoomKey, m.patrolX, m.patrolY, 27, dt, matchState.roomMap);
       if (arrived || m.retargetTimer <= 0) {
-        const litKeys = Object.keys(matchState.roomMap || {}).filter(
+        const evKeys = getEventRoomKeys(matchState.roomMap);
+        const litKeys = evKeys.filter(
           (k) => matchState.roomLightStates && matchState.roomLightStates[k] === true
         );
-        const pool = litKeys.length ? litKeys : Object.keys(matchState.roomMap || {});
+        const pool = litKeys.length ? litKeys : evKeys;
         const nextK = pool[Math.floor(Math.random() * pool.length)] || "0,0";
         const pt = getSafeCenterForRoom(matchState.roomMap[nextK]);
         m.patrolRoomKey = nextK;
@@ -547,7 +556,7 @@ window.Duskwood = window.Duskwood || {};
 
   // ==================== 3. RED BALLOONS EVENT ENGINE ====================
   function spawnBalloonsAcrossRooms(roomMap) {
-    const keys = Object.keys(roomMap || {});
+    const keys = getEventRoomKeys(roomMap);
     const shuffled = keys.slice();
     for (let i = shuffled.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -834,9 +843,9 @@ window.Duskwood = window.Duskwood || {};
 
     cl.retargetTimer -= dt;
     if (arrived || cl.retargetTimer <= 0) {
-      // Pick a random room to patrol quietly until the next sound!
+      // Pick a random non-Cellar room to patrol quietly until the next sound!
       cl.state = "PATROL";
-      const allKeys = Object.keys(matchState.roomMap || {});
+      const allKeys = getEventRoomKeys(matchState.roomMap);
       const nextK = allKeys[Math.floor(Math.random() * allKeys.length)] || "0,0";
       const pt = getSafeCenterForRoom(matchState.roomMap[nextK]);
       cl.targetRoomKey = nextK;
@@ -1074,16 +1083,16 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function getDiningAndNeighborRoomKeys(roomMap) {
-    const keys = Object.keys(roomMap || {});
+    const keys = getEventRoomKeys(roomMap);
     const near = keys.filter((k) => {
       const r = roomMap[k];
-      return Math.abs(r.x) + Math.abs(r.y) <= 1; // Dining Room (0,0) + all directly surrounding rooms!
+      return Math.abs(r.x) + Math.abs(r.y) <= 1; // Dining Room (0,0) + non-Cellar surrounding rooms!
     });
     return near.length ? near : ["0,0"];
   }
 
   function pickShapeSpawnSpots(roomMap) {
-    const allKeys = Object.keys(roomMap || {});
+    const allKeys = getEventRoomKeys(roomMap);
     const nearKeys = getDiningAndNeighborRoomKeys(roomMap);
     const diningSpots = [
       { x: 42,  y: 94  },
@@ -1154,9 +1163,9 @@ window.Duskwood = window.Duskwood || {};
     if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "feeling_small");
 
     const savedLights = snapshotRoomLights(matchState);
-    // Turn ALL built rooms' lights ON so they all flicker together for 10 seconds!
+    // Turn ALL non-Cellar built rooms' lights ON so they flicker together for 10 seconds!
     matchState.roomLightStates = {};
-    Object.keys(matchState.roomMap || {}).forEach((k) => {
+    getEventRoomKeys(matchState.roomMap).forEach((k) => {
       matchState.roomLightStates[k] = true;
     });
 
@@ -1442,7 +1451,7 @@ window.Duskwood = window.Duskwood || {};
           matchState.roomMap
         );
         if (arrived || tr.retargetTimer <= 0) {
-          const allKeys = Object.keys(matchState.roomMap || {});
+          const allKeys = getEventRoomKeys(matchState.roomMap);
           const otherKeys = allKeys.filter((k) => k !== tr.roomKey);
           const pool = otherKeys.length ? otherKeys : allKeys;
           const nextK = pool[Math.floor(Math.random() * pool.length)] || "0,0";

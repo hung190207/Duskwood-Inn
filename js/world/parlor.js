@@ -614,7 +614,9 @@ window.Duskwood = window.Duskwood || {};
     const delta = { N: [0, -1, "S"], E: [1, 0, "W"], S: [0, 1, "N"], W: [-1, 0, "E"] }[dir];
     if (!delta) return false;
     const nb = map[`${delta[0]},${delta[1]}`];
-    return Boolean(nb && nb.doors && nb.doors[delta[2]]);
+    // The Cellar is strictly 1-way (enter only by dying, exit out into Dining Room)
+    if (!nb || nb.id === "bp_cellar") return false;
+    return Boolean(nb.doors && nb.doors[delta[2]]);
   }
 
   function drawOpenMatchedDoors(c, timeSec, matchState) {
