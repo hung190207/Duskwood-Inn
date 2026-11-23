@@ -1045,15 +1045,7 @@ window.Duskwood = window.Duskwood || {};
     const att = matchState && matchState.atticEvent;
     if (!att) return;
 
-    // Brief spectral jumpscare flash!
-    const flash = document.getElementById("attic-jumpscare-flash");
-    if (flash) {
-      flash.classList.remove("hidden");
-      setTimeout(() => flash.classList.add("hidden"), 820);
-    }
-
     if (App.Audio && App.Audio.stopAtticGhostLoop) App.Audio.stopAtticGhostLoop();
-    App.Audio.hexAlert();
 
     // End Attic event with +1 HOUR penalty & Cellar respawn (consistent with all fatal Events!)
     att.inAttic = false;
@@ -1067,14 +1059,24 @@ window.Duskwood = window.Duskwood || {};
     if (App.GameWorld && App.GameWorld.respawnInCellar) {
       App.GameWorld.respawnInCellar();
     }
-    if (App.Events && App.Events.showSmudgeBanner) {
-      App.Events.showSmudgeBanner(
-        `THE ATTIC STALKER CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-        { danger: true, typingDurationSec: 2.8, showChoices: false }
-      );
-      setTimeout(() => {
-        if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-      }, 3600);
+
+    const showDeathBanner = () => {
+      if (App.Events && App.Events.showSmudgeBanner) {
+        App.Events.showSmudgeBanner(
+          `THE ATTIC STALKER CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
+          { danger: true, typingDurationSec: 2.8, showChoices: false }
+        );
+        setTimeout(() => {
+          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
+        }, 3600);
+      }
+    };
+
+    if (App.Jumpscare && App.Jumpscare.trigger) {
+      App.Jumpscare.trigger("attic_stalker", { onComplete: showDeathBanner });
+    } else {
+      App.Audio.hexAlert();
+      showDeathBanner();
     }
   }
 

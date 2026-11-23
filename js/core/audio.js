@@ -35,6 +35,13 @@ window.Duskwood = window.Duskwood || {};
   let exorcismFailed = false;
   let exorcismActive = false;
 
+  // Shared Event Monster Jumpscare SFX (audio/jumpscare.mp3 — 4.0 seconds)
+  let jumpscareEl = null;
+  let jumpscareFailed = false;
+  let jumpscareActive = false;
+  let jumpscareStopTimer = null;
+  let jumpscareFadeInterval = null;
+
   // Broken Light Intro SFX state (audio/broken_light.mp3)
   let brokenLightEl = null;
   let brokenLightFailed = false;
@@ -1615,6 +1622,9 @@ window.Duskwood = window.Duskwood || {};
     if (exorcismEl && !exorcismFailed && exorcismActive) {
       exorcismEl.volume = Math.max(0, Math.min(1, getSfxVol()));
     }
+    if (jumpscareEl && !jumpscareFailed && jumpscareActive) {
+      jumpscareEl.volume = Math.max(0, Math.min(1, getSfxVol()));
+    }
   }
 
   // ==================== EVENT CARD DRAW SFX (audio/event_draw.mp3 — 4.0s) ====================
@@ -2516,6 +2526,163 @@ window.Duskwood = window.Duskwood || {};
     } catch (_) {
       exorcismFailed = true;
       playExorcismFallback();
+    }
+  }
+
+  // ==================== SHARED EVENT MONSTER JUMPSCARE SFX (audio/jumpscare.mp3 — 4.0s) ====================
+  function playJumpscareFallback() {
+    const vol = getSfxVol();
+    if (vol <= 0.001) return;
+    const audio = ensureContext();
+    if (!audio) return;
+
+    const now = audio.currentTime;
+    // 1. Instant jarring sub-bass slam
+    const sub = audio.createOscillator();
+    const subG = audio.createGain();
+    sub.type = "sawtooth";
+    sub.frequency.setValueAtTime(92, now);
+    sub.frequency.exponentialRampToValueAtTime(28, now + 0.65);
+    subG.gain.setValueAtTime(Math.min(1, vol * 0.45), now);
+    subG.gain.exponentialRampToValueAtTime(0.0008, now + 1.1);
+    sub.connect(subG);
+    subG.connect(audio.destination);
+    sub.start(now);
+    sub.stop(now + 1.15);
+
+    // 2. Dissonant metallic screech chord (tritone + minor 2nd shriek!)
+    [466.16, 659.25, 698.46, 1244.5].forEach((freq, idx) => {
+      const osc = audio.createOscillator();
+      const g = audio.createGain();
+      osc.type = idx % 2 === 0 ? "sawtooth" : "square";
+      osc.frequency.setValueAtTime(freq, now);
+      osc.frequency.exponentialRampToValueAtTime(freq * (idx % 2 === 0 ? 1.14 : 0.78), now + 1.45);
+      g.gain.setValueAtTime(Math.min(0.45, vol * 0.20), now);
+      g.gain.exponentialRampToValueAtTime(0.0006, now + 1.85);
+      osc.connect(g);
+      g.connect(audio.destination);
+      osc.start(now);
+      osc.stop(now + 1.9);
+    });
+
+    // 3. Harsh distorted shriek noise blast
+    const bufLen = Math.floor(audio.sampleRate * 1.45);
+    const nBuf = audio.createBuffer(1, bufLen, audio.sampleRate);
+    const data = nBuf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, 1.35);
+    }
+    const noise = audio.createBufferSource();
+    noise.buffer = nBuf;
+    const bp = audio.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.setValueAtTime(1650, now);
+    bp.Q.value = 1.4;
+    const nGain = audio.createGain();
+    nGain.gain.setValueAtTime(Math.min(1, vol * 0.55), now);
+    nGain.gain.exponentialRampToValueAtTime(0.0008, now + 1.45);
+    noise.connect(bp);
+    bp.connect(nGain);
+    nGain.connect(audio.destination);
+    noise.start(now);
+  }
+
+  function stopJumpscare() {
+    jumpscareActive = false;
+    clearTimeout(jumpscareStopTimer);
+    jumpscareStopTimer = null;
+    clearInterval(jumpscareFadeInterval);
+    jumpscareFadeInterval = null;
+    if (jumpscareEl && !jumpscareEl.paused) {
+      jumpscareEl.pause();
+      try { jumpscareEl.currentTime = 0; } catch (_) {}
+    }
+  }
+
+  function ensureJumpscareElement() {
+    if (jumpscareEl || jumpscareFailed) return jumpscareEl;
+    jumpscareEl = new Audio("audio/jumpscare.mp3");
+    jumpscareEl.preload = "auto";
+    jumpscareEl.addEventListener("error", () => {
+      if (!jumpscareFailed) {
+        jumpscareFailed = true;
+        console.warn("[Duskwood Audio] 'audio/jumpscare.mp3' not found. Using horror shriek synth.");
+        if (jumpscareActive) playJumpscareFallback();
+      }
+    });
+    jumpscareEl.addEventListener("ended", () => {
+      jumpscareActive = false;
+    });
+    return jumpscareEl;
+  }
+
+  function warmUpJumpscare() {
+    if (jumpscareFailed) return;
+    const el = ensureJumpscareElement();
+    if (!el || el._warmed) return;
+    el._warmed = true;
+    try {
+      el.muted = true;
+      const p = el.play();
+      if (p && typeof p.then === "function") {
+        p.then(() => {
+          if (!jumpscareActive) {
+            el.pause();
+            try { if (el.readyState >= 1) el.currentTime = 0; } catch (_) {}
+          }
+          el.muted = false;
+        }).catch(() => { el.muted = false; });
+      }
+    } catch (_) {
+      el.muted = false;
+    }
+  }
+
+  function playJumpscare(durationSec) {
+    stopJumpscare();
+    jumpscareActive = true;
+    const vol = Math.max(0, Math.min(1, getSfxVol()));
+    if (vol <= 0.001) return;
+
+    if (jumpscareFailed) {
+      playJumpscareFallback();
+      return;
+    }
+
+    ensureJumpscareElement();
+
+    try {
+      const clipMs = Math.max(1000, Math.round((durationSec || 4.0) * 1000));
+      jumpscareEl.muted = false;
+      jumpscareEl.currentTime = 0;
+      jumpscareEl.volume = vol;
+      const p = jumpscareEl.play();
+      if (p && typeof p.catch === "function") {
+        p.catch(() => {
+          if (!jumpscareFailed) {
+            jumpscareFailed = true;
+            if (jumpscareActive) playJumpscareFallback();
+          }
+        });
+      }
+
+      const fadeMs = 260;
+      jumpscareStopTimer = setTimeout(() => {
+        if (!jumpscareEl || jumpscareEl.paused) {
+          stopJumpscare();
+          return;
+        }
+        const v0 = jumpscareEl.volume;
+        const t0 = performance.now();
+        jumpscareFadeInterval = setInterval(() => {
+          const frac = Math.min(1, (performance.now() - t0) / fadeMs);
+          if (jumpscareEl) jumpscareEl.volume = Math.max(0, v0 * (1 - frac));
+          if (frac >= 1) stopJumpscare();
+        }, 22);
+      }, Math.max(0, clipMs - fadeMs));
+    } catch (_) {
+      jumpscareFailed = true;
+      playJumpscareFallback();
     }
   }
 
@@ -3787,6 +3954,9 @@ window.Duskwood = window.Duskwood || {};
     stopGameOverBgm,
     playExorcismSfx,
     stopExorcismSfx,
+    playJumpscare,
+    stopJumpscare,
+    warmUpJumpscare,
     warmUpDrawCard,
     warmUpPageTurn,
     warmUpNeighborAudio,

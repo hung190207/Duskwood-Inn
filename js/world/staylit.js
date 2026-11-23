@@ -353,13 +353,6 @@ window.Duskwood = window.Duskwood || {};
     if (!sl) return;
 
     if (App.Audio && App.Audio.stopLightSwitchSurge) App.Audio.stopLightSwitchSurge();
-    const flash = document.getElementById("shadow-hound-jumpscare-flash");
-    if (flash) {
-      flash.classList.remove("hidden");
-      setTimeout(() => flash.classList.add("hidden"), 860);
-    }
-
-    App.Audio.hexAlert();
     restoreRoomLights(matchState, sl.savedLights);
     sl.active = false;
     matchState.stayLitEvent = null;
@@ -370,14 +363,24 @@ window.Duskwood = window.Duskwood || {};
     if (App.GameWorld && App.GameWorld.respawnInCellar) {
       App.GameWorld.respawnInCellar();
     }
-    if (App.Events && App.Events.showSmudgeBanner) {
-      App.Events.showSmudgeBanner(
-        `THE SHADOW BEAST CAUGHT YOU IN THE DARK!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-        { danger: true, typingDurationSec: 2.8, showChoices: false }
-      );
-      setTimeout(() => {
-        if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-      }, 3600);
+
+    const showDeathBanner = () => {
+      if (App.Events && App.Events.showSmudgeBanner) {
+        App.Events.showSmudgeBanner(
+          `THE SHADOW BEAST CAUGHT YOU IN THE DARK!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
+          { danger: true, typingDurationSec: 2.8, showChoices: false }
+        );
+        setTimeout(() => {
+          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
+        }, 3600);
+      }
+    };
+
+    if (App.Jumpscare && App.Jumpscare.trigger) {
+      App.Jumpscare.trigger("shadow_hunter", { onComplete: showDeathBanner });
+    } else {
+      App.Audio.hexAlert();
+      showDeathBanner();
     }
   }
 
@@ -638,7 +641,7 @@ window.Duskwood = window.Duskwood || {};
 
   function cleanup(matchState) {
     if (App.Audio && App.Audio.stopLightSwitchSurge) App.Audio.stopLightSwitchSurge();
-    document.getElementById("shadow-hound-jumpscare-flash")?.classList.add("hidden");
+    if (App.Jumpscare) App.Jumpscare.stop();
     if (matchState) matchState.stayLitEvent = null;
   }
 

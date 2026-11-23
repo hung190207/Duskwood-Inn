@@ -618,13 +618,6 @@ window.Duskwood = window.Duskwood || {};
     if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
     if (App.Audio && App.Audio.stopBasementSlide) App.Audio.stopBasementSlide();
 
-    const flash = document.getElementById("chainsaw-jumpscare-flash");
-    if (flash) {
-      flash.classList.remove("hidden");
-      setTimeout(() => flash.classList.add("hidden"), 860);
-    }
-
-    App.Audio.hexAlert();
     restoreRoomLights(matchState, bm.savedLights);
     bm.active = false;
     matchState.basementEvent = null;
@@ -635,14 +628,24 @@ window.Duskwood = window.Duskwood || {};
     if (App.GameWorld && App.GameWorld.respawnInCellar) {
       App.GameWorld.respawnInCellar();
     }
-    if (App.Events && App.Events.showSmudgeBanner) {
-      App.Events.showSmudgeBanner(
-        `THE CHAINSAW MONSTER CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-        { danger: true, typingDurationSec: 2.8, showChoices: false }
-      );
-      setTimeout(() => {
-        if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-      }, 3600);
+
+    const showDeathBanner = () => {
+      if (App.Events && App.Events.showSmudgeBanner) {
+        App.Events.showSmudgeBanner(
+          `THE CHAINSAW MONSTER CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
+          { danger: true, typingDurationSec: 2.8, showChoices: false }
+        );
+        setTimeout(() => {
+          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
+        }, 3600);
+      }
+    };
+
+    if (App.Jumpscare && App.Jumpscare.trigger) {
+      App.Jumpscare.trigger("sparky", { onComplete: showDeathBanner });
+    } else {
+      App.Audio.hexAlert();
+      showDeathBanner();
     }
   }
 
@@ -1125,7 +1128,7 @@ window.Duskwood = window.Duskwood || {};
     if (App.Audio && App.Audio.stopBasementSlide) App.Audio.stopBasementSlide();
     if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
     document.getElementById("basement-breaker-modal")?.classList.add("hidden");
-    document.getElementById("chainsaw-jumpscare-flash")?.classList.add("hidden");
+    if (App.Jumpscare) App.Jumpscare.stop();
     if (matchState) matchState.basementEvent = null;
   }
 

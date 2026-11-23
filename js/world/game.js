@@ -452,14 +452,7 @@ window.Duskwood = window.Duskwood || {};
     document.getElementById("painting-inspect-modal")?.classList.add("hidden");
     document.getElementById("neighbor-fp-modal")?.classList.add("hidden");
     document.getElementById("attic-hud-bar")?.classList.add("hidden");
-    document.getElementById("attic-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("tallman-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("clown-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("puppet-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("monkey-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("chainsaw-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("shadow-hound-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("knight-jumpscare-flash")?.classList.add("hidden");
+    if (App.Jumpscare) App.Jumpscare.stop();
     App.Audio.close();
   }
 
@@ -1158,6 +1151,7 @@ window.Duskwood = window.Duskwood || {};
       (App.Knight && App.Knight.isTableGlanceOpen()) ||
       App.TableView.isOpen() ||
       App.GameIntro.isBlockingInput() ||
+      (App.Jumpscare && App.Jumpscare.isActive()) ||
       (App.Endgame && App.Endgame.isCutsceneBlocking(gameState)) ||
       (App.Basement && (App.Basement.isSlideCutscene(gameState) || App.Basement.isRepairModalOpen(gameState)))
     ) {
@@ -1267,6 +1261,11 @@ window.Duskwood = window.Duskwood || {};
 
     // Keep spatial Main Parlor clock tick smoothly updated every frame
     updateSpatialClockAudio();
+
+    // Update & render active fullscreen pixel-art jumpscare at full frame rate
+    if (App.Jumpscare && App.Jumpscare.isActive()) {
+      App.Jumpscare.updateAndRender(dt);
+    }
 
     if (App.TableView.isOpen()) {
       App.TableView.renderFrame(timeSec, dt);
@@ -1430,14 +1429,7 @@ window.Duskwood = window.Duskwood || {};
     document.getElementById("painting-inspect-modal")?.classList.add("hidden");
     document.getElementById("neighbor-fp-modal")?.classList.add("hidden");
     document.getElementById("attic-hud-bar")?.classList.add("hidden");
-    document.getElementById("attic-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("tallman-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("clown-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("puppet-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("monkey-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("chainsaw-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("shadow-hound-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("knight-jumpscare-flash")?.classList.add("hidden");
+    if (App.Jumpscare) App.Jumpscare.stop();
     if (App.FieldBook) { App.FieldBook.close(true); App.FieldBook.resetNotes(); }
     if (App.Clues) App.Clues.closeInspectModal(true);
     if (App.Audio.stopGrandfatherClockClue) App.Audio.stopGrandfatherClockClue();
@@ -1480,14 +1472,7 @@ window.Duskwood = window.Duskwood || {};
     document.getElementById("painting-inspect-modal")?.classList.add("hidden");
     document.getElementById("neighbor-fp-modal")?.classList.add("hidden");
     document.getElementById("attic-hud-bar")?.classList.add("hidden");
-    document.getElementById("attic-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("tallman-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("clown-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("puppet-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("monkey-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("chainsaw-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("shadow-hound-jumpscare-flash")?.classList.add("hidden");
-    document.getElementById("knight-jumpscare-flash")?.classList.add("hidden");
+    if (App.Jumpscare) App.Jumpscare.stop();
     if (App.FieldBook) { App.FieldBook.close(true); App.FieldBook.resetNotes(); }
     if (App.Clues) App.Clues.closeInspectModal(true);
     if (App.Audio.stopGrandfatherClockClue) App.Audio.stopGrandfatherClockClue();
@@ -1530,7 +1515,7 @@ window.Duskwood = window.Duskwood || {};
 
     document.addEventListener("keydown", (e) => {
       keys[e.code] = true;
-      if (!active || App.GameIntro.isBlockingInput()) return;
+      if (!active || App.GameIntro.isBlockingInput() || (App.Jumpscare && App.Jumpscare.isActive())) return;
 
       const extOpen = document.querySelector("#modal-howto:not(.hidden), #modal-options:not(.hidden)");
       if (extOpen) return;

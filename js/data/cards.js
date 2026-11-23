@@ -578,8 +578,8 @@ window.Duskwood = window.Duskwood || {};
       type: "HEX",
       glyph: "FS",
       name: "FEELING SMALL?",
-      shortEffect: "4 shapes in 10s • The Puppet",
-      effect: "Event: A stringed Puppet spawns in The Dining Room as all lights flicker for 10s. Follow the Toy Train's sound and insert 4 requested shapes (10s each) before The Puppet hunts you down.",
+      shortEffect: "4 shapes in 18s • The Puppet",
+      effect: "Event: A stringed Puppet spawns in The Dining Room as all lights flicker for 10s. The Toy Train starts in The Dining Room — follow its sound and insert 4 requested shapes (18s each) before The Puppet hunts you down.",
       lore: "Taut strings creak above the dining table while a wooden toy train whistles in the dark.",
       meta: { eventKey: "feeling_small", targetToys: 4, monsterId: "ceiling_crawler", monsterName: "THE PUPPET", penaltyHours: 1 }
     },

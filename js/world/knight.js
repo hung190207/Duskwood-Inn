@@ -528,13 +528,6 @@ window.Duskwood = window.Duskwood || {};
     if (App.Audio && App.Audio.stopKnightFootstep) App.Audio.stopKnightFootstep();
     if (App.Audio && App.Audio.stopPawnMove) App.Audio.stopPawnMove();
 
-    const flash = document.getElementById("knight-jumpscare-flash");
-    if (flash) {
-      flash.classList.remove("hidden");
-      setTimeout(() => flash.classList.add("hidden"), 860);
-    }
-
-    App.Audio.hexAlert();
     restoreRoomLights(matchState, kn.savedLights);
     kn.active = false;
     matchState.knightEvent = null;
@@ -545,14 +538,24 @@ window.Duskwood = window.Duskwood || {};
     if (App.GameWorld && App.GameWorld.respawnInCellar) {
       App.GameWorld.respawnInCellar();
     }
-    if (App.Events && App.Events.showSmudgeBanner) {
-      App.Events.showSmudgeBanner(
-        `${reasonMsg || "THE KNIGHT KILLED YOU!"}\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-        { danger: true, typingDurationSec: 2.8, showChoices: false }
-      );
-      setTimeout(() => {
-        if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-      }, 3600);
+
+    const showDeathBanner = () => {
+      if (App.Events && App.Events.showSmudgeBanner) {
+        App.Events.showSmudgeBanner(
+          `${reasonMsg || "THE KNIGHT KILLED YOU!"}\nRESPAWNING IN THE CELLAR (${pen.label})...`,
+          { danger: true, typingDurationSec: 2.8, showChoices: false }
+        );
+        setTimeout(() => {
+          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
+        }, 3600);
+      }
+    };
+
+    if (App.Jumpscare && App.Jumpscare.trigger) {
+      App.Jumpscare.trigger("the_knight", { onComplete: showDeathBanner });
+    } else {
+      App.Audio.hexAlert();
+      showDeathBanner();
     }
   }
 
@@ -820,7 +823,7 @@ window.Duskwood = window.Duskwood || {};
   function cleanup(matchState) {
     closeTableGlanceModal(true);
     if (App.Audio && App.Audio.stopKnightFootstep) App.Audio.stopKnightFootstep();
-    document.getElementById("knight-jumpscare-flash")?.classList.add("hidden");
+    if (App.Jumpscare) App.Jumpscare.stop();
     if (matchState) matchState.knightEvent = null;
   }
 

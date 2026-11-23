@@ -122,6 +122,7 @@ window.Duskwood = window.Duskwood || {};
       if (App.Audio.warmUpDrawCard) App.Audio.warmUpDrawCard();
       if (App.Audio.warmUpNeighborAudio) App.Audio.warmUpNeighborAudio();
       if (App.Audio.warmUpAtticAudio) App.Audio.warmUpAtticAudio();
+      if (App.Audio.warmUpJumpscare) App.Audio.warmUpJumpscare();
       if (!App.GameWorld || !App.GameWorld.isActive()) {
         App.Audio.unlockLobbyAudio();
       }

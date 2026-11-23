@@ -440,13 +440,6 @@ window.Duskwood = window.Duskwood || {};
     const tm = matchState && matchState.tallManEvent;
     if (!tm) return;
 
-    const flash = document.getElementById("tallman-jumpscare-flash");
-    if (flash) {
-      flash.classList.remove("hidden");
-      setTimeout(() => flash.classList.add("hidden"), 820);
-    }
-
-    App.Audio.hexAlert();
     restoreRoomLights(matchState, tm.savedLights);
     matchState.archFlickerLight = 1.0;
     matchState.tallManEvent = null;
@@ -457,14 +450,24 @@ window.Duskwood = window.Duskwood || {};
     if (App.GameWorld && App.GameWorld.respawnInCellar) {
       App.GameWorld.respawnInCellar();
     }
-    if (App.Events && App.Events.showSmudgeBanner) {
-      App.Events.showSmudgeBanner(
-        `THE TALL MAN FOUND YOU IN THE LIGHT!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-        { danger: true, typingDurationSec: 2.8, showChoices: false }
-      );
-      setTimeout(() => {
-        if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-      }, 3600);
+
+    const showDeathBanner = () => {
+      if (App.Events && App.Events.showSmudgeBanner) {
+        App.Events.showSmudgeBanner(
+          `THE TALL MAN FOUND YOU IN THE LIGHT!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
+          { danger: true, typingDurationSec: 2.8, showChoices: false }
+        );
+        setTimeout(() => {
+          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
+        }, 3600);
+      }
+    };
+
+    if (App.Jumpscare && App.Jumpscare.trigger) {
+      App.Jumpscare.trigger("tall_man", { onComplete: showDeathBanner });
+    } else {
+      App.Audio.hexAlert();
+      showDeathBanner();
     }
   }
 
@@ -740,13 +743,6 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Audio && App.Audio.stopClownLaughLoop) App.Audio.stopClownLaughLoop();
 
-    const flash = document.getElementById("clown-jumpscare-flash");
-    if (flash) {
-      flash.classList.remove("hidden");
-      setTimeout(() => flash.classList.add("hidden"), 840);
-    }
-
-    App.Audio.hexAlert();
     restoreRoomLights(matchState, rb.savedLights);
     rb.active = false;
     matchState.redBalloonsEvent = null;
@@ -757,14 +753,24 @@ window.Duskwood = window.Duskwood || {};
     if (App.GameWorld && App.GameWorld.respawnInCellar) {
       App.GameWorld.respawnInCellar();
     }
-    if (App.Events && App.Events.showSmudgeBanner) {
-      App.Events.showSmudgeBanner(
-        `THE JACK-IN-THE-BOX CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-        { danger: true, typingDurationSec: 2.8, showChoices: false }
-      );
-      setTimeout(() => {
-        if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-      }, 3600);
+
+    const showDeathBanner = () => {
+      if (App.Events && App.Events.showSmudgeBanner) {
+        App.Events.showSmudgeBanner(
+          `THE JACK-IN-THE-BOX CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
+          { danger: true, typingDurationSec: 2.8, showChoices: false }
+        );
+        setTimeout(() => {
+          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
+        }, 3600);
+      }
+    };
+
+    if (App.Jumpscare && App.Jumpscare.trigger) {
+      App.Jumpscare.trigger("balloon_stalker", { onComplete: showDeathBanner });
+    } else {
+      App.Audio.hexAlert();
+      showDeathBanner();
     }
   }
 
@@ -1141,25 +1147,20 @@ window.Duskwood = window.Duskwood || {};
 
     const { turnOrder, shapes } = pickShapeSpawnSpots(matchState.roomMap);
 
-    // Spawn the Toy Train in an adjacent room to Dining Room (or Dining Room if only 1 room)
-    // so the player tracks its spatial `toy_train_sfx.mp3` across rooms!
-    const nearKeys = getDiningAndNeighborRoomKeys(matchState.roomMap);
-    const adjOnly = nearKeys.filter((k) => k !== "0,0");
-    const trainRoomKey = adjOnly.length
-      ? adjOnly[Math.floor(Math.random() * adjOnly.length)]
-      : "0,0";
-    const trainCenter = trainRoomKey === "0,0"
-      ? { x: 104, y: 174 }
-      : getSafeCenterForRoom(matchState.roomMap[trainRoomKey]);
+    // ALWAYS spawn the Toy Train inside THE DINING ROOM ("0,0") first so players spot it right away!
+    const trainRoomKey = "0,0";
+    const trainCenter = { x: 104, y: 174 };
+    const FEELING_SMALL_TURN_SEC = 18.0;
 
     matchState.feelingSmallEvent = {
       active: true,
-      stage: "FLICKER_INTRO", // FLICKER_INTRO (10s) -> PLAYING (4 turns x 10s) -> CHASE
+      stage: "FLICKER_INTRO", // FLICKER_INTRO (10s) -> PLAYING (4 turns x 18s) -> CHASE
       savedLights,
       introTimer: 10.0,
+      turnDurationSec: FEELING_SMALL_TURN_SEC,
       turnOrder,
       turnIndex: 0,
-      turnTimer: 10.0,
+      turnTimer: FEELING_SMALL_TURN_SEC,
       placedShapes: [],
       shapes,
       heldShape: null,
@@ -1177,10 +1178,10 @@ window.Duskwood = window.Duskwood || {};
         y: trainCenter.y,
         facing: 1,
         targetRoomKey: "0,0",
-        targetX: 104,
+        targetX: 162,
         targetY: 170,
-        retargetTimer: 0.4,
-        pauseTimer: 0
+        retargetTimer: 2.2,
+        pauseTimer: 1.6
       },
       notice: "A PUPPET HAS APPEARED IN THE DINING ROOM — LIGHTS FLICKERING (10s)!",
       noticeTimer: 5.5
@@ -1188,7 +1189,7 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
-        "FEELING SMALL?\nTHE PUPPET DESCENDS IN THE DINING ROOM...\nLISTEN FOR THE TOY TRAIN & INSERT EACH SHAPE WITHIN 10 SECONDS!",
+        "FEELING SMALL?\nTHE PUPPET DESCENDS IN THE DINING ROOM...\nTHE TOY TRAIN SPAWNS IN THE DINING ROOM — INSERT EACH SHAPE WITHIN 18 SECONDS!",
         { typingDurationSec: 4.5, showChoices: false }
       );
       setTimeout(() => {
@@ -1230,13 +1231,6 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Audio && App.Audio.stopToyTrainLoop) App.Audio.stopToyTrainLoop();
 
-    const flash = document.getElementById("puppet-jumpscare-flash");
-    if (flash) {
-      flash.classList.remove("hidden");
-      setTimeout(() => flash.classList.add("hidden"), 840);
-    }
-
-    App.Audio.hexAlert();
     restoreRoomLights(matchState, fs.savedLights);
     fs.active = false;
     matchState.feelingSmallEvent = null;
@@ -1247,14 +1241,24 @@ window.Duskwood = window.Duskwood || {};
     if (App.GameWorld && App.GameWorld.respawnInCellar) {
       App.GameWorld.respawnInCellar();
     }
-    if (App.Events && App.Events.showSmudgeBanner) {
-      App.Events.showSmudgeBanner(
-        `THE PUPPET CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-        { danger: true, typingDurationSec: 2.8, showChoices: false }
-      );
-      setTimeout(() => {
-        if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-      }, 3600);
+
+    const showDeathBanner = () => {
+      if (App.Events && App.Events.showSmudgeBanner) {
+        App.Events.showSmudgeBanner(
+          `THE PUPPET CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
+          { danger: true, typingDurationSec: 2.8, showChoices: false }
+        );
+        setTimeout(() => {
+          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
+        }, 3600);
+      }
+    };
+
+    if (App.Jumpscare && App.Jumpscare.trigger) {
+      App.Jumpscare.trigger("ceiling_crawler", { onComplete: showDeathBanner });
+    } else {
+      App.Audio.hexAlert();
+      showDeathBanner();
     }
   }
 
@@ -1333,11 +1337,11 @@ window.Duskwood = window.Duskwood || {};
       }
 
       // Brief stop pause as train accepts the shape before chugging onward!
-      if (fs.train) fs.train.pauseTimer = 1.0;
-      // Next Turn (reset 10s countdown for the next shape!)
-      fs.turnTimer = 10.0;
+      if (fs.train) fs.train.pauseTimer = 1.2;
+      // Next Turn (reset 18s countdown for the next shape!)
+      fs.turnTimer = fs.turnDurationSec || 18.0;
       const nextDef = getShapeDef(fs.turnOrder[fs.turnIndex]);
-      fs.notice = `TURN ${fs.turnIndex + 1}/4: FIND & INSERT ${nextDef.name} (10s)!`;
+      fs.notice = `TURN ${fs.turnIndex + 1}/4: FIND & INSERT ${nextDef.name} (${Math.round(fs.turnTimer)}s)!`;
       fs.noticeTimer = 3.8;
       return true;
     }
@@ -1374,11 +1378,11 @@ window.Duskwood = window.Duskwood || {};
       if (fs.introTimer <= 0) {
         fs.stage = "PLAYING";
         fs.turnIndex = 0;
-        fs.turnTimer = 10.0;
+        fs.turnTimer = fs.turnDurationSec || 18.0;
         fs.train.spawned = true;
         const reqDef = getShapeDef(fs.turnOrder[0]);
-        const tRoomName = (matchState.roomMap && matchState.roomMap[fs.train.roomKey]?.fullName) || "THE CABIN";
-        fs.notice = `TOY TRAIN SPAWNED (${tRoomName})! TURN 1/4: INSERT ${reqDef.name} IN 10s!`;
+        const tRoomName = (matchState.roomMap && matchState.roomMap[fs.train.roomKey]?.fullName) || "THE DINING ROOM";
+        fs.notice = `TOY TRAIN SPAWNED IN ${tRoomName}! TURN 1/4: INSERT ${reqDef.name} IN ${Math.round(fs.turnTimer)}s!`;
         fs.noticeTimer = 5.0;
         App.Audio.clockChime();
         syncToyTrainSpatialAudio(fs, matchState, player);

@@ -610,13 +610,6 @@ window.Duskwood = window.Duskwood || {};
     if (App.Audio && App.Audio.stopMusicalBox) App.Audio.stopMusicalBox();
     if (App.Audio && App.Audio.stopMonkeySfx) App.Audio.stopMonkeySfx();
 
-    const flash = document.getElementById("monkey-jumpscare-flash");
-    if (flash) {
-      flash.classList.remove("hidden");
-      setTimeout(() => flash.classList.add("hidden"), 860);
-    }
-
-    App.Audio.hexAlert();
     restoreRoomLights(matchState, mr.savedLights);
     mr.active = false;
     matchState.musicalEvent = null;
@@ -627,14 +620,24 @@ window.Duskwood = window.Duskwood || {};
     if (App.GameWorld && App.GameWorld.respawnInCellar) {
       App.GameWorld.respawnInCellar();
     }
-    if (App.Events && App.Events.showSmudgeBanner) {
-      App.Events.showSmudgeBanner(
-        `THE GIANT MONKEY CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
-        { danger: true, typingDurationSec: 2.8, showChoices: false }
-      );
-      setTimeout(() => {
-        if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
-      }, 3600);
+
+    const showDeathBanner = () => {
+      if (App.Events && App.Events.showSmudgeBanner) {
+        App.Events.showSmudgeBanner(
+          `THE GIANT MONKEY CAUGHT YOU!\nRESPAWNING IN THE CELLAR (${pen.label})...`,
+          { danger: true, typingDurationSec: 2.8, showChoices: false }
+        );
+        setTimeout(() => {
+          if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
+        }, 3600);
+      }
+    };
+
+    if (App.Jumpscare && App.Jumpscare.trigger) {
+      App.Jumpscare.trigger("giant_monkey", { onComplete: showDeathBanner });
+    } else {
+      App.Audio.hexAlert();
+      showDeathBanner();
     }
   }
 

@@ -391,7 +391,7 @@ window.Duskwood = window.Duskwood || {};
   // ==================== CUTTING CORNERS STATE & LIFECYCLE ====================
   function initMatchEvents(matchState) {
     hideSmudgeBanner();
-    document.getElementById("event-jumpscare-flash")?.classList.add("hidden");
+    if (App.Jumpscare) App.Jumpscare.stop();
     if (!matchState) return;
     matchState.events = {
       cuttingCornersNpc: null,
@@ -629,22 +629,23 @@ window.Duskwood = window.Duskwood || {};
     const cc = matchState.events.cuttingCorners;
     if (!cc) return;
     cc.stage = "DEATH";
-    cc.timer = 3.6;
+    cc.timer = 4.2;
 
-    // Dramatic Corner Man jumpscare flash!
-    const flash = document.getElementById("event-jumpscare-flash");
-    if (flash) {
-      flash.classList.remove("hidden");
-      setTimeout(() => flash.classList.add("hidden"), 780);
-    }
-
-    App.Audio.hexAlert();
     const penLbl = (matchState && matchState.mode === "MULTIPLAYER") ? "+30 MIN" : "+1 HOUR";
-    showSmudgeBanner(`${reasonText}\nRESPAWNING IN THE CELLAR (${penLbl})...`, {
-      danger: true,
-      typingDurationSec: 3.0,
-      showChoices: false
-    });
+    const showDeathMsg = () => {
+      showSmudgeBanner(`${reasonText}\nRESPAWNING IN THE CELLAR (${penLbl})...`, {
+        danger: true,
+        typingDurationSec: 2.2,
+        showChoices: false
+      });
+    };
+
+    if (App.Jumpscare && App.Jumpscare.trigger) {
+      App.Jumpscare.trigger("corner_man", { onComplete: showDeathMsg });
+    } else {
+      App.Audio.hexAlert();
+      showDeathMsg();
+    }
   }
 
   function finishCuttingCornersCleanup(matchState, player, died) {

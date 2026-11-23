@@ -2635,22 +2635,26 @@
   transform: translateY(-2px);
 }
 
-/* Brief Jumpscare Flash on Cutting Corners Failure */
-.ev-jumpscare-flash {
+/* Fullscreen High-Impact Pixel-Art Monster Jumpscare Stage */
+.px-jumpscare-stage {
   position: fixed;
   inset: 0;
-  z-index: 45;
+  z-index: 60;
+  background: #000000;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(10, 2, 4, 0.88);
   pointer-events: none;
-  animation: jsShake 0.14s infinite;
+  overflow: hidden;
 }
 
-.ev-jumpscare-svg {
-  width: min(440px, 84vw);
-  height: min(440px, 84vw);
+.px-jumpscare-canvas {
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  object-fit: cover;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 @keyframes jsShake {
