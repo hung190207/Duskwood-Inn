@@ -1059,8 +1059,27 @@ window.Duskwood = window.Duskwood || {};
         if (App.Audio && App.Audio.stopAtticGhostLoop) App.Audio.stopAtticGhostLoop();
         App.Audio.clockChime();
         setNotice(att, "THE GHOST HAS BURNED AWAY! CLIMB DOWN THE LADDER [E] TO RETURN.", 8.0);
+        if (isMpMatch(matchState)) broadcastAtticSync(matchState, "MP_ATTIC_SYNC");
       } else if (App.Audio && App.Audio.stopAtticGhostLoop) {
         App.Audio.stopAtticGhostLoop();
+      }
+      if (isMpMatch(matchState)) {
+        att._ghostSyncAccum = (att._ghostSyncAccum || 0) + dt;
+        if (att._ghostSyncAccum >= 0.10 || g.state === "VANISHED") {
+          att._ghostSyncAccum = 0;
+          App.Network.sendGameAction("MP_ATTIC_GHOST", {
+            active: Boolean(g.active),
+            state: g.state,
+            x: Math.round(g.x * 10) / 10,
+            y: Math.round(g.y * 10) / 10,
+            facing: g.facing,
+            alpha: Math.round((g.alpha || 0) * 100) / 100,
+            burnTimer: g.burnTimer || 0,
+            holdingCandle: Boolean(att.holdingCandle),
+            candleX: Math.round(att.candle.x * 10) / 10,
+            candleY: Math.round(att.candle.y * 10) / 10
+          });
+        }
       }
       return;
     }
@@ -1260,14 +1279,21 @@ window.Duskwood = window.Duskwood || {};
         alpha: typeof p.alpha === "number" ? p.alpha : 0,
         burnTimer: typeof p.burnTimer === "number" ? p.burnTimer : 0
       });
+      if (typeof p.holdingCandle === "boolean") {
+        att.remoteHoldingCandle = p.holdingCandle;
+        att.candle.held = p.holdingCandle;
+      }
       if (typeof p.candleX === "number") att.candle.x = p.candleX;
       if (typeof p.candleY === "number") att.candle.y = p.candleY;
       return true;
     }
 
     if (action === "MP_ATTIC_INIT" || action === "MP_ATTIC_SYNC") {
-      if (!matchState.atticEvent) return false;
+      if (!matchState.atticEvent) {
+        startAtticEvent(matchState);
+      }
       const att = matchState.atticEvent;
+      if (!att) return false;
       if (p.ladderRoomKey) att.ladderRoomKey = p.ladderRoomKey;
       if (p.ladderRoomCoord) att.ladderRoomCoord = p.ladderRoomCoord;
       if (p.ladderRoomName) att.ladderRoomName = p.ladderRoomName;
@@ -1380,7 +1406,12 @@ window.Duskwood = window.Duskwood || {};
       drawTotemSprite(ctx, sx, sy - (t.placed ? 0 : t.surface === "floor" ? 0 : 3), t.id);
     });
 
-    if (!att.holdingCandle) {
+    const isSpecView = Boolean(player && player.spectatePlayerId);
+    const viewHoldingCandle = isSpecView
+      ? Boolean(typeof att.remoteHoldingCandle === "boolean" ? att.remoteHoldingCandle : att.candle.held)
+      : Boolean(att.holdingCandle);
+
+    if (!viewHoldingCandle) {
       drawCandleSprite(ctx, att.candle.x - camX, att.candle.y - camY, timeSec);
     }
 
@@ -1401,7 +1432,7 @@ window.Duskwood = window.Duskwood || {};
             sprinting: player.sprinting
           });
           // Draw held Ritual Candle & held Totem right in the player's hands!
-          if (att.holdingCandle) {
+          if (viewHoldingCandle) {
             drawCandleSprite(ctx, pxView + player.facing * 7, pyView - 7, timeSec);
           }
           const heldT = getHeldTotem(att);
@@ -1440,8 +1471,7 @@ window.Duskwood = window.Duskwood || {};
     mctx.globalCompositeOperation = "destination-out";
 
     // (a) Dim flickering Candle light (held or resting on floor) — deliberately tight radius!
-    const isSpecView = Boolean(player && player.spectatePlayerId);
-    const candHeld = att.holdingCandle || isSpecView;
+    const candHeld = viewHoldingCandle;
     const candX = (candHeld ? player.x + player.facing * 6 : att.candle.x) - camX;
     const candY = (candHeld ? player.y - 8 : att.candle.y - 4) - camY;
     const flick = 1.0 + Math.sin(timeSec * 12.4) * 0.045 + Math.sin(timeSec * 23.1) * 0.025;
@@ -1454,7 +1484,7 @@ window.Duskwood = window.Duskwood || {};
     mctx.fillRect(candX - candR - 2, candY - candR - 2, candR * 2 + 4, candR * 2 + 4);
 
     // (b) Very faint self-awareness halo when hiding in the dark without the candle
-    if (!att.holdingCandle) {
+    if (!viewHoldingCandle) {
       const selfR = 17;
       const sg = mctx.createRadialGradient(pxView, pyView - 8, 2, pxView, pyView - 8, selfR);
       sg.addColorStop(0, "rgba(0,0,0,0.42)");

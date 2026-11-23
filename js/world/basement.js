@@ -645,8 +645,8 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
-  function forceEndFromNetwork(matchState) {
-    cleanup(matchState);
+  function forceEndFromNetwork(matchState, won, opts) {
+    cleanup(matchState, opts);
   }
 
   function syncChainsawSpatialAudio(bm, player) {
@@ -666,9 +666,14 @@ window.Duskwood = window.Duskwood || {};
 
   function update(dt, matchState, player) {
     const bm = matchState && matchState.basementEvent;
-    if (!bm || !bm.active || bm.localDeadInCellar) {
+    if (!bm || !bm.active) {
       if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
       return;
+    }
+    if (bm.localDeadInCellar) {
+      if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
+      // Guest returns early when dead; HOST MUST KEEP RUNNING Chainsaw patrol & breaker sync for living Guests!
+      if (isMpGuest(matchState)) return;
     }
 
     if (bm.noticeTimer > 0) {
@@ -754,7 +759,7 @@ window.Duskwood = window.Duskwood || {};
     }
 
     // 4. PLAYING STAGE: Repair Progress + Predefined Chainsaw Patrol!
-    if (bm.repairingBoxId && bm.holdingRepairF) {
+    if (!bm.localDeadInCellar && bm.repairingBoxId && bm.holdingRepairF) {
       applyHostBreakerDelta(matchState, player, bm.repairingBoxId, dt / REPAIR_DURATION, true);
     }
 
@@ -776,13 +781,22 @@ window.Duskwood = window.Duskwood || {};
         if (Math.abs(dx) > 0.3) m.facing = dx >= 0 ? 1 : -1;
       }
 
-      syncChainsawSpatialAudio(bm, player);
-
-      if (!isPlayerInAlcove(player)) {
-        const catchDist = Math.hypot(m.x - player.x, m.y - player.y);
-        if (catchDist <= 13.5) {
+      if (!bm.localDeadInCellar) {
+        syncChainsawSpatialAudio(bm, player);
+        if (!isPlayerInAlcove(player) && Math.hypot(m.x - player.x, m.y - player.y) <= 14.5) {
           triggerChainsawDeath(matchState);
         }
+      }
+
+      // Host-authoritative Chainsaw catch check against ALL living remote Guests in the Basement!
+      if (isMpMode(matchState) && App.Events && App.Events.getAllLivingPlayers && App.Events.hostKillRemotePlayer) {
+        App.Events.getAllLivingPlayers(matchState, null).forEach((lp) => {
+          if (lp.isLocal || !lp.inBasement) return;
+          if (isPlayerInAlcove(lp)) return;
+          if (Math.hypot(m.x - lp.x, m.y - lp.y) <= 14.5) {
+            App.Events.hostKillRemotePlayer(matchState, lp.playerId, "the_basement", "sparky", "THE CHAINSAW MONSTER CAUGHT YOU!");
+          }
+        });
       }
     }
 
@@ -893,8 +907,9 @@ window.Duskwood = window.Duskwood || {};
       });
     }
 
-    // 3. Depth-sort Player & Tall Chainsaw-Head Monster
+    // 3. Depth-sort Local Player, Co-op Teammates in Basement & Tall Chainsaw-Head Monster
     const actors = [];
+    const remoteBasementPlayers = [];
     if (player && !overrideCenter) {
       actors.push({
         y: player.y,
@@ -910,6 +925,29 @@ window.Duskwood = window.Duskwood || {};
             crouching: player.crouching
           });
         }
+      });
+    }
+    if (!overrideCenter && App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && App.Network.getAllRemotePlayers) {
+      const skipPid = player && player.spectatePlayerId ? player.spectatePlayerId : null;
+      App.Network.getAllRemotePlayers().forEach((rp) => {
+        if (!rp.inBasement || rp.deadInEvent || rp.deadSpectator) return;
+        if (skipPid && rp.playerId === skipPid) return;
+        remoteBasementPlayers.push(rp);
+        actors.push({
+          y: rp.y,
+          draw: () => {
+            const rCfg = Object.assign({}, rp.character || charConfig, {
+              facing: rp.facing || 1,
+              walking: Boolean(rp.moving),
+              lantern: Boolean(rp.lanternOn)
+            });
+            App.Character.drawInWorld(ctx, rp.x - camX, rp.y - camY, rCfg, timeSec, {
+              seated: false,
+              sprinting: Boolean(rp.sprinting),
+              crouching: Boolean(rp.crouching)
+            });
+          }
+        });
       });
     }
     if (bm && bm.monster && bm.monster.active) {
@@ -930,7 +968,7 @@ window.Duskwood = window.Duskwood || {};
 
     mctx.globalCompositeOperation = "destination-out";
 
-    // (a) Player handheld lantern or faint close-range halo
+    // (a) Local & Co-op teammate handheld lanterns / close-range halos
     if (player && !overrideCenter) {
       const pxv = player.x - camX;
       const pyv = player.y - camY - 8;
@@ -942,6 +980,18 @@ window.Duskwood = window.Duskwood || {};
       mctx.fillStyle = lg;
       mctx.fillRect(pxv - rad - 2, pyv - rad - 2, rad * 2 + 4, rad * 2 + 4);
     }
+    remoteBasementPlayers.forEach((rp) => {
+      const rxv = rp.x - camX;
+      const ryv = rp.y - camY - 8;
+      const rRad = rp.lanternOn ? 52 : 20;
+      if (rxv < -rRad || rxv > VIEW_W + rRad || ryv < -rRad || ryv > VIEW_H + rRad) return;
+      const rlg = mctx.createRadialGradient(rxv, ryv, 3, rxv, ryv, rRad);
+      rlg.addColorStop(0, rp.lanternOn ? "rgba(0,0,0,0.90)" : "rgba(0,0,0,0.45)");
+      rlg.addColorStop(0.55, rp.lanternOn ? "rgba(0,0,0,0.50)" : "rgba(0,0,0,0.18)");
+      rlg.addColorStop(1, "rgba(0,0,0,0)");
+      mctx.fillStyle = rlg;
+      mctx.fillRect(rxv - rRad - 2, ryv - rRad - 2, rRad * 2 + 4, rRad * 2 + 4);
+    });
 
     // (b) Central shaft hub overhead dim light
     const hx = HUB_CENTER.x - camX;
@@ -1285,11 +1335,11 @@ window.Duskwood = window.Duskwood || {};
     return false;
   }
 
-  function cleanup(matchState) {
+  function cleanup(matchState, opts) {
     if (App.Audio && App.Audio.stopBasementSlide) App.Audio.stopBasementSlide();
     if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
     document.getElementById("basement-breaker-modal")?.classList.add("hidden");
-    if (App.Jumpscare) App.Jumpscare.stop();
+    if (App.Jumpscare && !(opts && opts.keepJumpscare)) App.Jumpscare.stop();
     if (matchState) matchState.basementEvent = null;
   }
 

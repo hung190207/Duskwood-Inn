@@ -484,7 +484,8 @@ window.Duskwood = window.Duskwood || {};
       active: true,
       eventKey: eventKey || "event",
       deadIds: new Set(),
-      localLockedInCellar: false
+      localLockedInCellar: false,
+      killSentAt: {}
     };
     matchState.cellarSpectate = { active: false, targetId: null };
   }
@@ -658,8 +659,10 @@ window.Duskwood = window.Duskwood || {};
   }
 
   // Quietly ends & cleans up ANY currently active event when all MP players die or someone wins!
-  function forceCleanupActiveEventForMpEnd(matchState, eventKey, won, bannerMsg) {
+  function forceCleanupActiveEventForMpEnd(matchState, eventKey, won, bannerMsg, opts) {
     if (!matchState) return;
+    const o = opts || {};
+    const keepJumpscare = Boolean(o.keepJumpscare);
     clearMpEventSession(matchState);
 
     if (matchState.atticEvent) {
@@ -693,19 +696,19 @@ window.Duskwood = window.Duskwood || {};
     }
     if (matchState.basementEvent) {
       if (App.Basement && App.Basement.forceEndFromNetwork) {
-        App.Basement.forceEndFromNetwork(matchState, won);
+        App.Basement.forceEndFromNetwork(matchState, won, { keepJumpscare });
       } else if (App.Basement && App.Basement.cleanup) {
-        App.Basement.cleanup(matchState);
+        App.Basement.cleanup(matchState, { keepJumpscare });
       }
     }
     if (matchState.stayLitEvent) {
-      if (App.StayLit && App.StayLit.cleanup) App.StayLit.cleanup(matchState);
+      if (App.StayLit && App.StayLit.cleanup) App.StayLit.cleanup(matchState, { keepJumpscare });
     }
     if (matchState.knightEvent) {
       if (App.Knight && App.Knight.forceEndFromNetwork) {
-        App.Knight.forceEndFromNetwork(matchState, won);
+        App.Knight.forceEndFromNetwork(matchState, won, { keepJumpscare });
       } else if (App.Knight && App.Knight.cleanup) {
-        App.Knight.cleanup(matchState);
+        App.Knight.cleanup(matchState, { keepJumpscare });
       }
     }
     if (matchState.events && matchState.events.cuttingCorners && matchState.events.cuttingCorners.stage !== "DONE") {
@@ -716,7 +719,7 @@ window.Duskwood = window.Duskwood || {};
 
     turnAllLightsOn(matchState);
 
-    if (bannerMsg) {
+    if (bannerMsg && !(keepJumpscare && App.Jumpscare && App.Jumpscare.isActive && App.Jumpscare.isActive())) {
       showSmudgeBanner(bannerMsg, {
         success: Boolean(won),
         danger: !won,
@@ -727,9 +730,82 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
+  // Host-authoritative kill against any remote Guest when Host's monster catches them!
+  // Guarantees 100% Jumpscare, Cellar respawn, and clean Event completion across all clients!
+  function hostKillRemotePlayer(matchState, targetPlayerId, eventKey, monsterId, killerText) {
+    if (!matchState || !targetPlayerId || !isMpEventMode(matchState) || !isMpHost(matchState)) return false;
+    if (targetPlayerId === App.Network.getLocalPlayerId()) return false;
+
+    if (!matchState.mpEventLock || !matchState.mpEventLock.active) {
+      beginMpEventSession(matchState, eventKey);
+    }
+    const lk = matchState.mpEventLock;
+    lk.killSentAt = lk.killSentAt || {};
+    const now = performance.now();
+    if (lk.deadIds.has(targetPlayerId) || (lk.killSentAt[targetPlayerId] && now - lk.killSentAt[targetPlayerId] < 4000)) {
+      return false;
+    }
+    lk.killSentAt[targetPlayerId] = now;
+    lk.deadIds.add(targetPlayerId);
+
+    if (matchState.musicalEvent && matchState.musicalEvent.active) {
+      matchState.musicalEvent.deadPlayerIds = matchState.musicalEvent.deadPlayerIds || new Set();
+      matchState.musicalEvent.deadPlayerIds.add(targetPlayerId);
+    }
+
+    const livingLeft = getLivingEventSeats(matchState);
+    const allDead = livingLeft.length === 0;
+
+    if (App.Network.sendGameActionTo) {
+      App.Network.sendGameActionTo(targetPlayerId, "MP_EVENT_FORCE_KILL", {
+        eventKey,
+        monsterId,
+        killerText,
+        allDead
+      });
+    } else {
+      App.Network.sendGameAction("MP_EVENT_FORCE_KILL", {
+        targetPlayerId,
+        eventKey,
+        monsterId,
+        killerText,
+        allDead
+      });
+    }
+
+    App.Network.sendGameAction("MP_EVENT_PLAYER_DEAD", {
+      eventKey,
+      playerId: targetPlayerId
+    });
+
+    if (allDead) {
+      App.Network.sendGameAction("MP_EVENT_END", {
+        eventKey,
+        won: false,
+        bannerMsg: "ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS — RETURN TO THE ROUND TABLE."
+      });
+      forceCleanupActiveEventForMpEnd(
+        matchState,
+        eventKey,
+        false,
+        "ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS — RETURN TO THE ROUND TABLE.",
+        { keepJumpscare: true }
+      );
+      if (App.TableView && App.TableView.broadcastFullStateSnapshot) {
+        App.TableView.broadcastFullStateSnapshot(null, true);
+      }
+    }
+    return true;
+  }
+
   // Centralized Multiplayer death handler for ALL 9 Events!
   // Returns { keepEventRunning: boolean, allDead: boolean, penalty: { label, penaltyMin } }
-  function onLocalPlayerEventDeath(matchState, eventKey, monsterId, killerText) {
+  function onLocalPlayerEventDeath(matchState, eventKey, monsterId, killerText, opts) {
+    const o = opts || {};
+    if (isMpEventMode(matchState) && isLocalLockedInCellar(matchState)) {
+      return { keepEventRunning: true, allDead: false, penalty: { label: "", penaltyMin: 0 } };
+    }
+
     const pen = applyDeathTimePenalty(matchState, 1);
 
     if (!isMpEventMode(matchState)) {
@@ -769,15 +845,20 @@ window.Duskwood = window.Duskwood || {};
     }
 
     const livingLeft = getLivingEventSeats(matchState);
-    const allDead = livingLeft.length === 0;
+    const allDead = Boolean(o.hostSaysAllDead) || livingLeft.length === 0;
 
     if (allDead) {
-      App.Network.sendGameAction("MP_EVENT_END", {
-        eventKey,
-        won: false,
-        bannerMsg: `ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS — RETURN TO THE ROUND TABLE.`
-      });
+      if (!o.fromHostForceKill) {
+        App.Network.sendGameAction("MP_EVENT_END", {
+          eventKey,
+          won: false,
+          bannerMsg: `ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS — RETURN TO THE ROUND TABLE.`
+        });
+      }
       clearMpEventSession(matchState);
+      if (isMpHost(matchState) && App.TableView && App.TableView.broadcastFullStateSnapshot) {
+        App.TableView.broadcastFullStateSnapshot(null, true);
+      }
     }
 
     const showMp = () => {
@@ -806,12 +887,59 @@ window.Duskwood = window.Duskwood || {};
         won: true,
         bannerMsg: winMsg || "EVENT CLEARED!\nTHE CELLAR DOOR UNLOCKS."
       });
+      if (isMpHost(matchState) && App.TableView && App.TableView.broadcastFullStateSnapshot) {
+        App.TableView.broadcastFullStateSnapshot(null, true);
+      }
     }
   }
 
   function handleMpEventNetwork(action, payload, matchState) {
     if (!matchState || !action) return false;
     const p = payload || {};
+
+    // Host-authoritative kill command targeting THIS Guest! Guarantees 100% Jumpscare + Cellar respawn!
+    if (action === "MP_EVENT_FORCE_KILL") {
+      const localPid = App.Network && App.Network.getLocalPlayerId ? App.Network.getLocalPlayerId() : "local";
+      if (p.targetPlayerId && p.targetPlayerId !== localPid) return true;
+      if (isLocalLockedInCellar(matchState)) return true;
+
+      // Stop local spatial/event loops immediately before jumpscare
+      if (App.Audio) {
+        if (App.Audio.stopClownLaughLoop) App.Audio.stopClownLaughLoop();
+        if (App.Audio.stopBalloonsSfxLoop) App.Audio.stopBalloonsSfxLoop();
+        if (App.Audio.stopToyTrainLoop) App.Audio.stopToyTrainLoop();
+        if (App.Audio.stopMusicalBox) App.Audio.stopMusicalBox();
+        if (App.Audio.stopMonkeySfx) App.Audio.stopMonkeySfx();
+        if (App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
+        if (App.Audio.stopLightSwitchSurge) App.Audio.stopLightSwitchSurge();
+        if (App.Audio.stopKnightFootstep) App.Audio.stopKnightFootstep();
+      }
+      if (matchState.basementEvent) {
+        matchState.basementEvent.localDeadInCellar = true;
+        if (App.Basement && App.Basement.closeBreakerModal) App.Basement.closeBreakerModal(matchState, true);
+      }
+      if (matchState.musicalEvent) {
+        matchState.musicalEvent.charging = false;
+        matchState.musicalEvent.holdingPopcornId = null;
+        matchState.musicalEvent.deadPlayerIds = matchState.musicalEvent.deadPlayerIds || new Set();
+        matchState.musicalEvent.deadPlayerIds.add(localPid);
+      }
+      if (matchState.knightEvent && App.Knight && App.Knight.closeTableGlanceModal) {
+        App.Knight.closeTableGlanceModal(true);
+      }
+
+      const res = onLocalPlayerEventDeath(
+        matchState,
+        p.eventKey || "event",
+        p.monsterId || "corner_man",
+        p.killerText || "THE MONSTER CAUGHT YOU!",
+        { fromHostForceKill: true, hostSaysAllDead: Boolean(p.allDead) }
+      );
+      if (p.allDead || !res.keepEventRunning) {
+        forceCleanupActiveEventForMpEnd(matchState, p.eventKey, false, null, { keepJumpscare: true });
+      }
+      return true;
+    }
 
     if (action === "MP_EVENT_PLAYER_DEAD" && p.playerId) {
       if (!matchState.mpEventLock || !matchState.mpEventLock.active) {
@@ -834,12 +962,23 @@ window.Duskwood = window.Duskwood || {};
 
       // Check if ALL players are now dead -> end event & unlock Cellar for everyone!
       if (getLivingEventSeats(matchState).length === 0) {
+        if (isMpHost(matchState)) {
+          App.Network.sendGameAction("MP_EVENT_END", {
+            eventKey: p.eventKey,
+            won: false,
+            bannerMsg: "ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS — RETURN TO THE ROUND TABLE."
+          });
+        }
         forceCleanupActiveEventForMpEnd(
           matchState,
           p.eventKey,
           false,
-          "ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS — RETURN TO THE ROUND TABLE."
+          "ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS — RETURN TO THE ROUND TABLE.",
+          { keepJumpscare: true }
         );
+        if (isMpHost(matchState) && App.TableView && App.TableView.broadcastFullStateSnapshot) {
+          App.TableView.broadcastFullStateSnapshot(null, true);
+        }
       }
       return true;
     }
@@ -849,7 +988,8 @@ window.Duskwood = window.Duskwood || {};
         matchState,
         p.eventKey,
         Boolean(p.won),
-        p.bannerMsg || (p.won ? "EVENT CLEARED!\nTHE CELLAR DOOR UNLOCKS." : "ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS.")
+        p.bannerMsg || (p.won ? "EVENT CLEARED!\nTHE CELLAR DOOR UNLOCKS." : "ALL SURVIVORS FELL!\nTHE CELLAR DOOR UNLOCKS."),
+        { keepJumpscare: true }
       );
       return true;
     }
@@ -869,6 +1009,21 @@ window.Duskwood = window.Duskwood || {};
   function isCuttingCornersActive(matchState) {
     const cc = matchState && matchState.events && matchState.events.cuttingCorners;
     return Boolean(cc && cc.stage !== "WAITING_ROOMS" && cc.stage !== "DONE");
+  }
+
+  function getActiveEventKey(matchState) {
+    if (!matchState) return null;
+    if (isCuttingCornersActive(matchState)) return "cutting_corners";
+    if (App.Attic && App.Attic.isAtticActive && App.Attic.isAtticActive(matchState)) return "the_attic";
+    if (App.Stalkers && App.Stalkers.isTallManActive && App.Stalkers.isTallManActive(matchState)) return "tall_man";
+    if (App.Stalkers && App.Stalkers.isRedBalloonsActive && App.Stalkers.isRedBalloonsActive(matchState)) return "red_balloons";
+    if (App.Stalkers && App.Stalkers.isFeelingSmallActive && App.Stalkers.isFeelingSmallActive(matchState)) return "feeling_small";
+    if (App.Musical && App.Musical.isActive && App.Musical.isActive(matchState)) return "musical_rooms";
+    if (App.Basement && App.Basement.isActive && App.Basement.isActive(matchState)) return "the_basement";
+    if (App.StayLit && App.StayLit.isActive && App.StayLit.isActive(matchState)) return "stay_in_the_light";
+    if (App.Knight && App.Knight.isActive && App.Knight.isActive(matchState)) return "the_knight";
+    if (App.Thief && App.Thief.isActive && App.Thief.isActive(matchState)) return "the_thief";
+    return null;
   }
 
   function isAnyEventActive(matchState) {
@@ -933,6 +1088,8 @@ window.Duskwood = window.Duskwood || {};
 
       matchState.events.cuttingCorners = {
         stage: "WAITING_ROOMS", // WAITING_ROOMS | SCRAMBLE | QUESTION | FEEDBACK | DEATH | SURVIVED | DONE
+        localStatus: "ALIVE",   // ALIVE | ANSWERED_OK | DYING | LOCKED_DEAD
+        localDeathTimer: 0,
         triggerRooms: targetRooms,
         triggerImmediatelyAfterDraw: curRooms >= 6,
         timer: 0,
@@ -988,7 +1145,20 @@ window.Duskwood = window.Duskwood || {};
     }
     matchState.events.globalLightsOut = Boolean(p.globalLightsOut);
 
-    if (p.stage && p.stage !== prevStage && cc.stage !== "LOCKED_DEAD" && cc.stage !== "DEATH") {
+    const localDeadOrDying = cc.localStatus === "DYING" || cc.localStatus === "LOCKED_DEAD" || isLocalLockedInCellar(matchState);
+
+    if (p.stage && p.stage !== prevStage) {
+      if (p.stage === "DONE") {
+        if (player) { player.facingCorner = false; player.cornerLock = null; }
+        cc.stage = "DONE";
+        cc.localStatus = "ALIVE";
+        matchState.events.globalLightsOut = false;
+        matchState.events.cuttingCornersNpc = null;
+        turnAllLightsOn(matchState);
+        hideSmudgeBanner();
+        return;
+      }
+
       if (p.stage === "SCRAMBLE") {
         // Host started Cutting Corners -> run local blackout + scramble banner!
         matchState.roomLightStates = {};
@@ -998,14 +1168,17 @@ window.Duskwood = window.Duskwood || {};
         if (App.GameWorld && App.GameWorld.forceStandUpForEvent) App.GameWorld.forceStandUpForEvent();
         beginMpEventSession(matchState, "cutting_corners");
         cc.stage = "SCRAMBLE";
+        cc.localStatus = "ALIVE";
+        cc.localDeathTimer = 0;
         App.Audio.hexAlert();
-        showSmudgeBanner("GET TO A CORNER AND FACE IT.
-DO NOT TURN AROUND...", {
+        showSmudgeBanner("GET TO A CORNER AND FACE IT.\nDO NOT TURN AROUND...", {
           countdown: Math.max(1, Math.ceil(cc.timer || 10)),
           typingDurationSec: 5.0,
           showChoices: false
         });
       } else if (p.stage === "QUESTION") {
+        cc.stage = "QUESTION";
+        if (localDeadOrDying) return;
         // Check if local Guest actually made it into a valid corner!
         if (player && !player.facingCorner && matchState.roomMap && matchState.currentRoomCoord) {
           const curR = matchState.roomMap[`${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`];
@@ -1020,11 +1193,11 @@ DO NOT TURN AROUND...", {
             }
           }
         }
-        if (player && !player.facingCorner && !isLocalLockedInCellar(matchState)) {
+        if (player && !player.facingCorner) {
           triggerCuttingCornersDeath(matchState, "TIME IS UP — YOU DID NOT FACE A CORNER!");
           return;
         }
-        cc.stage = "QUESTION";
+        cc.localStatus = "ALIVE";
         cc.playerTurnedAround = false;
         if (cc.currentQ) {
           showSmudgeBanner(cc.currentQ.text, {
@@ -1035,23 +1208,22 @@ DO NOT TURN AROUND...", {
           });
         }
       } else if (p.stage === "SURVIVED") {
+        // If Guest never clicked Q/E before QUESTION timer ran out, auto-evaluate staying at corner (false)!
+        if (prevStage === "QUESTION" && cc.localStatus === "ALIVE" && !localDeadOrDying && cc.currentQ) {
+          submitCuttingCornersChoice(matchState, player, false);
+        }
         cc.stage = "SURVIVED";
+        if (cc.localStatus === "DYING" || cc.localStatus === "LOCKED_DEAD" || isLocalLockedInCellar(matchState)) {
+          return;
+        }
         App.Audio.clockChime();
-        showSmudgeBanner("IT LEFT THE ROOM...
-YOU SURVIVED CUTTING CORNERS.", {
+        showSmudgeBanner("IT LEFT THE ROOM...\nYOU SURVIVED CUTTING CORNERS.", {
           success: true,
           typingDurationSec: 2.8,
           showChoices: false
         });
-      } else if (p.stage === "DONE") {
-        if (player) { player.facingCorner = false; player.cornerLock = null; }
-        cc.stage = "DONE";
-        matchState.events.globalLightsOut = false;
-        matchState.events.cuttingCornersNpc = null;
-        turnAllLightsOn(matchState);
-        hideSmudgeBanner();
       }
-    } else if (cc.stage === "SCRAMBLE" || cc.stage === "QUESTION") {
+    } else if (!localDeadOrDying && (cc.stage === "SCRAMBLE" || (cc.stage === "QUESTION" && cc.localStatus === "ALIVE"))) {
       updateBannerCountdown(cc.timer);
     }
   }
@@ -1134,6 +1306,8 @@ YOU SURVIVED CUTTING CORNERS.", {
 
     beginMpEventSession(matchState, "cutting_corners");
     cc.stage = "SCRAMBLE";
+    cc.localStatus = "ALIVE";
+    cc.localDeathTimer = 0;
     cc.timer = 10.0;
     cc.questions = buildCuttingCornersQuestions(matchState);
     cc.qIndex = 0;
@@ -1167,16 +1341,21 @@ YOU SURVIVED CUTTING CORNERS.", {
   function startQuestionRound(matchState) {
     const cc = matchState.events.cuttingCorners;
     if (!cc) return;
+    const hostLocalAlive = cc.localStatus !== "DYING" && cc.localStatus !== "LOCKED_DEAD" && !isLocalLockedInCellar(matchState);
+
     if (cc.qIndex >= cc.questions.length) {
-      // Survived all 3 questions!
+      // Survived all conditions!
       cc.stage = "SURVIVED";
       cc.timer = 3.2;
-      App.Audio.clockChime();
-      showSmudgeBanner("IT LEFT THE ROOM...\nYOU SURVIVED CUTTING CORNERS.", {
-        success: true,
-        typingDurationSec: 2.8,
-        showChoices: false
-      });
+      if (hostLocalAlive) {
+        App.Audio.clockChime();
+        showSmudgeBanner("IT LEFT THE ROOM...\nYOU SURVIVED CUTTING CORNERS.", {
+          success: true,
+          typingDurationSec: 2.8,
+          showChoices: false
+        });
+      }
+      broadcastCuttingCornersNow(matchState);
       return;
     }
 
@@ -1184,21 +1363,28 @@ YOU SURVIVED CUTTING CORNERS.", {
     cc.currentQ = cc.questions[cc.qIndex];
     cc.timer = 10.0;
     cc.playerTurnedAround = false;
-
-    showSmudgeBanner(cc.currentQ.text, {
-      subtag: `CONDITION ${cc.qIndex + 1} / ${cc.questions.length}`,
-      countdown: 10,
-      typingDurationSec: 5.0,
-      showChoices: true
-    });
+    if (hostLocalAlive) {
+      cc.localStatus = "ALIVE";
+      showSmudgeBanner(cc.currentQ.text, {
+        subtag: `CONDITION ${cc.qIndex + 1} / ${cc.questions.length}`,
+        countdown: 10,
+        typingDurationSec: 5.0,
+        showChoices: true
+      });
+    }
     broadcastCuttingCornersNow(matchState);
   }
 
   function triggerCuttingCornersDeath(matchState, reasonText) {
     const cc = matchState.events.cuttingCorners;
-    if (!cc) return;
-    cc.stage = "DEATH";
-    cc.timer = 4.2;
+    if (!cc || cc.localStatus === "DYING" || cc.localStatus === "LOCKED_DEAD") return;
+    cc.localStatus = "DYING";
+    cc.localDeathTimer = 4.2;
+    if (!isMpEventMode(matchState)) {
+      cc.stage = "DEATH";
+      cc.timer = 4.2;
+    }
+    document.getElementById("event-smudge-choices")?.classList.add("hidden");
 
     const penLbl = (matchState && matchState.mode === "MULTIPLAYER") ? "+30 MIN" : "+1 HOUR";
     const showDeathMsg = () => {
@@ -1228,8 +1414,8 @@ YOU SURVIVED CUTTING CORNERS.", {
       if (isMpEventMode(matchState)) {
         const res = onLocalPlayerEventDeath(matchState, "cutting_corners", null, "THE CORNER MAN CAUGHT YOU!");
         if (res.keepEventRunning) {
-          // Local player locked in Cellar while teammates finish Cutting Corners!
-          if (cc) cc.stage = "LOCKED_DEAD";
+          // Local player locked in Cellar while surviving teammates finish Cutting Corners!
+          if (cc) cc.localStatus = "LOCKED_DEAD";
           return;
         }
       } else {
@@ -1242,7 +1428,10 @@ YOU SURVIVED CUTTING CORNERS.", {
       onEventWonBroadcast(matchState, "cutting_corners", "CUTTING CORNERS SURVIVED!\nTHE CELLAR DOOR UNLOCKS.");
     }
 
-    if (cc) cc.stage = "DONE";
+    if (cc) {
+      cc.stage = "DONE";
+      cc.localStatus = "ALIVE";
+    }
     matchState.events.globalLightsOut = false;
     matchState.events.cuttingCornersNpc = null;
     turnAllLightsOn(matchState);
@@ -1252,6 +1441,7 @@ YOU SURVIVED CUTTING CORNERS.", {
   function submitCuttingCornersChoice(matchState, player, turnAround) {
     const cc = matchState && matchState.events && matchState.events.cuttingCorners;
     if (!cc || cc.stage !== "QUESTION" || !cc.currentQ) return;
+    if (cc.localStatus !== "ALIVE" || isLocalLockedInCellar(matchState)) return;
 
     // Visually turn player around if they chose TRUE (Face it!)
     if (turnAround && player) {
@@ -1263,15 +1453,18 @@ YOU SURVIVED CUTTING CORNERS.", {
     document.getElementById("event-smudge-choices")?.classList.add("hidden");
 
     if (correct) {
-      cc.stage = "FEEDBACK";
-      cc.timer = 1.6;
-      cc.qIndex += 1;
+      cc.localStatus = "ANSWERED_OK";
       App.Audio.open();
       showSmudgeBanner(turnAround ? "YOU FACED IT... IT SPARES YOU." : "YOU KEPT FACING THE WALL...", {
         success: true,
         playTyping: false,
         showChoices: false
       });
+      if (!isMpEventMode(matchState)) {
+        cc.stage = "FEEDBACK";
+        cc.timer = 1.6;
+        cc.qIndex += 1;
+      }
     } else {
       const msg = turnAround
         ? "THE CONDITION WAS FALSE — YOU TURNED AROUND!"
@@ -1285,14 +1478,17 @@ YOU SURVIVED CUTTING CORNERS.", {
     if (!matchState || !matchState.events || !matchState.events.cuttingCorners) return;
     const cc = matchState.events.cuttingCorners;
 
-    // Guest only runs local DEATH cleanup timer; all phase transitions & timers come from Host MP_CC_STATE!
-    if (isMpGuest(matchState)) {
-      if (cc.stage === "DEATH") {
-        cc.timer -= dt;
-        if (cc.timer <= 0) {
-          finishCuttingCornersCleanup(matchState, player, true);
-        }
+    // Local death jumpscare -> Cellar lockdown timer runs independently of shared MP phase!
+    if (isMpEventMode(matchState) && cc.localStatus === "DYING") {
+      cc.localDeathTimer -= dt;
+      if (cc.localDeathTimer <= 0) {
+        finishCuttingCornersCleanup(matchState, player, true);
+        if (cc.stage === "DONE") return;
       }
+    }
+
+    // Guest only runs local death timer; all shared phase transitions come from Host MP_CC_STATE!
+    if (isMpGuest(matchState)) {
       return;
     }
 
@@ -1314,10 +1510,10 @@ YOU SURVIVED CUTTING CORNERS.", {
 
     if (cc.stage === "SCRAMBLE") {
       cc.timer -= dt;
-      updateBannerCountdown(cc.timer);
+      if (cc.localStatus === "ALIVE") updateBannerCountdown(cc.timer);
 
       if (cc.timer <= 0) {
-        // Auto-detect if player is physically tucked right against a valid corner even if they forgot [E]
+        // Auto-detect if Host is physically tucked right against a valid corner even if they forgot [E]
         if (player && !player.facingCorner && currentRoom) {
           const corners = getValidCornersForRoom(currentRoom, matchState.roomMap);
           const near = corners.find((c) => Math.hypot(player.x - c.x, player.y - c.y) <= 16);
@@ -1333,6 +1529,10 @@ YOU SURVIVED CUTTING CORNERS.", {
           startQuestionRound(matchState);
         } else {
           triggerCuttingCornersDeath(matchState, "TIME IS UP — YOU DID NOT FACE A CORNER!");
+          // In Multiplayer, keep the shared event advancing so surviving Guests still get their Question round!
+          if (isMpEventMode(matchState)) {
+            startQuestionRound(matchState);
+          }
         }
       }
       return;
@@ -1340,10 +1540,16 @@ YOU SURVIVED CUTTING CORNERS.", {
 
     if (cc.stage === "QUESTION") {
       cc.timer -= dt;
-      updateBannerCountdown(cc.timer);
+      if (cc.localStatus === "ALIVE") updateBannerCountdown(cc.timer);
       if (cc.timer <= 0) {
         // Timer ran out without turning around -> counts as staying facing the corner (FALSE)!
-        submitCuttingCornersChoice(matchState, player, false);
+        if (cc.localStatus === "ALIVE") {
+          submitCuttingCornersChoice(matchState, player, false);
+        }
+        if (isMpEventMode(matchState)) {
+          cc.qIndex += 1;
+          startQuestionRound(matchState);
+        }
       }
       return;
     }
@@ -1534,6 +1740,7 @@ YOU SURVIVED CUTTING CORNERS.", {
     initMatchEvents,
     isGlobalLightsOut,
     isCuttingCornersActive,
+    getActiveEventKey,
     isAnyEventActive,
     turnAllLightsOn,
     applyDeathTimePenalty,
@@ -1555,6 +1762,8 @@ YOU SURVIVED CUTTING CORNERS.", {
     cycleSpectateTarget,
     exitSpectateToCellar,
     getSpectatorHudInfo,
+    hostKillRemotePlayer,
+    forceCleanupActiveEventForMpEnd,
     onLocalPlayerEventDeath,
     onEventWonBroadcast,
     handleMpEventNetwork,

@@ -558,14 +558,15 @@ window.Duskwood = window.Duskwood || {};
     let total = 0;
     let inRed = 0;
 
-    if (!deadSet.has(localPid)) {
+    const isDeadEv = (pid) => deadSet.has(pid) || Boolean(App.Events && App.Events.isPlayerDeadInEvent && App.Events.isPlayerDeadInEvent(matchState, pid));
+    if (!isDeadEv(localPid)) {
       total += 1;
       if (localInRed) inRed += 1;
     }
 
     const remotes = App.Network.getAllRemotePlayers ? App.Network.getAllRemotePlayers() : [];
     remotes.forEach((rp) => {
-      if (deadSet.has(rp.playerId)) return;
+      if (isDeadEv(rp.playerId) || rp.deadInEvent) return;
       total += 1;
       const rKey = `${rp.roomX || 0},${rp.roomY || 0}`;
       if (rKey === mr.redRoomKey) inRed += 1;
@@ -844,13 +845,22 @@ window.Duskwood = window.Duskwood || {};
     // 1. 10-second Intro Stage (Host triggers PLAYING_20S authoritatively so all players start together!)
     if (mr.stage === "INTRO_10S") {
       mr.introTimer = Math.max(0, mr.introTimer - dt);
-      if (isMpGuest(matchState)) return;
+      if (isMpGuest(matchState)) {
+        if (mr.introTimer <= 0.05) {
+          mr.waitResyncAccum = (mr.waitResyncAccum || 0) + dt;
+          if (mr.waitResyncAccum >= 1.2) {
+            mr.waitResyncAccum = 0;
+            if (App.Network && App.Network.requestImmediateResync) App.Network.requestImmediateResync();
+          }
+        }
+        return;
+      }
       if (mr.introTimer <= 0) {
         beginMusical20sPhase(matchState);
-        if (isMultiplayerMatch(matchState)) broadcastStateNow(matchState);
+        if (isMultiplayerMatch(matchState)) broadcastStateNow(matchState, { includePopcorns: true });
       } else if (isMultiplayerMatch(matchState)) {
         mr.syncAccum = (mr.syncAccum || 0) + dt;
-        if (mr.syncAccum >= 0.30) { mr.syncAccum = 0; broadcastStateNow(matchState); }
+        if (mr.syncAccum >= 0.25) { mr.syncAccum = 0; broadcastStateNow(matchState); }
       }
       return;
     }
@@ -1004,14 +1014,16 @@ window.Duskwood = window.Duskwood || {};
         if (mr.syncAccum >= 0.085) { mr.syncAccum = 0; broadcastStateNow(matchState); }
       }
 
-      if (
-        !(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) &&
-        !occ.localInRed &&
-        mr.monkey.roomKey === pRoomKey &&
-        Math.hypot(mr.monkey.x - player.x, mr.monkey.y - player.y) <= 15.0
-      ) {
-        triggerMusicalDeath(matchState);
-      }
+      // Host-authoritative catch check across ALL living players outside the Red Safe Room!
+      const localLocked = Boolean(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState));
+      outsidePlayers.forEach((lp) => {
+        if (mr.monkey.roomKey !== lp.roomKey || Math.hypot(mr.monkey.x - lp.x, mr.monkey.y - lp.y) > 15.5) return;
+        if (lp.isLocal) {
+          if (!localLocked && !occ.localInRed) triggerMusicalDeath(matchState);
+        } else if (App.Events && App.Events.hostKillRemotePlayer) {
+          App.Events.hostKillRemotePlayer(matchState, lp.playerId, "musical_rooms", "giant_monkey", "THE GIANT MONKEY CAUGHT YOU!");
+        }
+      });
     }
   }
 
@@ -1279,11 +1291,11 @@ window.Duskwood = window.Duskwood || {};
     return Boolean(mr && mr.active && (mr.stage === "PLAYING_20S" || mr.stage === "CHASE"));
   }
 
-  function broadcastStateNow(matchState) {
+  function broadcastStateNow(matchState, opts) {
     if (!matchState || !isMultiplayerMatch(matchState) || !isMpHost(matchState)) return;
     const mr = matchState.musicalEvent;
     if (!mr || !mr.active) return;
-    App.Network.sendGameAction("MP_MUSICAL_STATE", {
+    const payload = {
       stage: mr.stage,
       round: mr.round || 1,
       introTimer: Math.round((mr.introTimer || 0) * 10) / 10,
@@ -1299,7 +1311,14 @@ window.Duskwood = window.Duskwood || {};
       },
       notice: mr.notice || "",
       noticeTimer: mr.noticeTimer || 0
-    });
+    };
+    if (opts && opts.includePopcorns && Array.isArray(mr.popcorns)) {
+      payload.popcorns = mr.popcorns.map((p) => ({
+        id: p.id, roomKey: p.roomKey, x: Math.round(p.x), y: Math.round(p.y),
+        collected: Boolean(p.collected), delivered: Boolean(p.delivered)
+      }));
+    }
+    App.Network.sendGameAction("MP_MUSICAL_STATE", payload);
   }
 
   function handleNetworkMessage(action, payload, matchState) {
@@ -1327,6 +1346,9 @@ window.Duskwood = window.Duskwood || {};
         beginMusical20sPhase(matchState, true);
       } else if (p.stage === "CHASE" && p.redRoomKey) {
         mr.redRoomKey = p.redRoomKey;
+      }
+      if (Array.isArray(p.popcorns) && p.popcorns.length > 0) {
+        mr.popcorns = p.popcorns.map((pp) => Object.assign({}, pp));
       }
       return;
     }

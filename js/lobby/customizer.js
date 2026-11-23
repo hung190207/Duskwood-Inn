@@ -26,10 +26,8 @@ window.Duskwood = window.Duskwood || {};
 
     const footerName = document.getElementById("footer-player-name");
     const spName = document.getElementById("sp-player-name");
-    const mpSeat1 = document.getElementById("mp-seat-1-name");
     if (footerName) footerName.textContent = cleanName;
     if (spName) spName.textContent = cleanName;
-    if (mpSeat1) mpSeat1.textContent = cleanName;
 
     const flipBtn = document.getElementById("btn-flip-dir");
     if (flipBtn) flipBtn.textContent = ch.facing === 1 ? "FACE: RIGHT" : "FACE: LEFT";

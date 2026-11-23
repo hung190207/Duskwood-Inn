@@ -241,29 +241,37 @@ window.Duskwood = window.Duskwood || {};
     const diffTag = document.getElementById("hud-diff-tag");
     const clockEl = document.getElementById("hud-clock-time");
 
+    const specHudTop = (App.Events && App.Events.getSpectatorHudInfo) ? App.Events.getSpectatorHudInfo(gameState) : null;
+    const isSpecNow = Boolean(specHudTop && specHudTop.isSpectating);
     const inAttic = Boolean(App.Attic && App.Attic.isPlayerInAttic(gameState));
-    const inBasement = Boolean(App.Basement && App.Basement.isActive(gameState));
+    const inBasement = Boolean(App.Basement && (App.Basement.isLocalInBasementView ? App.Basement.isLocalInBasementView(gameState) : App.Basement.isActive(gameState)));
     const inForest = Boolean(App.Endgame && App.Endgame.isInForestExit(gameState));
     const curRoom = getCurrentRoomObj();
     if (roomNameEl) {
-      roomNameEl.textContent = inForest
-        ? "DUSKWOOD FOREST (DAWN)"
-        : inBasement
-          ? "THE BASEMENT (UNDERGROUND)"
-          : inAttic
-            ? "THE ATTIC (MAZE)"
-            : curRoom && curRoom.fullName ? curRoom.fullName : "THE DINING ROOM";
+      roomNameEl.textContent = isSpecNow
+        ? (specHudTop.locName || "CABIN")
+        : inForest
+          ? "DUSKWOOD FOREST (DAWN)"
+          : inBasement
+            ? "THE BASEMENT (UNDERGROUND)"
+            : inAttic
+              ? "THE ATTIC (MAZE)"
+              : curRoom && curRoom.fullName ? curRoom.fullName : "THE DINING ROOM";
     }
     if (stateBadge) {
-      stateBadge.textContent = inAttic
-        ? "NO LANTERNS • RITUAL"
-        : gameState.pendingPenaltyAnim
-          ? "TIME LOST — RETURN TO TABLE [E]"
-          : player.seated
-            ? "SEATED AT TABLE"
-            : player.crouching
-              ? "CROUCHING (SILENT)"
-              : "EXPLORING CABIN";
+      stateBadge.textContent = isSpecNow
+        ? `SPECTATING: ${(specHudTop.targetName || "TEAMMATE").toUpperCase()}`
+        : (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState))
+          ? "DEAD IN CELLAR • [P] SPECTATE"
+          : inAttic
+            ? "NO LANTERNS • RITUAL"
+            : gameState.pendingPenaltyAnim
+              ? "TIME LOST — RETURN TO TABLE [E]"
+              : player.seated
+                ? "SEATED AT TABLE"
+                : player.crouching
+                  ? "CROUCHING (SILENT)"
+                  : "EXPLORING CABIN";
     }
     syncAtticHud();
     if (diffTag) {
@@ -526,11 +534,7 @@ window.Duskwood = window.Duskwood || {};
   function closePaintingModal() {
     if (!paintingOpen) return;
     paintingOpen = false;
-    neighborModalOpen = false;
     document.getElementById("painting-inspect-modal")?.classList.add("hidden");
-    document.getElementById("neighbor-fp-modal")?.classList.add("hidden");
-    document.getElementById("attic-hud-bar")?.classList.add("hidden");
-    if (App.Jumpscare) App.Jumpscare.stop();
     App.Audio.close();
   }
 
@@ -1623,16 +1627,22 @@ window.Duskwood = window.Duskwood || {};
       const viewRoomX = specTarget ? (specTarget.roomX || 0) : gameState.currentRoomCoord.x;
       const viewRoomY = specTarget ? (specTarget.roomY || 0) : gameState.currentRoomCoord.y;
 
-      if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && !viewInAttic && !viewInBasement) {
-        if (inForestNow && App.Network.getAllRemotePlayers) {
+      if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && !viewInAttic) {
+        if (viewInBasement && App.Network.getAllRemotePlayers) {
+          App.Network.getAllRemotePlayers().forEach((rp) => {
+            if (!rp.inBasement || rp.deadInEvent || rp.deadSpectator) return;
+            if (specTarget && rp.playerId === specTarget.playerId) return;
+            drawNameplateAt(rp.x, rp.y, rp.name, ox, oy, scale, nameLight, camOffX, camOffY, true);
+          });
+        } else if (inForestNow && App.Network.getAllRemotePlayers) {
           App.Network.getAllRemotePlayers().forEach((rp) => {
             if (!rp.inForest || rp.inCar || rp.deadSpectator) return;
             drawNameplateAt(rp.x, rp.y, rp.name, ox, oy, scale, nameLight, camOffX, camOffY, true);
           });
-        } else if (!inForestNow) {
+        } else if (!inForestNow && !viewInBasement) {
           App.Network.getRemotePlayersInRoom(viewRoomX, viewRoomY).forEach((rp) => {
             if (rp.deadSpectator || rp.inForest || rp.inCar || rp.inAttic || rp.inBasement) return;
-            if (rp.deadInEvent && specTarget) return;
+            if (specTarget && (rp.deadInEvent || rp.playerId === specTarget.playerId)) return;
             drawNameplateAt(rp.x, rp.y, rp.name, ox, oy, scale, nameLight, camOffX, camOffY, true);
           });
         }
@@ -1724,9 +1734,15 @@ window.Duskwood = window.Duskwood || {};
         syncHud();
         updateSpatialClockAudio();
         App.Audio.startClockTick();
+        if (gameState.mode === "MULTIPLAYER" && App.Network && !App.Network.isHost() && App.Network.requestImmediateResync) {
+          App.Network.requestImmediateResync();
+        }
       },
       () => {
         if (hud) hud.classList.remove("hud-hidden");
+        if (gameState.mode === "MULTIPLAYER" && App.Network && !App.Network.isHost() && App.Network.requestImmediateResync) {
+          App.Network.requestImmediateResync();
+        }
       }
     );
   }
@@ -1924,6 +1940,7 @@ window.Duskwood = window.Duskwood || {};
       if (App.Events && App.Events.canSpectateInCellar && (App.Events.canSpectateInCellar(gameState) || (App.Events.isSpectatingActive && App.Events.isSpectatingActive(gameState)))) {
         if (e.code === "KeyP") {
           e.preventDefault();
+          if (e.repeat) return;
           App.Events.toggleSpectateMode(gameState);
           syncHud();
           return;
@@ -2095,7 +2112,15 @@ window.Duskwood = window.Duskwood || {};
         if (App.Events) App.Events.submitCuttingCornersChoice(gameState, player, false);
       } else if (act === "retry-endgame") {
         if (App.Endgame) App.Endgame.cleanup(gameState);
-        startSingleplayer();
+        if (gameState.mode === "MULTIPLAYER" && App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
+          if (App.Network.isHost && App.Network.isHost()) {
+            App.Network.startMatch();
+          } else {
+            exitToLobby();
+          }
+        } else {
+          startSingleplayer();
+        }
       } else if (act === "close-breaker-modal") {
         if (App.Basement) App.Basement.closeBreakerModal(gameState, false);
         syncHud();

@@ -515,14 +515,17 @@ window.Duskwood = window.Duskwood || {};
         }
         moveHoundStep(sl, bestDarkTarget.roomKey, bestDarkTarget.x, bestDarkTarget.y, 58, dt, matchState.roomMap);
 
-        if (
-          h.active &&
-          !(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) &&
-          !sl.litRoomKeys.has(pRoomKey) &&
-          h.roomKey === pRoomKey &&
-          Math.hypot(h.x - player.x, h.y - player.y) <= 13.5
-        ) {
-          triggerStayLitDeath(matchState);
+        if (h.active) {
+          const localLocked = Boolean(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState));
+          living.forEach((lp) => {
+            if (sl.litRoomKeys.has(lp.roomKey)) return;
+            if (h.roomKey !== lp.roomKey || Math.hypot(h.x - lp.x, h.y - lp.y) > 14.5) return;
+            if (lp.isLocal) {
+              if (!localLocked) triggerStayLitDeath(matchState);
+            } else if (App.Events && App.Events.hostKillRemotePlayer) {
+              App.Events.hostKillRemotePlayer(matchState, lp.playerId, "stay_in_the_light", "shadow_hunter", "THE SHADOW BEAST CAUGHT YOU IN THE DARK!");
+            }
+          });
         }
       } else {
         if (h.state === "CHASE") {
@@ -735,9 +738,9 @@ window.Duskwood = window.Duskwood || {};
     return true;
   }
 
-  function cleanup(matchState) {
+  function cleanup(matchState, opts) {
     if (App.Audio && App.Audio.stopLightSwitchSurge) App.Audio.stopLightSwitchSurge();
-    if (App.Jumpscare) App.Jumpscare.stop();
+    if (App.Jumpscare && !(opts && opts.keepJumpscare)) App.Jumpscare.stop();
     if (matchState) matchState.stayLitEvent = null;
   }
 

@@ -18,9 +18,9 @@
   />
 
   <!-- Structured Stylesheets -->
-  <link rel="stylesheet" href="css/theme.css" />
-  <link rel="stylesheet" href="css/lobby.css" />
-  <link rel="stylesheet" href="css/gameplay.css" />
+  <link rel="stylesheet" href="css/theme.css?v=56" />
+  <link rel="stylesheet" href="css/lobby.css?v=56" />
+  <link rel="stylesheet" href="css/gameplay.css?v=56" />
 </head>
 <body>
   <!-- Fullscreen Pixel-Art Dead Forest & Cabin Background (Lobby) -->
@@ -292,21 +292,6 @@
             <!-- Authentic 16-bit horror pixel-art monster hand sprite (reduced size) -->
             <img src="image/shuffle_hand.png" class="fp-shuffle-hand-img" alt="" draggable="false" />
           </div>
-        </div>
-      </div>
-
-      <!-- THE THIEF: Spinning Cursed Wheel Modal (Clues / Rooms / Time / Graveyard) -->
-      <div id="fp-thief-modal" class="fp-drawn-spotlight hidden">
-        <div class="silver-panel fp-thief-box">
-          <div class="fp-thief-header">THE THIEF &bull; SPIN THE WHEEL</div>
-          <div class="fp-thief-wheel-stage">
-            <div class="fp-thief-pointer" aria-hidden="true"></div>
-            <div id="fp-thief-wheel-rotor" class="fp-thief-rotor"></div>
-          </div>
-          <div id="fp-thief-result" class="fp-thief-result">CLUES &bull; ROOMS &bull; TIME &bull; GRAVEYARD</div>
-          <button type="button" id="fp-thief-spin-btn" class="silver-btn mini-btn primary-btn" data-table-action="spin-thief-wheel">
-            [ SPIN THE WHEEL ]
-          </button>
         </div>
       </div>
 
@@ -961,49 +946,34 @@
     </div>
   </div>
 
-  <!-- ==================== MULTIPLAYER LAUNCH PLACEHOLDER ==================== -->
-  <div id="launch-screen" class="launch-backdrop hidden" aria-live="polite">
-    <div class="silver-panel launch-box">
-      <canvas id="launch-avatar-canvas" width="120" height="156"></canvas>
-      <h2 id="launch-heading">OPENING CO-OP TABLE...</h2>
-      <p id="launch-subtext">PREPARING MULTIPLAYER LOBBY</p>
-      <div class="pixel-progress">
-        <div class="pixel-progress-fill" id="launch-progress-fill"></div>
-      </div>
-      <button class="silver-btn subtle-btn hidden" id="btn-return-title" data-action="cancel-launch">
-        [ RETURN TO TITLE ]
-      </button>
-    </div>
-  </div>
-
   <!-- Structured Game Scripts (classic defer so index.html runs directly via file://) -->
-  <script defer src="js/data/config.js"></script>
-  <script defer src="js/data/cards.js"></script>
-  <script defer src="js/data/paintings.js"></script>
-  <script defer src="js/core/audio.js"></script>
-  <script defer src="js/core/character.js"></script>
-  <script defer src="js/core/network.js"></script>
-  <script defer src="js/lobby/background.js"></script>
-  <script defer src="js/lobby/customizer.js"></script>
-  <script defer src="js/lobby/tome.js"></script>
-  <script defer src="js/world/intro.js"></script>
-  <script defer src="js/world/parlor.js"></script>
-  <script defer src="js/world/rooms.js"></script>
-  <script defer src="js/world/book.js"></script>
-  <script defer src="js/world/clues.js"></script>
-  <script defer src="js/world/attic.js"></script>
-  <script defer src="js/world/stalkers.js"></script>
-  <script defer src="js/world/musical.js"></script>
-  <script defer src="js/world/basement.js"></script>
-  <script defer src="js/world/staylit.js"></script>
-  <script defer src="js/world/knight.js"></script>
-  <script defer src="js/world/thief.js"></script>
-  <script defer src="js/world/endgame.js"></script>
-  <script defer src="js/world/jumpscare.js"></script>
-  <script defer src="js/world/events.js"></script>
-  <script defer src="js/world/table-view.js"></script>
-  <script defer src="js/world/game.js"></script>
-  <script defer src="js/lobby/menus.js"></script>
-  <script defer src="js/main.js"></script>
+  <script defer src="js/data/config.js?v=56"></script>
+  <script defer src="js/data/cards.js?v=56"></script>
+  <script defer src="js/data/paintings.js?v=56"></script>
+  <script defer src="js/core/audio.js?v=56"></script>
+  <script defer src="js/core/character.js?v=56"></script>
+  <script defer src="js/core/network.js?v=56"></script>
+  <script defer src="js/lobby/background.js?v=56"></script>
+  <script defer src="js/lobby/customizer.js?v=56"></script>
+  <script defer src="js/lobby/tome.js?v=56"></script>
+  <script defer src="js/world/intro.js?v=56"></script>
+  <script defer src="js/world/parlor.js?v=56"></script>
+  <script defer src="js/world/rooms.js?v=56"></script>
+  <script defer src="js/world/book.js?v=56"></script>
+  <script defer src="js/world/clues.js?v=56"></script>
+  <script defer src="js/world/attic.js?v=56"></script>
+  <script defer src="js/world/stalkers.js?v=56"></script>
+  <script defer src="js/world/musical.js?v=56"></script>
+  <script defer src="js/world/basement.js?v=56"></script>
+  <script defer src="js/world/staylit.js?v=56"></script>
+  <script defer src="js/world/knight.js?v=56"></script>
+  <script defer src="js/world/thief.js?v=56"></script>
+  <script defer src="js/world/endgame.js?v=56"></script>
+  <script defer src="js/world/jumpscare.js?v=56"></script>
+  <script defer src="js/world/events.js?v=56"></script>
+  <script defer src="js/world/table-view.js?v=56"></script>
+  <script defer src="js/world/game.js?v=56"></script>
+  <script defer src="js/lobby/menus.js?v=56"></script>
+  <script defer src="js/main.js?v=56"></script>
 </body>
 </html>

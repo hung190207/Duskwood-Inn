@@ -850,6 +850,7 @@ window.Duskwood = window.Duskwood || {};
   let mpFullSyncIntervalId = null;
   let mpBgPumpIntervalId = null;
   let mpLastFullSyncHash = "";
+  let mpLastHexLaunchMs = 0;
 
   // Pan & Zoom for center wooden room-card layout
   let mapZoom = 1.0;
@@ -1113,7 +1114,6 @@ window.Duskwood = window.Duskwood || {};
     thiefWheelActive = false;
     thiefWheelSpinning = false;
     anim.shuffleAnimating = false;
-    document.getElementById("fp-thief-modal")?.classList.add("hidden");
     document.getElementById("fp-shuffle-hand-overlay")?.classList.add("hidden");
 
     mapZoom = 1.0;
@@ -3235,6 +3235,7 @@ window.Duskwood = window.Duskwood || {};
 
   function launchHexEventCard(card, nextOrderIdx) {
     if (!card || !matchStateRef) return;
+    mpLastHexLaunchMs = performance.now();
     rimPlayedCards.push(card);
     App.Audio.cardPlay();
     if (App.Clues && matchStateRef.activeOmenId) {
@@ -3598,7 +3599,16 @@ window.Duskwood = window.Duskwood || {};
     App.Audio.cardPlay();
 
     // Check Cutting Corners trigger (5-6 total rooms including Main Parlor & Cellar!)
-    if (App.Events && App.Events.checkCuttingCornersTrigger(matchStateRef)) {
+    const guestWillTriggerCC =
+      isMultiplayerNet() &&
+      App.Network &&
+      !App.Network.isHost() &&
+      matchStateRef.events &&
+      matchStateRef.events.cuttingCorners &&
+      matchStateRef.events.cuttingCorners.stage === "WAITING_ROOMS" &&
+      Object.keys(matchStateRef.roomMap || {}).length >= matchStateRef.events.cuttingCorners.triggerRooms;
+
+    if ((App.Events && App.Events.checkCuttingCornersTrigger(matchStateRef)) || guestWillTriggerCC) {
       selectedHandIdx = -1;
       turnStep = 1;
       matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, matchStateRef.clockMinutes + PASSIVE_PLAYER_STEP_MIN);
@@ -4032,7 +4042,7 @@ window.Duskwood = window.Duskwood || {};
     if (onStateChangeCallback) onStateChangeCallback();
   }
 
-  function resolveNeighborBargain(optionId, fromNetwork, netNextOrderIdx) {
+  function resolveNeighborBargain(optionId, fromNetwork, netNextOrderIdx, netOwnerPlayerId) {
     if (!matchStateRef) return "";
     const isOwner = !fromNetwork;
     let summary = "";
@@ -4074,15 +4084,29 @@ window.Duskwood = window.Duskwood || {};
       matchStateRef.bannedGraveyardWipe = true;
       summary = "Graveyard Wipe has been banished from this match.";
     } else if (optionId === "reveal_clue_now") {
-      const rev = App.Clues && App.Clues.forceRevealOneClue ? App.Clues.forceRevealOneClue(matchStateRef) : null;
-      if (rev) {
-        summary = "A hidden clue has manifested inside one of the built rooms!";
+      const isHostAuth = !isMultiplayerNet() || (App.Network && App.Network.isHost());
+      if (isHostAuth) {
+        const rev = App.Clues && App.Clues.forceRevealOneClue ? App.Clues.forceRevealOneClue(matchStateRef) : null;
+        if (rev) {
+          summary = "A hidden clue has manifested inside one of the built rooms!";
+        } else if (isOwner) {
+          const owned = [...hand.filter((c) => c.type === "OMEN").map((c) => c.id), ...candleTray.map((c) => c.id)];
+          const pool = App.CardsDB.getByType("OMEN").filter((c) => !owned.includes(c.id));
+          const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : App.CardsDB.getByType("OMEN")[0];
+          if (pick) {
+            hand.push(pick);
+            if (App.GuideUI) App.GuideUI.discoverCard(pick.id);
+          }
+          summary = "No hidden room clue was ready — The Neighbor handed you a Clue card instead.";
+        } else {
+          // Host received Guest's reveal_clue_now bargain, but no hidden clue could manifest -> grant fallback Clue card to Guest!
+          if (isMultiplayerNet() && netOwnerPlayerId && App.Network && App.Network.sendGameActionTo) {
+            App.Network.sendGameActionTo(netOwnerPlayerId, "MP_NEIGHBOR_CLUE_FALLBACK", {});
+          }
+          summary = "No hidden room clue was ready — The Neighbor handed a Clue card to the bargain owner.";
+        }
       } else {
-        const owned = [...hand.filter((c) => c.type === "OMEN").map((c) => c.id), ...candleTray.map((c) => c.id)];
-        const pool = App.CardsDB.getByType("OMEN").filter((c) => !owned.includes(c.id));
-        const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : App.CardsDB.getByType("OMEN")[0];
-        if (pick) hand.push(pick);
-        summary = "No hidden room clue was ready — The Neighbor handed you a Clue card instead.";
+        summary = "The Neighbor reaches into the cabin — Host is revealing a hidden clue...";
       }
     } else if (optionId === "advance_30m") {
       matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, (matchStateRef.clockMinutes || 0) + 30);
@@ -4117,7 +4141,8 @@ window.Duskwood = window.Duskwood || {};
     if (!fromNetwork && isMultiplayerNet()) {
       App.Network.sendGameAction("MP_NEIGHBOR_BARGAIN", {
         optionId,
-        nextOrderIdx
+        nextOrderIdx,
+        ownerPlayerId: (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : null
       });
     }
 
@@ -4375,7 +4400,6 @@ window.Duskwood = window.Duskwood || {};
     document.getElementById("fp-rim-tooltip")?.classList.add("hidden");
     document.getElementById("fp-draw-flyer")?.classList.add("hidden");
     anim.drawAnimating = false;
-    document.getElementById("fp-thief-modal")?.classList.add("hidden");
     document.getElementById("fp-shuffle-hand-overlay")?.classList.add("hidden");
     thiefWheelActive = false;
     thiefWheelSpinning = false;
@@ -4435,6 +4459,11 @@ window.Duskwood = window.Duskwood || {};
       neighborEncounter: matchStateRef.neighborEncounter || null,
       persistentEventProps: matchStateRef.persistentEventProps || {},
       heldRolesByPlayer: matchStateRef.heldRolesByPlayer || {},
+      activeEventKey: (App.Events && App.Events.getActiveEventKey) ? App.Events.getActiveEventKey(matchStateRef) : null,
+      mpEventLockActive: Boolean(matchStateRef.mpEventLock && matchStateRef.mpEventLock.active),
+      mpEventDeadIds: (matchStateRef.mpEventLock && matchStateRef.mpEventLock.active)
+        ? Array.from(matchStateRef.mpEventLock.deadIds || [])
+        : [],
       hostBusy: Boolean(anim.activeStep || anim.rimRotating || anim.dealingCards || anim.introStage !== "DONE")
     };
   }
@@ -4447,7 +4476,7 @@ window.Duskwood = window.Duskwood || {};
       App.Network.sendGameActionTo(targetPlayerId, "MP_FULL_STATE_SYNC", snap);
       return;
     }
-    const sig = `${snap.setupPhase}|${snap.turnCount}|${snap.activeSeatIdx}|${snap.clockMinutes}|${snap.harvesterMinutes}|${snap.roomsBuilt}|${snap.candleTrayIds.join(",")}|${snap.rimPlayedCardIds.length}|${snap.clueManifest ? JSON.stringify(snap.clueManifest.entries.map((e) => [e.roomId, e.revealed])) : ""}`;
+    const sig = `${snap.setupPhase}|${snap.turnCount}|${snap.activeSeatIdx}|${snap.clockMinutes}|${snap.harvesterMinutes}|${snap.roomsBuilt}|${snap.activeOmenId || ""}|${snap.candleTrayIds.join(",")}|${snap.rimPlayedCardIds.length}|${snap.activeEventKey || ""}|${snap.mpEventLockActive ? 1 : 0}|${snap.mpEventDeadIds.join(",")}|${snap.clueManifest ? (snap.clueManifest.fakeChickenHeadless ? "1:" : "0:") + JSON.stringify(snap.clueManifest.entries.map((e) => [e.roomId, e.revealed])) : ""}`;
     if (!forceSend && sig === mpLastFullSyncHash) return;
     mpLastFullSyncHash = sig;
     App.Network.sendGameAction("MP_FULL_STATE_SYNC", snap);
@@ -4522,6 +4551,28 @@ window.Duskwood = window.Duskwood || {};
     if (snap.heldRolesByPlayer && typeof snap.heldRolesByPlayer === "object") {
       matchStateRef.heldRolesByPlayer = Object.assign({}, matchStateRef.heldRolesByPlayer || {}, snap.heldRolesByPlayer);
     }
+    // 4b. Reconcile Event & Cellar Lock State (guarantees ZERO players ever stay stuck in Cellar after an event ends!)
+    const localEvKey = (App.Events && App.Events.getActiveEventKey) ? App.Events.getActiveEventKey(matchStateRef) : null;
+    const localLockedCellar = Boolean(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchStateRef));
+    const recentlyLaunchedEv = (performance.now() - mpLastHexLaunchMs) < 2500;
+
+    if (!snap.activeEventKey && !snap.mpEventLockActive) {
+      if ((localLockedCellar || localEvKey) && !recentlyLaunchedEv) {
+        if (App.Events && App.Events.forceCleanupActiveEventForMpEnd) {
+          App.Events.forceCleanupActiveEventForMpEnd(matchStateRef, localEvKey, true, null, { keepJumpscare: true });
+        }
+        changed = true;
+      }
+    } else if (snap.mpEventLockActive && Array.isArray(snap.mpEventDeadIds)) {
+      if (matchStateRef.mpEventLock && matchStateRef.mpEventLock.active) {
+        snap.mpEventDeadIds.forEach((pid) => matchStateRef.mpEventLock.deadIds.add(pid));
+      }
+      if (matchStateRef.musicalEvent && matchStateRef.musicalEvent.active) {
+        matchStateRef.musicalEvent.deadPlayerIds = matchStateRef.musicalEvent.deadPlayerIds || new Set();
+        snap.mpEventDeadIds.forEach((pid) => matchStateRef.musicalEvent.deadPlayerIds.add(pid));
+      }
+    }
+
     if (!App.Events || !App.Events.isAnyEventActive || !App.Events.isAnyEventActive(matchStateRef)) {
       if (snap.roomLightStates && typeof snap.roomLightStates === "object") {
         matchStateRef.roomLightStates = Object.assign({}, snap.roomLightStates);
@@ -4609,11 +4660,11 @@ window.Duskwood = window.Duskwood || {};
       }
     }, 200);
 
-    // Host authoritative heartbeat snapshot (1.6s) to guarantee 100% convergence across all players!
+    // Host authoritative heartbeat snapshot (1.2s) to guarantee 100% convergence across all players!
     mpFullSyncIntervalId = setInterval(() => {
       if (!matchStateRef || !isMultiplayerNet() || !App.Network.isHost()) return;
       broadcastFullStateSnapshot(null, false);
-    }, 1600);
+    }, 1200);
   }
 
   function handleNetworkMessage(action, payload, fromSeatIdx, fromPlayerId) {
@@ -4632,7 +4683,7 @@ window.Duskwood = window.Duskwood || {};
         if (App.StayLit && App.StayLit.broadcastStateNow) App.StayLit.broadcastStateNow(matchStateRef);
         if (App.Knight && App.Knight.broadcastStateNow) App.Knight.broadcastStateNow(matchStateRef);
         if (App.Basement && App.Basement.broadcastStateNow) App.Basement.broadcastStateNow(matchStateRef);
-        if (App.Musical && App.Musical.broadcastStateNow) App.Musical.broadcastStateNow(matchStateRef);
+        if (App.Musical && App.Musical.broadcastStateNow) App.Musical.broadcastStateNow(matchStateRef, { includePopcorns: true });
         if (App.Events && App.Events.broadcastCuttingCornersNow) App.Events.broadcastCuttingCornersNow(matchStateRef);
         if (App.Attic && App.Attic.broadcastStateNow) App.Attic.broadcastStateNow(matchStateRef);
       }
@@ -4776,6 +4827,8 @@ window.Duskwood = window.Duskwood || {};
     }
 
     if (action === "MP_THIEF_START") {
+      const thiefCard = App.CardsDB.getById("ch_the_thief");
+      if (thiefCard) rimPlayedCards.push(thiefCard);
       matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, (matchStateRef.clockMinutes || 0) + 30);
       anim.visualPlayerMinutes = matchStateRef.clockMinutes;
       if (matchStateRef.setupPhase === "LAST_CHANCE" && matchStateRef.clockMinutes > (matchStateRef.harvesterMinutes || 0)) {
@@ -4792,12 +4845,27 @@ window.Duskwood = window.Duskwood || {};
     }
 
     if (action === "MP_NEIGHBOR_TRIGGER") {
+      const nbCard = App.CardsDB.getById("ch_the_neighbor");
+      if (nbCard) rimPlayedCards.push(nbCard);
       triggerNeighborCard(true, p);
       return;
     }
 
     if (action === "MP_NEIGHBOR_BARGAIN") {
-      resolveNeighborBargain(p.optionId, true, p.nextOrderIdx);
+      resolveNeighborBargain(p.optionId, true, p.nextOrderIdx, p.ownerPlayerId || fromPlayerId);
+      return;
+    }
+
+    if (action === "MP_NEIGHBOR_CLUE_FALLBACK") {
+      const owned = [...hand.filter((c) => c.type === "OMEN").map((c) => c.id), ...candleTray.map((c) => c.id)];
+      const pool = App.CardsDB.getByType("OMEN").filter((c) => !owned.includes(c.id));
+      const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : App.CardsDB.getByType("OMEN")[0];
+      if (pick) {
+        hand.push(pick);
+        if (App.GuideUI) App.GuideUI.discoverCard(pick.id);
+        syncUI();
+      }
+      if (onStateChangeCallback) onStateChangeCallback();
       return;
     }
 
@@ -4953,7 +5021,7 @@ window.Duskwood = window.Duskwood || {};
       const act = btn.getAttribute("data-table-action");
 
       if (act === "stand-up") {
-        if (anim.introStage !== "DONE" || anim.dealingCards) return;
+        if (App.TableView && App.TableView.isBusy && App.TableView.isBusy()) return;
         close(true);
         if (onStandUpCallback) onStandUpCallback();
       } else if (act === "draw-deck") {
@@ -4988,6 +5056,14 @@ window.Duskwood = window.Duskwood || {};
         renderCabinMap();
       } else if (act === "retry-match") {
         App.Audio.click();
+        if (isMultiplayerNet()) {
+          if (App.Network && App.Network.isHost && App.Network.isHost()) {
+            App.Network.startMatch();
+          } else {
+            App.GameWorld.exitToLobby();
+          }
+          return;
+        }
         resetTableMatch(matchStateRef);
         beginTableIntro();
         if (onStateChangeCallback) onStateChangeCallback();

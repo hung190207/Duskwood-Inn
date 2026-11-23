@@ -518,13 +518,26 @@ window.Duskwood = window.Duskwood || {};
       broadcastStateNow(matchState, { knightMoved: true });
     }
 
-    // 3. Same-Room Kill Check (skip if local player is already dead & locked in Cellar!)
-    if (!(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) && kn.knight.roomKey === pRoomKey) {
+    // 3. Same-Room Kill Check for Host AND all living remote Guests!
+    const killRoomKey = kn.knight.roomKey;
+    if (!(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) && killRoomKey === pRoomKey) {
       setTimeout(() => {
         if (matchState.knightEvent && matchState.knightEvent.active) {
           triggerKnightDeath(matchState, `THE KNIGHT STEPPED INTO ${knightRoomName} WITH YOU!`);
         }
       }, 650);
+    }
+    if (isMpMode(matchState) && isMpHost(matchState) && App.Events && App.Events.getAllLivingPlayers) {
+      const living = App.Events.getAllLivingPlayers(matchState, null);
+      living.forEach((lp) => {
+        if (!lp.isLocal && lp.roomKey === killRoomKey) {
+          setTimeout(() => {
+            if (matchState.knightEvent && matchState.knightEvent.active && App.Events.hostKillRemotePlayer) {
+              App.Events.hostKillRemotePlayer(matchState, lp.playerId, "the_knight", "the_knight", `THE KNIGHT STEPPED INTO ${knightRoomName} WITH YOU!`);
+            }
+          }, 650);
+        }
+      });
     }
   }
 
@@ -596,10 +609,11 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
-  function forceEndFromNetwork(matchState, won) {
+  function forceEndFromNetwork(matchState, won, opts) {
     closeTableGlanceModal(true);
     if (App.Audio && App.Audio.stopKnightFootstep) App.Audio.stopKnightFootstep();
     if (App.Audio && App.Audio.stopPawnMove) App.Audio.stopPawnMove();
+    if (App.Jumpscare && !(opts && opts.keepJumpscare)) App.Jumpscare.stop();
     if (matchState && matchState.knightEvent) {
       savePersistentKnightStatue(matchState, matchState.knightEvent, Boolean(won));
       matchState.knightEvent.active = false;
@@ -626,6 +640,14 @@ window.Duskwood = window.Duskwood || {};
     }
 
     if (kn.stage === "PLAYER_TURN") {
+      // Host also catches any living Guest who walks straight into The Knight's room!
+      if (isMpMode(matchState) && App.Events && App.Events.getAllLivingPlayers && App.Events.hostKillRemotePlayer) {
+        App.Events.getAllLivingPlayers(matchState, null).forEach((lp) => {
+          if (!lp.isLocal && lp.roomKey === kn.knight.roomKey) {
+            App.Events.hostKillRemotePlayer(matchState, lp.playerId, "the_knight", "the_knight", "YOU WALKED RIGHT INTO THE KNIGHT'S ROOM!");
+          }
+        });
+      }
       kn.turnTimer -= dt;
       if (tableGlanceOpen) {
         const timerEl = document.getElementById("knight-map-timer");
@@ -977,10 +999,10 @@ window.Duskwood = window.Duskwood || {};
     return false;
   }
 
-  function cleanup(matchState) {
+  function cleanup(matchState, opts) {
     closeTableGlanceModal(true);
     if (App.Audio && App.Audio.stopKnightFootstep) App.Audio.stopKnightFootstep();
-    if (App.Jumpscare) App.Jumpscare.stop();
+    if (App.Jumpscare && !(opts && opts.keepJumpscare)) App.Jumpscare.stop();
     if (matchState) matchState.knightEvent = null;
   }
 

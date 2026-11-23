@@ -17,6 +17,7 @@
 window.Duskwood = window.Duskwood || {};
 
 (function (App) {
+  const PROTOCOL_VERSION = "v55";
   const PEER_PREFIX = "duskwood-inn-tbl-v48-";
   const LOCAL_CHANNEL_NAME = "duskwood_inn_coop_bus_v48";
   const LS_BUS_KEY = "duskwood_inn_coop_ls_pkt_v48";
@@ -321,6 +322,17 @@ window.Duskwood = window.Duskwood || {};
     guestLastSeen.set(fromId, Date.now());
 
     if (msg.type === "JOIN_REQ") {
+      // Enforce identical client version so cached old JS NEVER corrupts multiplayer sync!
+      if (msg.protocolVersion !== PROTOCOL_VERSION) {
+        const reject = {
+          type: "JOIN_REJECT",
+          reason: `Version mismatch! Host is ${PROTOCOL_VERSION}. Press Ctrl+Shift+R to reload latest game.`
+        };
+        if (transport === "P2P" && conn && conn.open) conn.send(reject);
+        else sendLocalBus(session.roomCode, fromId, reject);
+        return;
+      }
+
       // Check if player is already seated (dedupe dual-transport race!)
       const existing = getSeatByPlayerId(fromId);
       if (existing) {
@@ -328,7 +340,7 @@ window.Duskwood = window.Duskwood || {};
           guestConns.set(fromId, conn);
           existing.transport = "P2P";
         }
-        sendToGuest(fromId, { type: "JOIN_ACCEPT", seatIdx: existing.seatIdx, state: buildLobbySnapshot() });
+        sendToGuest(fromId, { type: "JOIN_ACCEPT", protocolVersion: PROTOCOL_VERSION, seatIdx: existing.seatIdx, state: buildLobbySnapshot() });
         return;
       }
 
@@ -371,6 +383,7 @@ window.Duskwood = window.Duskwood || {};
 
       sendToGuest(fromId, {
         type: "JOIN_ACCEPT",
+        protocolVersion: PROTOCOL_VERSION,
         seatIdx: openIdx,
         state: buildLobbySnapshot()
       });
@@ -462,6 +475,13 @@ window.Duskwood = window.Duskwood || {};
     if (msg.type === "JOIN_ACCEPT") {
       clearTimeout(joinTimeoutId);
       joinTimeoutId = null;
+      if (msg.protocolVersion !== PROTOCOL_VERSION) {
+        leaveTable(true);
+        session.status = "ERROR";
+        session.statusText = `Host is on an older cached version! Ask Host to press Ctrl+Shift+R (${PROTOCOL_VERSION} required).`;
+        emit("lobbyChange", getPublicState());
+        return;
+      }
       session.status = "CONNECTED";
       session.transport = transport;
       session.localSeatIdx = msg.seatIdx;
@@ -975,7 +995,7 @@ window.Duskwood = window.Duskwood || {};
     emit("lobbyChange", getPublicState());
 
     // 1. Immediately probe same-device local tabs (0ms connect if Host is another tab!)
-    sendLocalBus(cleanCode, "HOST", { type: "JOIN_REQ", profile: prof });
+    sendLocalBus(cleanCode, "HOST", { type: "JOIN_REQ", protocolVersion: PROTOCOL_VERSION, profile: prof });
 
     // 2. Simultaneously attempt Online P2P connection via PeerJS
     loadPeerJS().then((PeerCtor) => {
@@ -1005,7 +1025,7 @@ window.Duskwood = window.Duskwood || {};
               try { conn.close(); } catch (_) {}
               return;
             }
-            conn.send({ type: "JOIN_REQ", profile: getLocalProfile() });
+            conn.send({ type: "JOIN_REQ", protocolVersion: PROTOCOL_VERSION, profile: getLocalProfile() });
           });
 
           conn.on("data", (data) => {
@@ -1270,6 +1290,7 @@ window.Duskwood = window.Duskwood || {};
     CHAIR_WORLD_ANGLES,
     getState: getPublicState,
     isMultiplayerMatch: () => session.inMatch && session.role !== "IDLE",
+    PROTOCOL_VERSION,
     isHost: () => session.role === "HOST",
     getLocalPlayerId: () => localPlayerId
   };

@@ -524,19 +524,17 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
 
-    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
-      return;
-    }
+    const localLocked = Boolean(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState));
     const m = tm.monster;
     const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
     const pRoomObj = matchState.roomMap && matchState.roomMap[pRoomKey];
     const inCellar = Boolean(pRoomObj && pRoomObj.id === "bp_cellar");
     const roomIsLit = !inCellar && Boolean(matchState.roomLightStates && matchState.roomLightStates[pRoomKey] === true);
-    const playerVisibleInLight = !inCellar && (roomIsLit || Boolean(player.lanternOn));
+    const playerVisibleInLight = !localLocked && !inCellar && (roomIsLit || Boolean(player.lanternOn));
 
-    // GUEST: strictly uses Host-synced Tall Man position & only checks local catch!
+    // GUEST: strictly uses Host-synced Tall Man position & checks local catch when alive!
     if (isMpGuest(matchState)) {
-      if (playerVisibleInLight && m.roomKey === pRoomKey && Math.hypot(m.x - player.x, m.y - player.y) <= 13.5) {
+      if (playerVisibleInLight && m.roomKey === pRoomKey && Math.hypot(m.x - player.x, m.y - player.y) <= 14.5) {
         triggerTallManDeath(matchState);
       }
       return;
@@ -571,9 +569,19 @@ window.Duskwood = window.Duskwood || {};
       }
       moveEntityAcrossCabin(m, bestTarget.roomKey, bestTarget.x, bestTarget.y, 41, dt, matchState.roomMap);
 
-      if (playerVisibleInLight && m.roomKey === pRoomKey && Math.hypot(m.x - player.x, m.y - player.y) <= 13.5) {
-        triggerTallManDeath(matchState);
-      }
+      // Host-authoritative kill check across ALL visible living players (Host + remote Guests!)
+      living.forEach((lp) => {
+        const rObj = matchState.roomMap && matchState.roomMap[lp.roomKey];
+        if (!rObj || rObj.id === "bp_cellar") return;
+        const rLit = Boolean(matchState.roomLightStates && matchState.roomLightStates[lp.roomKey] === true);
+        if (!rLit && !lp.lanternOn) return;
+        if (m.roomKey !== lp.roomKey || Math.hypot(m.x - lp.x, m.y - lp.y) > 14.5) return;
+        if (lp.isLocal) {
+          if (playerVisibleInLight) triggerTallManDeath(matchState);
+        } else if (App.Events && App.Events.hostKillRemotePlayer) {
+          App.Events.hostKillRemotePlayer(matchState, lp.playerId, "tall_man", "tall_man", "THE TALL MAN FOUND YOU IN THE LIGHT!");
+        }
+      });
     } else {
       if (m.state === "CHASE") {
         m.state = "PATROL";
@@ -882,15 +890,16 @@ window.Duskwood = window.Duskwood || {};
       rb.crouchGraceTimer = Math.max(0, rb.crouchGraceTimer - dt);
     }
 
-    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
-      if (App.Audio && App.Audio.setBalloonsSfxAttenuation) App.Audio.setBalloonsSfxAttenuation(0);
-      return;
+    const localLocked = Boolean(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState));
+    if (localLocked && App.Audio && App.Audio.setBalloonsSfxAttenuation) {
+      App.Audio.setBalloonsSfxAttenuation(0);
     }
 
-    // GUEST: strictly checks lethal contact against Host-synced Clown!
+    // GUEST: strictly checks lethal contact against Host-synced Clown when alive!
     if (isMpGuest(matchState)) {
+      if (localLocked) return;
       const cl = rb.clown;
-      if (cl && cl.spawned && cl.roomKey === pRoomKey && Math.hypot(cl.x - player.x, cl.y - player.y) <= 13.0) {
+      if (cl && cl.spawned && cl.roomKey === pRoomKey && Math.hypot(cl.x - player.x, cl.y - player.y) <= 14.5) {
         triggerRedBalloonsDeath(matchState);
       }
       return;
@@ -942,9 +951,15 @@ window.Duskwood = window.Duskwood || {};
         cl.retargetTimer = 5.0 + Math.random() * 3.0;
       }
 
-      if (cl.roomKey === pRoomKey && Math.hypot(cl.x - player.x, cl.y - player.y) <= 13.0) {
-        triggerRedBalloonsDeath(matchState);
-      }
+      // Host-authoritative kill check across ALL living players (Host + remote Guests!)
+      living.forEach((lp) => {
+        if (cl.roomKey !== lp.roomKey || Math.hypot(cl.x - lp.x, cl.y - lp.y) > 14.5) return;
+        if (lp.isLocal) {
+          if (!localLocked) triggerRedBalloonsDeath(matchState);
+        } else if (App.Events && App.Events.hostKillRemotePlayer) {
+          App.Events.hostKillRemotePlayer(matchState, lp.playerId, "red_balloons", "balloon_stalker", "THE JACK-IN-THE-BOX CAUGHT YOU!");
+        }
+      });
     }
 
     if (isMpMode(matchState)) {
@@ -1671,12 +1686,15 @@ window.Duskwood = window.Duskwood || {};
         fs.syncAccum = (fs.syncAccum || 0) + dt;
         if (fs.syncAccum >= 0.085) { fs.syncAccum = 0; broadcastStateNow(matchState); }
       }
-      if (!(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState))) {
-        const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
-        if (fs.puppet.roomKey === pRoomKey && Math.hypot(fs.puppet.x - player.x, fs.puppet.y - player.y) <= 14.0) {
-          triggerFeelingSmallDeath(matchState);
+      const localLocked = Boolean(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState));
+      living.forEach((lp) => {
+        if (fs.puppet.roomKey !== lp.roomKey || Math.hypot(fs.puppet.x - lp.x, fs.puppet.y - lp.y) > 15.0) return;
+        if (lp.isLocal) {
+          if (!localLocked) triggerFeelingSmallDeath(matchState);
+        } else if (App.Events && App.Events.hostKillRemotePlayer) {
+          App.Events.hostKillRemotePlayer(matchState, lp.playerId, "feeling_small", "ceiling_crawler", "THE PUPPET CAUGHT YOU!");
         }
-      }
+      });
     }
   }
 
