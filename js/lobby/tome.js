@@ -206,7 +206,7 @@ window.Duskwood = window.Duskwood || {};
           <line x1="22" y1="22" x2="30" y2="25" stroke="#221912" stroke-width="1.6"/>
           <circle cx="22" cy="22" r="2" fill="#221912"/>
         </svg>
-        <p class="tome-death-warn-text">you will lose time (+1 HOUR in solo) for every death.</p>
+        <p class="tome-death-warn-text">you will lose time (+1 HOUR in solo / +30 MIN per death in co-op).</p>
       </div>
     `;
 

@@ -17,9 +17,9 @@
 window.Duskwood = window.Duskwood || {};
 
 (function (App) {
-  const PEER_PREFIX = "duskwood-inn-tbl-v47-";
-  const LOCAL_CHANNEL_NAME = "duskwood_inn_coop_bus_v47";
-  const LS_BUS_KEY = "duskwood_inn_coop_ls_pkt_v47";
+  const PEER_PREFIX = "duskwood-inn-tbl-v48-";
+  const LOCAL_CHANNEL_NAME = "duskwood_inn_coop_bus_v48";
+  const LS_BUS_KEY = "duskwood_inn_coop_ls_pkt_v48";
   const MAX_SEATS = 4;
   const STATE_SEND_INTERVAL_MS = 55; // ~18 Hz player movement/pose sync
   const HEARTBEAT_MS = 4000;
@@ -437,10 +437,13 @@ window.Duskwood = window.Duskwood || {};
 
     if (msg.type === "GAME_ACTION" && session.inMatch) {
       emit("gameMessage", { fromId, seatIdx: seat.seatIdx, action: msg.action, payload: msg.payload });
-      broadcastFromHost(
-        { type: "GAME_ACTION", fromId, seatIdx: seat.seatIdx, action: msg.action, payload: msg.payload },
-        fromId
-      );
+      // Only auto-relay non-request actions; Host-authoritative requests (MP_REQ_*) are answered directly by Host!
+      if (!String(msg.action || "").startsWith("MP_REQ_")) {
+        broadcastFromHost(
+          { type: "GAME_ACTION", fromId, seatIdx: seat.seatIdx, action: msg.action, payload: msg.payload },
+          fromId
+        );
+      }
     }
   }
 
@@ -557,6 +560,79 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
+  // ==================== FIXED SEAT <-> CHAIR CLOCKWISE MAPPING ====================
+  // Parlor chairs physical world angles (pedAng = Math.PI/2 + worldRimAngle):
+  //   Chair 0 (West,  9 o'clock) => worldAngle = Math.PI / 2
+  //   Chair 2 (North, 12 o'clock)=> worldAngle = Math.PI
+  //   Chair 1 (East,  3 o'clock) => worldAngle = 3 * Math.PI / 2
+  //   Chair 3 (South, 6 o'clock) => worldAngle = 0
+  const CHAIR_WORLD_ANGLES = [Math.PI / 2, (3 * Math.PI) / 2, Math.PI, 0];
+
+  function getActiveSeatIndices() {
+    const active = [];
+    session.seats.forEach((s, idx) => {
+      if (s) active.push(idx);
+    });
+    return active.length ? active : [0];
+  }
+
+  // Maps active seat order (0..N-1) cleanly around the table:
+  //   1P    : Chair 0 (West)
+  //   2P    : Chair 0 (West) & Chair 1 (East) — directly across from each other (180 deg clockwise!)
+  //   3P/4P : Chair 0 (West) -> Chair 2 (North) -> Chair 1 (East) -> Chair 3 (South) (90 deg clockwise!)
+  function getChairIdForSeat(seatIdx, activeSeatList) {
+    const list = Array.isArray(activeSeatList) && activeSeatList.length
+      ? activeSeatList
+      : getActiveSeatIndices();
+    const orderPos = Math.max(0, list.indexOf(seatIdx));
+    if (list.length === 2) {
+      return orderPos === 0 ? 0 : 1;
+    }
+    const cwChairs = [0, 2, 1, 3];
+    return cwChairs[orderPos % cwChairs.length];
+  }
+
+  function getSeatWorldAngle(seatIdx, activeSeatList) {
+    const chairId = getChairIdForSeat(seatIdx, activeSeatList);
+    return CHAIR_WORLD_ANGLES[chairId] || 0;
+  }
+
+  function getSeatName(seatIdx) {
+    const s = session.seats[seatIdx];
+    return (s && s.name) ? s.name : `SEAT ${seatIdx + 1}`;
+  }
+
+  // Checks if ALL active players in the multiplayer match are seated at the round table
+  function getSeatedStatus(localSeated, localRoomCoord) {
+    const activeSeats = getActiveSeatIndices();
+    const localInDining = !localRoomCoord || (localRoomCoord.x === 0 && localRoomCoord.y === 0);
+    let seatedCount = 0;
+    const waitingNames = [];
+
+    activeSeats.forEach((sIdx) => {
+      const seat = session.seats[sIdx];
+      if (!seat) return;
+      if (seat.playerId === localPlayerId) {
+        if (localSeated && localInDining) seatedCount += 1;
+        else waitingNames.push(seat.name || `SEAT ${sIdx + 1}`);
+      } else {
+        const rp = remotePlayers.get(seat.playerId);
+        const isSitting = Boolean(rp && rp.seated && rp.roomX === 0 && rp.roomY === 0);
+        if (isSitting) seatedCount += 1;
+        else waitingNames.push(seat.name || `SEAT ${sIdx + 1}`);
+      }
+    });
+
+    const totalPlayers = activeSeats.length;
+    return {
+      totalPlayers,
+      seatedCount,
+      allSeated: totalPlayers > 0 && seatedCount >= totalPlayers,
+      waitingNames,
+      activeSeats
+    };
+  }
+
   // ==================== IN-CABIN REMOTE PLAYER INTERPOLATION ====================
   function seedInitialRemotePlayers() {
     remotePlayers.clear();
@@ -566,10 +642,12 @@ window.Duskwood = window.Duskwood || {};
       { id: 2, seatX: 104, seatY: 94,  facing: 1 },
       { id: 3, seatX: 104, seatY: 157, facing: 1 }
     ];
+    const activeSeats = getActiveSeatIndices();
 
     session.seats.forEach((seat) => {
       if (!seat || seat.playerId === localPlayerId) return;
-      const ch = chairs[seat.seatIdx] || chairs[0];
+      const cid = getChairIdForSeat(seat.seatIdx, activeSeats);
+      const ch = chairs[cid] || chairs[0];
       remotePlayers.set(seat.playerId, {
         playerId: seat.playerId,
         seatIdx: seat.seatIdx,
@@ -588,7 +666,10 @@ window.Duskwood = window.Duskwood || {};
         sprinting: false,
         crouching: false,
         lanternOn: Boolean(seat.character && seat.character.lantern),
-        facingCorner: false
+        facingCorner: false,
+        inForest: false,
+        inCar: false,
+        deadSpectator: false
       });
     });
   }
@@ -615,7 +696,10 @@ window.Duskwood = window.Duskwood || {};
         sprinting: Boolean(st.sprinting),
         crouching: Boolean(st.crouching),
         lanternOn: Boolean(st.lanternOn),
-        facingCorner: Boolean(st.facingCorner)
+        facingCorner: Boolean(st.facingCorner),
+        inForest: Boolean(st.inForest),
+        inCar: Boolean(st.inCar),
+        deadSpectator: Boolean(st.deadSpectator)
       };
       remotePlayers.set(pid, rp);
       return;
@@ -638,6 +722,9 @@ window.Duskwood = window.Duskwood || {};
     rp.crouching = Boolean(st.crouching);
     rp.lanternOn = Boolean(st.lanternOn);
     rp.facingCorner = Boolean(st.facingCorner);
+    rp.inForest = Boolean(st.inForest);
+    rp.inCar = Boolean(st.inCar);
+    rp.deadSpectator = Boolean(st.deadSpectator);
     if (seat && seat.name) rp.name = seat.name;
     if (seat && seat.character) rp.character = cloneCharacter(seat.character);
   }
@@ -656,6 +743,27 @@ window.Duskwood = window.Duskwood || {};
       if (rp.roomX === roomX && rp.roomY === roomY) list.push(rp);
     });
     return list;
+  }
+
+  function getAllRemotePlayers() {
+    return Array.from(remotePlayers.values());
+  }
+
+  function getAllMatchSeats() {
+    const activeSeats = getActiveSeatIndices();
+    const out = [];
+    activeSeats.forEach((sIdx) => {
+      const s = session.seats[sIdx];
+      if (!s) return;
+      out.push({
+        playerId: s.playerId,
+        seatIdx: s.seatIdx,
+        chairId: getChairIdForSeat(s.seatIdx, activeSeats),
+        name: s.name || `SEAT ${s.seatIdx + 1}`,
+        character: cloneCharacter(s.character)
+      });
+    });
+    return out;
   }
 
   function isChairOccupiedByRemote(chairId) {
@@ -1102,7 +1210,15 @@ window.Duskwood = window.Duskwood || {};
     sendGameAction,
     updateRemoteInterpolation,
     getRemotePlayersInRoom,
+    getAllRemotePlayers,
+    getAllMatchSeats,
     isChairOccupiedByRemote,
+    getActiveSeatIndices,
+    getChairIdForSeat,
+    getSeatWorldAngle,
+    getSeatName,
+    getSeatedStatus,
+    CHAIR_WORLD_ANGLES,
     getState: getPublicState,
     isMultiplayerMatch: () => session.inMatch && session.role !== "IDLE",
     isHost: () => session.role === "HOST",

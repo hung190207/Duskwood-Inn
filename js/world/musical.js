@@ -21,9 +21,10 @@
 window.Duskwood = window.Duskwood || {};
 
 (function (App) {
-  const TARGET_POPCORNS = 10;
+  const TARGET_POPCORNS = 20;
   const INTRO_DURATION = 10.0;
-  const MUSIC_DURATION = 35.0;
+  const MUSIC_DURATION = 25.0;
+  const MONKEY_CHASE_SPEED = 64; // Faster than walk (54), escapable by sprinting (88) to reach the Red Room!
   const BOX_X = 104;
   const BOX_Y = 126;
 
@@ -276,10 +277,12 @@ window.Duskwood = window.Duskwood || {};
     px(ctx, cx - 20, cy - 13, 40, 17, "#4d321c"); // Dark shadowed cardboard interior
     px(ctx, cx - 18, cy - 11, 36, 13, "#362213");
 
-    // Accumulating pile of golden-white Popcorn kernels inside the box!
+    // Accumulating pile of golden-white Popcorn kernels inside the box (up to 20)!
     const moundSpots = [
-      [-12, -2], [10, -2], [0, -3], [-6, -5], [6, -5],
-      [-13, -7], [12, -7], [0, -8], [-5, -10], [5, -10]
+      [-14, -1], [13, -1], [-4, -2], [5, -2], [-10, -3],
+      [9, -3], [0, -4], [-14, -5], [14, -5], [-6, -6],
+      [6, -6], [-11, -7], [11, -7], [0, -8], [-5, -9],
+      [5, -9], [-13, -10], [13, -10], [-2, -11], [3, -11]
     ];
     for (let i = 0; i < Math.min(scored, moundSpots.length); i++) {
       const [ox, oy] = moundSpots[i];
@@ -322,15 +325,25 @@ window.Duskwood = window.Duskwood || {};
     px(ctx, cx,     cy,     2, 2, "#e8b948"); // Golden buttered kernel core
   }
 
+  function isMultiplayerMatch(matchState) {
+    return Boolean(
+      matchState &&
+      matchState.mode === "MULTIPLAYER" &&
+      App.Network &&
+      App.Network.isMultiplayerMatch &&
+      App.Network.isMultiplayerMatch()
+    );
+  }
+
   // ==================== 2. START / SPAWN POPCORN / CONTROLS ====================
   function spawnPopcorns(roomMap) {
     const keys = Object.keys(roomMap || {});
     const list = [];
     let uid = 0;
 
-    // 1. Place 12 popcorns generously around The Dining Room so players can throw continuously!
+    // 1. Place 16 popcorns generously around The Dining Room so players can throw continuously!
     const dSpots = getSafeSpotsForRoom(roomMap["0,0"] || { id: "dining_room" });
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 16; i++) {
       const sp = dSpots[i % dSpots.length];
       list.push({
         id: `pop_${uid++}`,
@@ -342,9 +355,9 @@ window.Duskwood = window.Duskwood || {};
       });
     }
 
-    // 2. Scatter 16 more popcorns generously across ALL built rooms (28 popcorns total!)
+    // 2. Scatter 24 more popcorns generously across ALL built rooms (40 popcorns total for 20 target!)
     const otherKeys = keys.filter((k) => k !== "0,0");
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 24; i++) {
       const rk = otherKeys.length ? otherKeys[i % otherKeys.length] : "0,0";
       const spots = getSafeSpotsForRoom(roomMap[rk]);
       const sp = spots[i % spots.length];
@@ -378,14 +391,19 @@ window.Duskwood = window.Duskwood || {};
 
     matchState.musicalEvent = {
       active: true,
-      stage: "INTRO_10S", // INTRO_10S (10s) -> PLAYING_20S (20s) -> CHASE
+      stage: "INTRO_10S", // INTRO_10S (10s) -> PLAYING_20S (25s) <-> CHASE (find Red Safe Room!)
       savedLights,
+      round: 1,
       introTimer: INTRO_DURATION,
       musicTimer: MUSIC_DURATION,
       transitionFlickerTimer: 0,
       orangeCycleTime: 0,
       scored: 0,
       target: TARGET_POPCORNS,
+      redRoomKey: null,
+      lastRedRoomKey: null,
+      deadPlayerIds: new Set(),
+      localDeadInEvent: false,
       popcorns: [],
       holdingPopcornId: null,
       charging: false,
@@ -408,7 +426,7 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
-        "MUSICAL ROOMS\nA GIANT MONKEY LOOMS BESIDE YOU IN THE DARK...\nPREPARE TO GATHER 10 POPCORNS & THROW THEM INTO THE BOX!",
+        `MUSICAL ROOMS\nA GIANT MONKEY LOOMS BESIDE YOU IN THE DARK...\nTHROW ${TARGET_POPCORNS} POPCORNS INTO THE BOX — WHEN MUSIC STOPS, HIDE IN THE RED ROOM!`,
         { typingDurationSec: 4.5, showChoices: false }
       );
       setTimeout(() => {
@@ -419,34 +437,134 @@ window.Duskwood = window.Duskwood || {};
     return matchState.musicalEvent;
   }
 
-  function beginMusical20sPhase(matchState) {
+  function beginMusical20sPhase(matchState, isResumeRound) {
     const mr = matchState && matchState.musicalEvent;
     if (!mr || !mr.active) return;
 
     mr.stage = "PLAYING_20S";
     mr.musicTimer = MUSIC_DURATION;
-    mr.transitionFlickerTimer = 1.1; // Quick dramatic flicker right as Dining Room transforms!
+    mr.transitionFlickerTimer = 0.9; // Quick dramatic flicker right as music box starts!
     mr.orangeCycleTime = 0;
-    mr.popcorns = spawnPopcorns(matchState.roomMap);
+    mr.redRoomKey = null;
+    mr.charging = false;
+
+    if (!isResumeRound || !mr.popcorns.length) {
+      mr.popcorns = spawnPopcorns(matchState.roomMap);
+    } else {
+      mr.round = (mr.round || 1) + 1;
+      ensureEnoughPopcorns(mr, matchState.roomMap);
+    }
 
     // Turn Dining Room & cabin lights ON in warm orange pulse mode!
     Object.keys(matchState.roomMap || {}).forEach((k) => {
       matchState.roomLightStates[k] = true;
     });
 
-    // Move Giant Monkey to stand motionless inside The Dining Room watching the Cardboard Box!
+    // Return Giant Monkey to stand motionless inside The Dining Room watching the Cardboard Box!
     mr.monkey.roomKey = "0,0";
     mr.monkey.x = 156;
     mr.monkey.y = 88;
     mr.monkey.facing = -1;
     mr.monkey.chasing = false;
 
-    // Stop intro monkey growl & play 20 seconds of audio/music_rooms_sfx.mp3!
+    // Stop monkey chase roar & start audio/music_rooms_sfx.mp3!
     if (App.Audio && App.Audio.stopMonkeySfx) App.Audio.stopMonkeySfx();
     if (App.Audio && App.Audio.playMusicalBox20s) App.Audio.playMusicalBox20s(MUSIC_DURATION);
 
-    mr.notice = "TAP [F] TO PICK UP POPCORN • HOLD & RELEASE [F] TO THROW INTO THE BOX (10 NEEDED)!";
-    mr.noticeTimer = 5.5;
+    if (isResumeRound) {
+      App.Audio.clockChime();
+      mr.notice = `SAFE IN THE RED ROOM! ROUND ${mr.round}: KEEP THROWING POPCORNS (${mr.scored}/${TARGET_POPCORNS})!`;
+      mr.noticeTimer = 5.0;
+    } else {
+      mr.notice = `TAP [F] TO PICK UP POPCORN • HOLD & RELEASE [F] TO THROW INTO THE BOX (${TARGET_POPCORNS} NEEDED)!`;
+      mr.noticeTimer = 5.5;
+    }
+  }
+
+  function pickRandomRedRoomKey(matchState, avoidKey) {
+    const mr = matchState && matchState.musicalEvent;
+    const keys = Object.keys(matchState.roomMap || {});
+    if (keys.length <= 1) return keys[0] || "0,0";
+
+    // Prefer a room other than the player's current room & different from the previous Red Room
+    let pool = keys.filter((k) => k !== avoidKey && k !== (mr && mr.lastRedRoomKey));
+    if (!pool.length) pool = keys.filter((k) => k !== avoidKey);
+    if (!pool.length) pool = keys;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function startRedRoomChasePhase(matchState, forcedRedRoomKey, fromNetwork) {
+    const mr = matchState && matchState.musicalEvent;
+    if (!mr || !mr.active) return;
+
+    const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+    const redKey = (forcedRedRoomKey && matchState.roomMap && matchState.roomMap[forcedRedRoomKey])
+      ? forcedRedRoomKey
+      : pickRandomRedRoomKey(matchState, pRoomKey);
+
+    mr.stage = "CHASE";
+    mr.charging = false;
+    mr.redRoomKey = redKey;
+    mr.lastRedRoomKey = redKey;
+    mr.monkey.chasing = true;
+
+    // Keep the Red Room brightly lit & dim all other rooms!
+    Object.keys(matchState.roomMap || {}).forEach((k) => {
+      matchState.roomLightStates[k] = (k === redKey);
+    });
+
+    if (!fromNetwork && isMultiplayerMatch(matchState) && App.Network.isHost()) {
+      App.Network.sendGameAction("MP_MUSICAL_CHASE", {
+        redRoomKey: redKey,
+        round: mr.round || 1,
+        scored: mr.scored || 0
+      });
+    }
+
+    if (App.Audio && App.Audio.stopMusicalBox) App.Audio.stopMusicalBox();
+    if (App.Audio && App.Audio.playMonkeySfx) App.Audio.playMonkeySfx(true);
+    App.Audio.hexAlert();
+
+    mr.notice = isMultiplayerMatch(matchState)
+      ? "MUSIC STOPPED! FIND THE GLOWING RED ROOM — ALL PLAYERS MUST ENTER TO STOP THE MONKEY!"
+      : "MUSIC STOPPED! FIND & ENTER THE GLOWING RED ROOM TO STOP THE GIANT MONKEY!";
+    mr.noticeTimer = 6.5;
+  }
+
+  function getRedRoomOccupancy(matchState) {
+    const mr = matchState && matchState.musicalEvent;
+    if (!mr || !mr.redRoomKey) return { inRed: 0, total: 1, allInRed: false, localInRed: false };
+    const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+    const localInRed = pRoomKey === mr.redRoomKey;
+
+    if (!isMultiplayerMatch(matchState)) {
+      return { inRed: localInRed ? 1 : 0, total: 1, allInRed: localInRed, localInRed };
+    }
+
+    const deadSet = mr.deadPlayerIds || new Set();
+    const localPid = App.Network.getLocalPlayerId();
+    let total = 0;
+    let inRed = 0;
+
+    if (!deadSet.has(localPid)) {
+      total += 1;
+      if (localInRed) inRed += 1;
+    }
+
+    const remotes = App.Network.getAllRemotePlayers ? App.Network.getAllRemotePlayers() : [];
+    remotes.forEach((rp) => {
+      if (deadSet.has(rp.playerId)) return;
+      total += 1;
+      const rKey = `${rp.roomX || 0},${rp.roomY || 0}`;
+      if (rKey === mr.redRoomKey) inRed += 1;
+    });
+
+    return {
+      inRed,
+      total: Math.max(1, total),
+      allInRed: total > 0 && inRed >= total,
+      localInRed
+    };
   }
 
   // Computes aim direction & oblique parabolic landing point for current chargePower (0..1)
@@ -567,19 +685,59 @@ window.Duskwood = window.Duskwood || {};
 
   function ensureEnoughPopcorns(mr, roomMap) {
     const remainingNeeded = TARGET_POPCORNS - mr.scored;
-    const available = mr.popcorns.filter((p) => !p.delivered).length;
-    if (available < remainingNeeded + 8) {
-      const dSpots = getSafeSpotsForRoom(roomMap["0,0"] || { id: "dining_room" });
+    let available = mr.popcorns.filter((p) => !p.delivered).length;
+    const dSpots = getSafeSpotsForRoom(roomMap["0,0"] || { id: "dining_room" });
+    while (available < remainingNeeded + 10) {
       const sp = dSpots[Math.floor(Math.random() * dSpots.length)];
       mr.popcorns.push({
         id: `pop_extra_${Date.now()}_${Math.random()}`,
         roomKey: "0,0",
-        x: sp.x + (Math.random() - 0.5) * 10,
-        y: sp.y + (Math.random() - 0.5) * 10,
+        x: Math.max(24, Math.min(184, sp.x + (Math.random() - 0.5) * 14)),
+        y: Math.max(66, Math.min(184, sp.y + (Math.random() - 0.5) * 12)),
         collected: false,
         delivered: false
       });
+      available += 1;
     }
+  }
+
+  function drawRestingCardboardBoxProp(ctx, x, y, scored) {
+    const cx = Math.round(x);
+    const cy = Math.round(y);
+    // Compact resting open cardboard box tucked neatly beside The Dining Room floor (no overlap with table/chairs!)
+    ctx.fillStyle = "rgba(0, 0, 0, 0.44)";
+    ctx.fillRect(cx - 12, cy + 5, 24, 5);
+    // Back flaps
+    px(ctx, cx - 11, cy - 10, 22, 4, "#382414");
+    px(ctx, cx - 10, cy - 9,  20, 3, "#b5854f");
+    // Open interior
+    px(ctx, cx - 11, cy - 6,  22, 9, "#2b1a0e");
+    px(ctx, cx - 9,  cy - 5,  18, 7, "#3e2715");
+    // Popcorn pile visible inside!
+    const spots = [[-5, -1], [4, -1], [0, -2], [-6, -3], [5, -3], [-2, -4], [3, -4], [0, -5]];
+    const showCnt = Math.min(spots.length, Math.max(1, Math.ceil((scored || 0) / 2)));
+    for (let i = 0; i < showCnt; i++) {
+      drawPopcornSprite(ctx, cx + spots[i][0], cy + spots[i][1], 0);
+    }
+    // Front cardboard wall
+    px(ctx, cx - 11, cy + 1, 22, 8, "#2b1a0e");
+    px(ctx, cx - 10, cy + 2, 20, 6, "#ba8b54");
+    px(ctx, cx - 10, cy + 2, 20, 1, "#d6a972");
+    px(ctx, cx - 2,  cy + 2, 4,  3, "#8c6336");
+  }
+
+  function savePersistentMusicalProps(matchState, mr) {
+    if (!matchState || !mr) return;
+    matchState.persistentEventProps = matchState.persistentEventProps || {};
+    const leftoverPopcorns = (mr.popcorns || [])
+      .filter((p) => !p.delivered && !p.collected)
+      .map((p) => ({ roomKey: p.roomKey, x: p.x, y: p.y }));
+    matchState.persistentEventProps.musical = {
+      popcorns: leftoverPopcorns,
+      scored: mr.scored || 0,
+      hasBox: mr.stage !== "INTRO_10S",
+      boxSpot: { roomKey: "0,0", x: 46, y: 84 }
+    };
   }
 
   function triggerMusicalWin(matchState) {
@@ -588,13 +746,14 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Audio && App.Audio.stopMusicalBox) App.Audio.stopMusicalBox();
     if (App.Audio && App.Audio.stopMonkeySfx) App.Audio.stopMonkeySfx();
+    savePersistentMusicalProps(matchState, mr);
     restoreRoomLights(matchState, mr.savedLights);
     mr.active = false;
     matchState.musicalEvent = null;
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
-        "10 POPCORNS DELIVERED!\nTHE MUSIC FADES AND THE GIANT MONKEY VANISHES.",
+        `${TARGET_POPCORNS} POPCORNS DELIVERED!\nTHE MUSIC FADES AND THE GIANT MONKEY VANISHES.`,
         { success: true, typingDurationSec: 2.8, showChoices: false }
       );
       setTimeout(() => {
@@ -609,7 +768,13 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Audio && App.Audio.stopMusicalBox) App.Audio.stopMusicalBox();
     if (App.Audio && App.Audio.stopMonkeySfx) App.Audio.stopMonkeySfx();
+    if (isMultiplayerMatch(matchState) && App.Network && App.Network.getLocalPlayerId) {
+      App.Network.sendGameAction("MP_MUSICAL_PLAYER_DEAD", {
+        playerId: App.Network.getLocalPlayerId()
+      });
+    }
 
+    savePersistentMusicalProps(matchState, mr);
     restoreRoomLights(matchState, mr.savedLights);
     mr.active = false;
     matchState.musicalEvent = null;
@@ -697,6 +862,12 @@ window.Duskwood = window.Duskwood || {};
           if (landedInBox) {
             if (popObj) popObj.delivered = true;
             mr.scored += 1;
+            if (isMultiplayerMatch(matchState)) {
+              App.Network.sendGameAction("MP_MUSICAL_SCORE", {
+                popId: proj.popId,
+                scored: mr.scored
+              });
+            }
             const won = mr.scored >= TARGET_POPCORNS;
             if (App.Audio && App.Audio.popcornScore) App.Audio.popcornScore(won);
             mr.notice = `SCORED! POPCORNS IN BOX: ${mr.scored} / ${TARGET_POPCORNS}`;
@@ -741,26 +912,73 @@ window.Duskwood = window.Duskwood || {};
 
       mr.musicTimer -= dt;
       if (mr.musicTimer <= 0) {
-        // 20 SECONDS UP -> MUSIC STOPS & GIANT MONKEY CHASES AND KILLS PLAYER!
-        mr.stage = "CHASE";
-        mr.charging = false;
-        mr.monkey.chasing = true;
-        if (App.Audio && App.Audio.stopMusicalBox) App.Audio.stopMusicalBox();
-        if (App.Audio && App.Audio.playMonkeySfx) App.Audio.playMonkeySfx(true);
-        App.Audio.hexAlert();
-        mr.notice = "THE MUSIC STOPPED! THE GIANT MONKEY IS HUNTING YOU!";
-        mr.noticeTimer = 6.0;
+        // Time up without reaching TARGET_POPCORNS -> Pick 1 random Red Safe Room & Monkey begins hunting!
+        startRedRoomChasePhase(matchState, null, false);
       }
       return;
     }
 
-    // 4. Giant Monkey Relentless Chase Stage
+    // 4. Giant Monkey Chase Stage — Find & enter the Glowing Red Room to stop the Monkey and resume throwing!
     if (mr.stage === "CHASE") {
       const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
-      moveMonkeyAcrossCabin(mr.monkey, pRoomKey, player.x, player.y, 96, dt, matchState.roomMap);
+      const occ = getRedRoomOccupancy(matchState);
+
+      // ALL players (or sole player in SP) reached the Red Safe Room -> Monkey halts & throwing resumes!
+      if (occ.allInRed) {
+        if (isMultiplayerMatch(matchState)) {
+          App.Network.sendGameAction("MP_MUSICAL_RESUME", {
+            round: (mr.round || 1) + 1,
+            scored: mr.scored
+          });
+        }
+        beginMusical20sPhase(matchState, true);
+        return;
+      }
+
+      // Pick chase target: NEVER allow Giant Monkey to enter the Red Safe Room!
+      let targetRoomKey = pRoomKey;
+      let targetX = player.x;
+      let targetY = player.y;
+
+      if (occ.localInRed) {
+        // Local player is SAFE inside the Red Room! If MP teammates are outside, Monkey hunts an outside teammate;
+        // otherwise Monkey stalks outside in The Dining Room (or adjacent non-red room).
+        let foundOutside = false;
+        if (isMultiplayerMatch(matchState) && App.Network && App.Network.getAllRemotePlayers) {
+          const outside = App.Network.getAllRemotePlayers().find(
+            (rp) => !(mr.deadPlayerIds && mr.deadPlayerIds.has(rp.playerId)) && `${rp.roomX || 0},${rp.roomY || 0}` !== mr.redRoomKey
+          );
+          if (outside) {
+            targetRoomKey = `${outside.roomX || 0},${outside.roomY || 0}`;
+            targetX = outside.x;
+            targetY = outside.y;
+            foundOutside = true;
+          }
+        }
+        if (!foundOutside) {
+          const nonRed = Object.keys(matchState.roomMap || {}).find((k) => k !== mr.redRoomKey) || "0,0";
+          targetRoomKey = nonRed;
+          targetX = 104;
+          targetY = 126;
+        }
+      }
+
+      // Guard: step Monkey only if next move does NOT enter mr.redRoomKey
+      if (targetRoomKey !== mr.redRoomKey) {
+        const prevRoom = mr.monkey.roomKey;
+        const prevX = mr.monkey.x;
+        const prevY = mr.monkey.y;
+        moveMonkeyAcrossCabin(mr.monkey, targetRoomKey, targetX, targetY, MONKEY_CHASE_SPEED, dt, matchState.roomMap);
+        if (mr.monkey.roomKey === mr.redRoomKey) {
+          mr.monkey.roomKey = prevRoom;
+          mr.monkey.x = prevX;
+          mr.monkey.y = prevY;
+        }
+      }
       syncMonkeySpatialAudio(mr, matchState, player);
 
-      if (mr.monkey.roomKey === pRoomKey && Math.hypot(mr.monkey.x - player.x, mr.monkey.y - player.y) <= 15.0) {
+      // Lethal contact ONLY if player is OUTSIDE the Red Safe Room!
+      if (!occ.localInRed && mr.monkey.roomKey === pRoomKey && Math.hypot(mr.monkey.x - player.x, mr.monkey.y - player.y) <= 15.0) {
         triggerMusicalDeath(matchState);
       }
     }
@@ -782,15 +1000,39 @@ window.Duskwood = window.Duskwood || {};
       return (0.48 + slowWave * 0.48) * softDip;
     }
     if (mr.stage === "CHASE") {
-      return 0.35 + Math.sin(timeSec * 22) * 0.12;
+      const pKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+      if (mr.redRoomKey && pKey === mr.redRoomKey) {
+        // Bright pulsing red glow inside the Red Safe Room!
+        return 0.88 + Math.sin(timeSec * 5.0) * 0.10;
+      }
+      return 0.36 + Math.sin(timeSec * 20) * 0.10;
     }
     return 1.0;
   }
 
   function getRoomRenderables(ctx, roomKey, timeSec, matchState) {
     const mr = matchState && matchState.musicalEvent;
-    if (!mr || !mr.active) return [];
     const list = [];
+
+    // Render persistent popcorns & resting filled Cardboard Box after Musical Rooms ends!
+    if (!mr || !mr.active) {
+      const pm = matchState && matchState.persistentEventProps && matchState.persistentEventProps.musical;
+      if (!pm) return list;
+      if (pm.hasBox && pm.boxSpot && pm.boxSpot.roomKey === roomKey) {
+        list.push({
+          y: pm.boxSpot.y,
+          draw: () => drawRestingCardboardBoxProp(ctx, pm.boxSpot.x, pm.boxSpot.y, pm.scored)
+        });
+      }
+      (pm.popcorns || []).forEach((p) => {
+        if (p.roomKey !== roomKey) return;
+        list.push({
+          y: p.y,
+          draw: () => drawPopcornSprite(ctx, p.x, p.y, 0)
+        });
+      });
+      return list;
+    }
 
     if (mr.monkey && mr.monkey.roomKey === roomKey) {
       const m = mr.monkey;
@@ -834,8 +1076,38 @@ window.Duskwood = window.Duskwood || {};
       ctx.fillStyle = `rgba(255, 148, 56, ${alpha.toFixed(3)})`;
       ctx.fillRect(0, 0, 208, 208);
     } else if (mr.stage === "CHASE") {
-      ctx.fillStyle = "rgba(180, 32, 24, 0.18)";
-      ctx.fillRect(0, 0, 208, 208);
+      if (mr.redRoomKey && roomKey === mr.redRoomKey) {
+        // UNMISTAKABLE GLOWING RED SAFE ROOM!
+        const redPulse = 0.5 + 0.5 * Math.sin(timeSec * 6.0);
+        ctx.fillStyle = `rgba(225, 26, 36, ${(0.28 + redPulse * 0.14).toFixed(3)})`;
+        ctx.fillRect(0, 0, 208, 208);
+
+        ctx.save();
+        ctx.strokeStyle = `rgba(255, 92, 92, ${(0.65 + redPulse * 0.30).toFixed(2)})`;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(16, 52, 176, 140);
+        ctx.restore();
+      } else {
+        // Non-red rooms stay dark & ominous — plus subtle crimson light bleed through any open doorway leading into the Red Room!
+        ctx.fillStyle = "rgba(10, 6, 14, 0.24)";
+        ctx.fillRect(0, 0, 208, 208);
+
+        const curRoom = matchState.roomMap && matchState.roomMap[roomKey];
+        if (curRoom && curRoom.doors && mr.redRoomKey) {
+          const glowPulse = 0.42 + Math.sin(timeSec * 5.5) * 0.16;
+          DIR_STEPS.forEach((d) => {
+            if (!curRoom.doors[d.dir]) return;
+            const nk = `${curRoom.x + d.dx},${curRoom.y + d.dy}`;
+            if (nk !== mr.redRoomKey) return;
+            const pt = DOOR_POS[d.dir];
+            const rg = ctx.createRadialGradient(pt.x, pt.y, 2, pt.x, pt.y, 34);
+            rg.addColorStop(0, `rgba(255, 42, 48, ${glowPulse.toFixed(2)})`);
+            rg.addColorStop(1, "rgba(255, 42, 48, 0)");
+            ctx.fillStyle = rg;
+            ctx.fillRect(pt.x - 36, pt.y - 36, 72, 72);
+          });
+        }
+      }
     }
 
     // 2. Subtle shimmer on floor popcorns so they're easy to spot in warm orange gloom
@@ -914,9 +1186,13 @@ window.Duskwood = window.Duskwood || {};
       };
     }
     if (mr.stage === "CHASE") {
+      const occ = getRedRoomOccupancy(matchState);
+      const mpTag = isMultiplayerMatch(matchState) ? ` (${occ.inRed}/${occ.total} IN RED ROOM)` : "";
       return {
-        title: "MUSICAL ROOMS • THE MUSIC STOPPED!",
-        sub: "THE GIANT MONKEY IS CHASING YOU!",
+        title: `MUSICAL ROOMS • FIND THE RED ROOM!${mpTag} • POPCORNS: ${mr.scored}/${TARGET_POPCORNS}`,
+        sub: occ.localInRed
+          ? `YOU ARE SAFE IN THE RED ROOM! WAITING FOR ALL PLAYERS (${occ.inRed}/${occ.total})...`
+          : "SPRINT [SHIFT] & ENTER THE GLOWING RED ROOM TO STOP THE GIANT MONKEY!",
         notice: mr.notice || ""
       };
     }
@@ -926,7 +1202,7 @@ window.Duskwood = window.Duskwood || {};
         ? "HOLD [F] TO AIM OBLIQUE THROW • RELEASE [F] TO TOSS INTO BOX"
         : "PRESS [F] NEAR POPCORN TO PICK UP";
     return {
-      title: `MUSICAL ROOMS • POPCORNS: ${mr.scored}/${TARGET_POPCORNS} • MUSIC: ${Math.max(0, Math.ceil(mr.musicTimer))}S`,
+      title: `MUSICAL ROOMS (R${mr.round || 1}) • POPCORNS: ${mr.scored}/${TARGET_POPCORNS} • MUSIC: ${Math.max(0, Math.ceil(mr.musicTimer))}S`,
       sub: holdSub,
       notice: mr.notice || ""
     };
@@ -972,6 +1248,55 @@ window.Duskwood = window.Duskwood || {};
     return Boolean(mr && mr.active && (mr.stage === "PLAYING_20S" || mr.stage === "CHASE"));
   }
 
+  function handleNetworkMessage(action, payload, matchState) {
+    const mr = matchState && matchState.musicalEvent;
+    if (!mr || !mr.active || !action) return;
+    const p = payload || {};
+
+    if (action === "MP_MUSICAL_SCORE") {
+      if (p.popId) {
+        const popObj = mr.popcorns.find((x) => x.id === p.popId);
+        if (popObj) popObj.delivered = true;
+      }
+      mr.scored = Math.max(mr.scored + 1, typeof p.scored === "number" ? p.scored : mr.scored + 1);
+      const won = mr.scored >= TARGET_POPCORNS;
+      if (App.Audio && App.Audio.popcornScore) App.Audio.popcornScore(won);
+      if (won) {
+        triggerMusicalWin(matchState);
+      } else {
+        ensureEnoughPopcorns(mr, matchState.roomMap);
+      }
+      return;
+    }
+
+    if (action === "MP_MUSICAL_CHASE" && p.redRoomKey) {
+      if (typeof p.scored === "number") mr.scored = Math.max(mr.scored, p.scored);
+      if (mr.stage !== "CHASE") {
+        startRedRoomChasePhase(matchState, p.redRoomKey, true);
+      } else {
+        mr.redRoomKey = p.redRoomKey;
+        mr.lastRedRoomKey = p.redRoomKey;
+        Object.keys(matchState.roomMap || {}).forEach((k) => {
+          matchState.roomLightStates[k] = (k === p.redRoomKey);
+        });
+      }
+      return;
+    }
+
+    if (action === "MP_MUSICAL_PLAYER_DEAD" && p.playerId) {
+      mr.deadPlayerIds = mr.deadPlayerIds || new Set();
+      mr.deadPlayerIds.add(p.playerId);
+      return;
+    }
+
+    if (action === "MP_MUSICAL_RESUME") {
+      if (typeof p.scored === "number") mr.scored = Math.max(mr.scored, p.scored);
+      if (mr.stage === "CHASE") {
+        beginMusical20sPhase(matchState, true);
+      }
+    }
+  }
+
   function cleanup(matchState) {
     if (App.Audio && App.Audio.stopMusicalBox) App.Audio.stopMusicalBox();
     if (App.Audio && App.Audio.stopMonkeySfx) App.Audio.stopMonkeySfx();
@@ -984,6 +1309,7 @@ window.Duskwood = window.Duskwood || {};
     onKeyFDown,
     onKeyFUp,
     update,
+    handleNetworkMessage,
     drawCardboardBox,
     getLightMultiplier,
     getRoomRenderables,

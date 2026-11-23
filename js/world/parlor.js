@@ -793,8 +793,19 @@ window.Duskwood = window.Duskwood || {};
       },
       { y: CHAIRS[3].y, draw: () => drawChair(ctx, CHAIRS[3]) },
       {
+        y: CHAIRS[3].y + 1,
+        draw: () => {
+          if (App.Endgame && App.Endgame.renderDawnTableCorpses) {
+            App.Endgame.renderDawnTableCorpses(ctx, timeSec, matchState);
+          }
+        }
+      },
+      {
         y: player.seated ? CHAIRS[player.chairId].y + 1 : player.y,
         draw: () => {
+          if (App.Endgame && App.Endgame.isLocalDeadSpectator && App.Endgame.isLocalDeadSpectator(matchState)) {
+            return;
+          }
           const spriteCfg = Object.assign({}, charConfig, {
             facing: player.facing,
             walking: player.moving,
@@ -831,6 +842,7 @@ window.Duskwood = window.Duskwood || {};
     }
     if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
       App.Network.getRemotePlayersInRoom(0, 0).forEach((rp) => {
+        if (rp.deadSpectator || rp.inForest || rp.inCar) return;
         const chairObj = CHAIRS[rp.chairId] || CHAIRS[0];
         renderables.push({
           y: rp.seated ? chairObj.y + 1 : rp.y,

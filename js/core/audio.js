@@ -184,6 +184,13 @@ window.Duskwood = window.Duskwood || {};
   let chainsawWatchTimer = null;
   let chainsawFallbackTimer = null;
 
+  // Red Balloons Spatial Proximity Loop (audio/balloons_sfx.mp3)
+  let balloonsSfxEl = null;
+  let balloonsSfxFailed = false;
+  let balloonsSfxActive = false;
+  let balloonsSfxAttenuation = 0.0;
+  let balloonsSfxFallbackTimer = null;
+
   // Stay in the Light Random Switch Surge (audio/light_switch_sfx.mp3 — 4.0s)
   let lightSurgeEl = null;
   let lightSurgeFailed = false;
@@ -1606,6 +1613,11 @@ window.Duskwood = window.Duskwood || {};
       const cv = computeChainsawVolume();
       chainsawEl.volume = cv;
       chainsawEl.muted = cv <= 0.001;
+    }
+    if (balloonsSfxEl && !balloonsSfxFailed && balloonsSfxActive) {
+      const bv = computeBalloonsSfxVolume();
+      balloonsSfxEl.volume = bv;
+      balloonsSfxEl.muted = bv <= 0.001;
     }
     if (lightSurgeEl && !lightSurgeFailed && lightSurgeActive) {
       lightSurgeEl.volume = Math.max(0, Math.min(1, getSfxVol()));
@@ -3240,6 +3252,113 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
+  // ==================== RED BALLOONS SPATIAL PROXIMITY LOOP (audio/balloons_sfx.mp3) ====================
+  function computeBalloonsSfxVolume() {
+    const raw = getSfxVol() * 0.90 * Math.max(0, Math.min(1, balloonsSfxAttenuation));
+    return Math.max(0, Math.min(1, raw));
+  }
+
+  function playBalloonsFallbackRub() {
+    const effVol = computeBalloonsSfxVolume();
+    if (!balloonsSfxActive || effVol <= 0.001) return;
+    const c = ensureContext();
+    if (!c || c.state === "suspended") return;
+    const now = c.currentTime;
+
+    // Soft eerie rubber-creak / hollow float shimmer as fallback if balloons_sfx.mp3 is absent
+    const osc = c.createOscillator();
+    const g = c.createGain();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(340 + Math.random() * 65, now);
+    osc.frequency.exponentialRampToValueAtTime(520 + Math.random() * 80, now + 0.14);
+    osc.frequency.exponentialRampToValueAtTime(290, now + 0.28);
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.11 * effVol, now + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.30);
+    osc.connect(g);
+    g.connect(c.destination);
+    osc.start(now);
+    osc.stop(now + 0.32);
+  }
+
+  function stopBalloonsSfxLoop() {
+    balloonsSfxActive = false;
+    balloonsSfxAttenuation = 0;
+    clearInterval(balloonsSfxFallbackTimer);
+    balloonsSfxFallbackTimer = null;
+    if (balloonsSfxEl && !balloonsSfxEl.paused) {
+      balloonsSfxEl.pause();
+      try { balloonsSfxEl.currentTime = 0; } catch (_) {}
+    }
+  }
+
+  function startBalloonsSfxFallback() {
+    clearInterval(balloonsSfxFallbackTimer);
+    if (!balloonsSfxActive) return;
+    playBalloonsFallbackRub();
+    balloonsSfxFallbackTimer = setInterval(() => {
+      if (!balloonsSfxActive) {
+        clearInterval(balloonsSfxFallbackTimer);
+        return;
+      }
+      playBalloonsFallbackRub();
+    }, 880);
+  }
+
+  function startBalloonsSfxLoop() {
+    if (balloonsSfxActive) return;
+    balloonsSfxActive = true;
+
+    if (balloonsSfxFailed) {
+      startBalloonsSfxFallback();
+      return;
+    }
+
+    if (!balloonsSfxEl) {
+      balloonsSfxEl = new Audio("audio/balloons_sfx.mp3");
+      balloonsSfxEl.preload = "auto";
+      balloonsSfxEl.loop = true;
+      balloonsSfxEl.addEventListener("error", () => {
+        if (!balloonsSfxFailed) {
+          balloonsSfxFailed = true;
+          console.warn("[Duskwood Audio] 'audio/balloons_sfx.mp3' not found. Using spatial balloon synth fallback.");
+          if (balloonsSfxActive) startBalloonsSfxFallback();
+        }
+      });
+    }
+
+    try {
+      const vol = computeBalloonsSfxVolume();
+      balloonsSfxEl.currentTime = 0;
+      balloonsSfxEl.volume = vol;
+      balloonsSfxEl.muted = vol <= 0.001;
+      const p = balloonsSfxEl.play();
+      if (p && typeof p.catch === "function") {
+        p.catch(() => {
+          if (!balloonsSfxFailed) {
+            balloonsSfxFailed = true;
+            if (balloonsSfxActive) startBalloonsSfxFallback();
+          }
+        });
+      }
+    } catch (_) {
+      balloonsSfxFailed = true;
+      startBalloonsSfxFallback();
+    }
+  }
+
+  function setBalloonsSfxAttenuation(attenuation) {
+    balloonsSfxAttenuation = Math.max(0, Math.min(1, attenuation));
+    const vol = computeBalloonsSfxVolume();
+    if (balloonsSfxEl && !balloonsSfxFailed) {
+      balloonsSfxEl.volume = vol;
+      balloonsSfxEl.muted = vol <= 0.001;
+      if (balloonsSfxActive && vol > 0.001 && balloonsSfxEl.paused) {
+        balloonsSfxEl.play().catch(() => {});
+      }
+    }
+  }
+
   function playElectricRepairTick() {
     playTone(980 + Math.random() * 420, 0.04, "sawtooth", 0.07, 420);
   }
@@ -3937,6 +4056,9 @@ window.Duskwood = window.Duskwood || {};
     startChainsawLoop,
     stopChainsawLoop,
     setChainsawAttenuation,
+    startBalloonsSfxLoop,
+    stopBalloonsSfxLoop,
+    setBalloonsSfxAttenuation,
     electricRepairTick: playElectricRepairTick,
     breakerFixed: playBreakerFixedSfx,
     playLightSwitchSurge,

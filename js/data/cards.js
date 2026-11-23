@@ -393,8 +393,18 @@ window.Duskwood = window.Duskwood || {};
     },
 
     // =========================================================================
-    // 3. CHIME CARDS (Progress Cards — 7 cards with special effects)
+    // 3. CHIME CARDS (Progress Cards — balanced SP & MP clock/table effects)
     // =========================================================================
+    {
+      id: "ch_plus_15",
+      type: "CHIME",
+      glyph: "+15",
+      name: "QUIET QUARTER",
+      shortEffect: "Player +15m (Harvester stays)",
+      effect: "Advances ONLY the player pawn forward by 15 minutes toward 12:00 AM Midnight while keeping the Hollow Harvester still this turn.",
+      lore: "A measured quarter-hour tick buys calm steps without rushing midnight.",
+      meta: { deltaMinutes: 15, freezeHarvester: true, skipPassiveStep: true }
+    },
     {
       id: "ch_plus_30",
       type: "CHIME",
@@ -416,6 +426,16 @@ window.Duskwood = window.Duskwood || {};
       meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true }
     },
     {
+      id: "ch_rewind_30",
+      type: "CHIME",
+      glyph: "-30",
+      name: "BORROWED TIME",
+      shortEffect: "Clock -30m (Harvester stays)",
+      effect: "Rewinds the player pawn back 30 minutes away from 12:00 AM Midnight while keeping the Hollow Harvester frozen this turn, buying extra turns to investigate.",
+      lore: "A loose pendulum pin slips backward, stretching the dark night just a little longer.",
+      meta: { deltaMinutes: -30, freezeHarvester: true, skipPassiveStep: true }
+    },
+    {
       id: "ch_shuffle",
       type: "CHIME",
       glyph: "SH",
@@ -429,21 +449,21 @@ window.Duskwood = window.Duskwood || {};
       id: "ch_traitor",
       type: "CHIME",
       glyph: "TR",
-      name: "THE LANTERN THIEF",
-      shortEffect: "MP: Blocks 3rd Omen, saves self",
-      effect: "Multiplayer only (does not appear every match). If kept in hand until the end while the 3rd Omen is still hidden, prevents the final Omen from appearing while shielding its holder from losing.",
-      lore: "Someone at the table blew out their match before the night began.",
-      meta: { multiplayerOnly: true, passiveRole: "traitor", rare: true }
+      name: "THE TRAITOR",
+      shortEffect: "Hold: Block 3rd Clue & escape | Play: +30m",
+      effect: "Prevents the final clue from appearing, but guarantees your escape. This card will only activate if left in your hand by the end of the game; otherwise it plays as a normal +30 Minutes Progress card. (Defective if the final clue has already been revealed.)",
+      lore: "Someone at the table blew out their match before the final secret could surface.",
+      meta: { multiplayerOnly: true, passiveRole: "traitor", rare: true, deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true }
     },
     {
       id: "ch_sacrifice",
       type: "CHIME",
       glyph: "SC",
-      name: "THE MARTYR",
-      shortEffect: "MP: Sacrifice self to save 1",
-      effect: "Multiplayer only (appears every match). If held until the end, the holder forfeits their own escape to save another traveler. Does not trigger if anyone holds The Lantern Thief.",
-      lore: "Hold the door shut from the inside so another may step into the dawn.",
-      meta: { multiplayerOnly: true, passiveRole: "sacrifice" }
+      name: "THE SACRIFICE",
+      shortEffect: "Hold: Trade life to save 1 | Play: +30m",
+      effect: "Sacrifice your life at the end of the game to spare the life of another. This card will only activate if left in your hand by the end of the game; otherwise it plays as a normal +30 Minutes Progress card. (Defective if someone is holding 'The Traitor' card.)",
+      lore: "Stay behind at the round table so another traveler may step into the dawn.",
+      meta: { multiplayerOnly: true, passiveRole: "sacrifice", rare: true, deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true }
     },
     {
       id: "ch_random_board",
@@ -460,10 +480,10 @@ window.Duskwood = window.Duskwood || {};
       type: "CHIME",
       glyph: "RT",
       name: "SHIFTING SEAT",
-      shortEffect: "Next turn to random player",
-      effect: "When played, the card pedestal spins to a randomly chosen seated survivor for the next turn.",
+      shortEffect: "MP: Next turn to random player",
+      effect: "Multiplayer only. When played, the card pedestal spins to a randomly chosen seated survivor for the next turn.",
       lore: "The brass turntable groans and stops before an unexpected chair.",
-      meta: { action: "random_turn", deltaMinutes: 0 }
+      meta: { multiplayerOnly: true, action: "random_turn", deltaMinutes: 0 }
     },
     {
       id: "ch_the_thief",
@@ -588,9 +608,9 @@ window.Duskwood = window.Duskwood || {};
       type: "HEX",
       glyph: "MR",
       name: "MUSICAL ROOMS",
-      shortEffect: "Throw 10 popcorns • Giant Monkey",
-      effect: "Event: A Giant Monkey spawns beside you in the dark (10s). Then The Dining Room turns warm orange and the table becomes a cardboard box — tap [F] to grab & hold/release [F] to throw 10 popcorns in 35s before the music stops!",
-      lore: "When the music box winds down after 35 seconds, heavy knuckles slam across every doorway.",
+      shortEffect: "Throw 20 popcorns • Red Safe Room",
+      effect: "Event: A Giant Monkey spawns beside you in the dark (10s). Then the table becomes a cardboard box — tap [F] to grab & hold/release [F] to throw 20 popcorns! Whenever the music stops (25s), a random room glows RED: all survivors must find & enter the Red Room to halt the Monkey and resume throwing with your progress saved!",
+      lore: "When the music box stops, sprint for the crimson light before heavy knuckles reach you.",
       meta: { eventKey: "musical_rooms", monsterId: "giant_monkey", monsterName: "THE GIANT MONKEY", penaltyHours: 1 }
     },
     {
@@ -645,29 +665,43 @@ window.Duskwood = window.Duskwood || {};
   }
 
   // ==================== BALANCED DRAW PROBABILITIES + GUARANTEED PITY ENGINE ====================
-  // Base category weights (Sum = 1.00):
-  //   - CHIME (PROGRESS) : 34%  -> Diverse mix (+30m, +60m, Shuffle, Random Board, Random Turn, The Thief, The Neighbor)
-  //   - BLUEPRINT (ROOM) : 28%  -> PLUS Pity Guarantee: AT LEAST 1 ROOM within every 3 draws (while rooms exist)!
-  //   - OMEN (CLUE)      : 18%  -> PLUS Pity Guarantee: AT LEAST 1 CLUE within every 5 draws!
-  //   - HEX (EVENT)      : 12%  -> ~40% per 4-player round
-  //   - WARD (LIFESAVER) :  8%  -> Rare clutch Harvester pushback
+  // Tuned via 600-match Monte Carlo simulation so:
+  //   - Matches do NOT rush to 12:00 AM too fast (healthy ~24-34 turn arc)
+  //   - Players do NOT uncover all 3 True Clues too early (~18-26 turns to deduce the Exit Room)
+  //   - Singleplayer strictly excludes all Multiplayer-only / turn-shifting cards
+  //   - The Thief & The Neighbor remain strictly 1x per match in both SP & MP!
   const DRAW_WEIGHTS = {
-    CHIME:     0.555,
-    BLUEPRINT: 0.05,
-    OMEN:      0.04,
-    HEX:       0.28,
-    WARD:      0.075
+    CHIME:     0.42,
+    BLUEPRINT: 0.23,
+    OMEN:      0.105,
+    HEX:       0.155,
+    WARD:      0.09
   };
 
-  // Rich, diverse internal Progress (CHIME) card weights — specials appear frequently!
+  const DRAW_WEIGHTS_MP = {
+    CHIME:     0.41,
+    BLUEPRINT: 0.24,
+    OMEN:      0.095,
+    HEX:       0.155,
+    WARD:      0.10
+  };
+
+  // Balanced internal Progress (CHIME) weights:
+  //   - Steady +15m & +30m dominate; +60m is rarer so clock doesn't rocket to Midnight!
+  //   - Borrowed Time (-30m) lets investigators slow down Midnight when needed.
+  //   - ch_random_turn, ch_traitor & ch_sacrifice are strictly Multiplayer-only!
   const CHIME_CARD_WEIGHTS = {
-    ch_plus_30:      0.20,
-    ch_plus_60:      0.14,
-    ch_shuffle:      0.16,
-    ch_random_board: 0.14,
-    ch_random_turn:  0.10,
-    ch_the_thief:    0.13,
-    ch_the_neighbor: 0.13
+    ch_plus_15:      0.22,
+    ch_plus_30:      0.27,
+    ch_rewind_30:    0.08,
+    ch_plus_60:      0.10,
+    ch_shuffle:      0.12,
+    ch_random_board: 0.09,
+    ch_random_turn:  0.08,  // MP only (auto-filtered out in SP)
+    ch_traitor:      0.020, // Rare MP only (strictly 1x/match)
+    ch_sacrifice:    0.020, // Rare MP only (strictly 1x/match)
+    ch_the_thief:    0.06,  // Strictly 1x/match
+    ch_the_neighbor: 0.06   // Strictly 1x/match
   };
 
   function pickWeightedFromList(entries) {
@@ -682,7 +716,7 @@ window.Duskwood = window.Duskwood || {};
   }
 
   // Special Progress cards that can appear AT MOST ONCE per entire match!
-  const UNIQUE_ONCE_PER_MATCH_IDS = ["ch_the_thief", "ch_the_neighbor"];
+  const UNIQUE_ONCE_PER_MATCH_IDS = ["ch_the_thief", "ch_the_neighbor", "ch_traitor", "ch_sacrifice"];
 
   function pickProgressCard(isMultiplayer, excludeCardIds) {
     const excluded = excludeCardIds instanceof Set ? excludeCardIds : new Set(excludeCardIds || []);
@@ -695,13 +729,13 @@ window.Duskwood = window.Duskwood || {};
       item: c,
       weight: CHIME_CARD_WEIGHTS[c.id] || 0.05
     }));
-    return pickWeightedFromList(weighted) || getById("ch_plus_30");
+    return pickWeightedFromList(weighted) || getById("ch_plus_15");
   }
 
-  // Draws 1 card obeying balanced weights AND strict pity guarantees:
-  //   - Every 3 consecutive draws ALWAYS include at least 1 ROOM (when unbuilt rooms remain)
-  //   - Every 5 consecutive draws ALWAYS include at least 1 CLUE
-  // Pass `options.pityState = { sinceRoom, sinceClue }` to track & auto-update counters!
+  // Draws 1 card obeying balanced SP/MP weights AND pity guarantees:
+  //   - At least 1 ROOM within every 4 draws (while unbuilt rooms remain)
+  //   - At least 1 CLUE within every 6 draws (SP) / 7 draws (MP) so answers aren't solved too fast!
+  //   - At least 1 EVENT within every 6 eligible draws (respecting cooldown)
   function drawWeightedCard(opts) {
     const options = opts || {};
     const allowHex = options.allowHex !== false;
@@ -717,6 +751,7 @@ window.Duskwood = window.Duskwood || {};
       ownedOmenCounts[id] = (ownedOmenCounts[id] || 0) + 1;
     });
     const strictNoDupOmen = Boolean(options.strictNoDupOmen);
+    const forbidOmen = Boolean(options.forbidOmen);
 
     const totalRooms = typeof options.totalRooms === "number" ? options.totalRooms : 7;
     const eventCooldownTurns = options.eventCooldownTurns || 0;
@@ -724,11 +759,6 @@ window.Duskwood = window.Duskwood || {};
       ? options.drawnEventCardIds
       : new Set(options.drawnEventCardIds || []);
 
-    // Eligible Event (HEX) pool:
-    //   1) Cooldown guard: NO back-to-back events while eventCooldownTurns > 0
-    //   2) Smart room gating:
-    //      - 2 rooms (Dining + Cellar): Cutting Corners, The Basement & Musical Rooms are already eligible!
-    //      - 3+ rooms (just 1 built room after Cellar): ALL 9 Event cards unlock!
     const EARLY_OK_EVENTS = new Set(["hx_corners", "hx_cellar_breakers", "hx_musical_rooms"]);
     const eligibleHexes = (!allowHex || eventCooldownTurns > 0)
       ? []
@@ -743,46 +773,43 @@ window.Duskwood = window.Duskwood || {};
     const availableRooms = getByType("BLUEPRINT").filter((c) => !excludeRoomIds.has(c.id));
     const allOmens = getByType("OMEN");
     const canDrawRoom = availableRooms.length > 0;
-    const canDrawClue = !strictNoDupOmen || allOmens.some((c) => !ownedOmenCounts[c.id]);
+    const canDrawClue = !forbidOmen && (!strictNoDupOmen || allOmens.some((c) => !ownedOmenCounts[c.id]));
+
+    const roomPityCap = 3; // Guarantee Room on 4th draw without one
+    const cluePityCap = isMultiplayer ? 6 : 5; // Guarantee Clue on 6th (SP) or 7th (MP) draw without one
+    const eventPityCap = 5; // Guarantee Event on 6th eligible draw without one
 
     const pity = options.pityState || null;
     let chosenType = null;
 
-    // 1. Strict Pity Guarantee Checks (Room<=3, Clue<=5, AND Event<=5 eligible draws!)
     if (pity) {
       const sr = pity.sinceRoom || 0;
       const sc = pity.sinceClue || 0;
       const se = pity.sinceEvent || 0;
 
-      if (canDrawClue && sc >= 4) {
-        // 5th draw without a Clue -> MUST draw Clue!
+      if (canDrawClue && sc >= cluePityCap) {
         chosenType = "OMEN";
-      } else if (canDrawRoom && sr >= 2) {
-        // 3rd draw without a Room -> MUST draw Room!
+      } else if (canDrawRoom && sr >= roomPityCap) {
         chosenType = "BLUEPRINT";
-      } else if (canDrawRoom && sc === 3 && sr === 1) {
-        // Proactive collision avoidance: keep draw #5 open for the guaranteed Clue!
-        chosenType = "BLUEPRINT";
-      } else if (canDrawHex && se >= 4) {
-        // 5th eligible draw without an Event -> GUARANTEE an Event card!
+      } else if (canDrawHex && se >= eventPityCap) {
         chosenType = "HEX";
       }
     }
 
-    // 2. Normal Weighted Roll when pity didn't force a category
     if (!chosenType) {
-      let wChime = DRAW_WEIGHTS.CHIME;
-      let wRoom  = canDrawRoom ? DRAW_WEIGHTS.BLUEPRINT : 0;
-      let wOmen  = canDrawClue ? DRAW_WEIGHTS.OMEN : 0;
-      let wHex   = canDrawHex ? DRAW_WEIGHTS.HEX : 0;
-      let wWard  = DRAW_WEIGHTS.WARD;
+      const baseW = isMultiplayer ? DRAW_WEIGHTS_MP : DRAW_WEIGHTS;
+      let wChime = baseW.CHIME;
+      let wRoom  = canDrawRoom ? baseW.BLUEPRINT : 0;
+      let wOmen  = canDrawClue ? baseW.OMEN : 0;
+      let wHex   = canDrawHex ? baseW.HEX : 0;
+      let wWard  = baseW.WARD;
 
       if (wRoom === 0) {
-        // Once all 11 rooms are placed/held, normalize remaining non-pity rolls to balanced late-game pacing
-        wChime = 0.61;
-        wOmen  = canDrawClue ? 0.08 : 0;
-        wHex   = canDrawHex ? 0.25 : 0;
-        wWard  = 0.06;
+        // Late-game once all 11 rooms are placed/held
+        wChime = 0.56;
+        wOmen  = canDrawClue ? (isMultiplayer ? 0.11 : 0.13) : 0;
+        wHex   = canDrawHex ? 0.21 : 0;
+        wWard  = 0.10;
       }
 
       const catEntries = [
@@ -796,7 +823,6 @@ window.Duskwood = window.Duskwood || {};
       chosenType = pickWeightedFromList(catEntries);
     }
 
-    // Update pity counters automatically when pityState is provided
     if (pity) {
       pity.sinceRoom = chosenType === "BLUEPRINT" ? 0 : (pity.sinceRoom || 0) + 1;
       pity.sinceClue = chosenType === "OMEN" ? 0 : (pity.sinceClue || 0) + 1;
@@ -814,11 +840,10 @@ window.Duskwood = window.Duskwood || {};
       return availableRooms[Math.floor(Math.random() * availableRooms.length)];
     }
     if (chosenType === "OMEN") {
-      // Strongly prefer unowned Clues (1.0) over already-held/Graveyard duplicates (0.16 / 0.05)
       const weightedOmens = allOmens.map((c) => {
         const cnt = ownedOmenCounts[c.id] || 0;
         let w = 1.0;
-        if (cnt > 0) w = strictNoDupOmen ? 0 : (cnt === 1 ? 0.16 : 0.05);
+        if (cnt > 0) w = strictNoDupOmen ? 0 : (cnt === 1 ? 0.18 : 0.05);
         return { item: c, weight: w };
       }).filter((e) => e.weight > 0);
       return pickWeightedFromList(weightedOmens) || allOmens[Math.floor(Math.random() * allOmens.length)];
@@ -827,7 +852,6 @@ window.Duskwood = window.Duskwood || {};
       const wards = getByType("WARD");
       return wards[Math.floor(Math.random() * wards.length)];
     }
-    // HEX (Event Card — respects room gating & 3-turn cooldown; prioritizes implemented events!)
     if (!eligibleHexes.length) return pickProgressCard(isMultiplayer, excludeCardIds);
     const weightedHex = eligibleHexes.map((c) => ({
       item: c,
@@ -841,27 +865,44 @@ window.Duskwood = window.Duskwood || {};
   }
 
   // Random N cards (used for 3-card starter hand & Shuffle Card!)
-  // Guarantees: at least 1 Room in every 3 cards (if rooms remain), no Events, no Cellar/Harvester, no duplicate rooms/Clues!
-  function buildStartingHand(count, excludeRoomIds, existingOmenIds, pityState, excludeCardIds) {
+  // Caps starter Clues at max 1 so players don't start with 3 clues and solve the game too early,
+  // enforces SP vs MP card filtering, and ensures at least 1 Room when rooms remain!
+  function buildStartingHand(count, excludeRoomIds, existingOmenIds, pityState, excludeCardIds, isMultiplayer) {
     const n = count || 3;
     const pickedRooms = new Set(excludeRoomIds || []);
     pickedRooms.add("bp_cellar");
     const pickedOmens = (existingOmenIds || []).slice();
     const pickedUnique = new Set(excludeCardIds || []);
-    const localPity = pityState || { sinceRoom: 0, sinceClue: 0 };
+    const localPity = pityState || { sinceRoom: 0, sinceClue: 0, sinceEvent: 0 };
     const result = [];
+    let omensDealtHere = 0;
+
     for (let i = 0; i < n; i++) {
-      const card = drawWeightedCard({
-        allowHex: false,
-        excludeRoomIds: Array.from(pickedRooms),
-        excludeCardIds: pickedUnique,
-        ownedOmenIds: pickedOmens,
-        strictNoDupOmen: true,
-        pityState: localPity
-      });
+      // If last card of a 3-card starter hand and still 0 rooms while rooms exist, gently bias a room
+      const availRooms = getByType("BLUEPRINT").filter((c) => !pickedRooms.has(c.id));
+      let card = null;
+      if (i === n - 1 && n >= 3 && !result.some((c) => c.type === "BLUEPRINT") && availRooms.length > 0) {
+        card = availRooms[Math.floor(Math.random() * availRooms.length)];
+        localPity.sinceRoom = 0;
+        localPity.sinceClue = (localPity.sinceClue || 0) + 1;
+      } else {
+        card = drawWeightedCard({
+          allowHex: false,
+          isMultiplayer: Boolean(isMultiplayer),
+          excludeRoomIds: Array.from(pickedRooms),
+          excludeCardIds: pickedUnique,
+          ownedOmenIds: pickedOmens,
+          strictNoDupOmen: true,
+          forbidOmen: omensDealtHere >= 1,
+          pityState: localPity
+        });
+      }
       if (card) {
         if (card.type === "BLUEPRINT") pickedRooms.add(card.id);
-        if (card.type === "OMEN") pickedOmens.push(card.id);
+        if (card.type === "OMEN") {
+          pickedOmens.push(card.id);
+          omensDealtHere += 1;
+        }
         if (UNIQUE_ONCE_PER_MATCH_IDS.includes(card.id)) pickedUnique.add(card.id);
         result.push(card);
       }

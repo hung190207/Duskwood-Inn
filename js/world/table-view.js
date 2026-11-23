@@ -681,8 +681,134 @@ window.Duskwood = window.Duskwood || {};
   let thiefWheelSpinning = false;
   let thiefCurrentAngle = 0;
 
-  // Canonical table seat angles (clockwise from 6 o'clock = 0 rad)
-  const SEAT_ANGLES = [0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2];
+  // Canonical table seat angles fallback (clockwise from 6 o'clock = 0 rad)
+  const SEAT_ANGLES = [Math.PI / 2, (3 * Math.PI) / 2, Math.PI, 0];
+
+  let mpAwaitingDrawResponse = false;
+  let mpIntroRequested = false;
+  let mpLastAllSeated = true;
+  let mpDealingTargetName = "";
+  let localHeldTraitor = false;
+  let localTraitorDefective = false;
+
+  function getLocalHeldRoleState() {
+    const hasTraitor = hand.some((c) => c && c.id === "ch_traitor");
+    const hasSacrifice = hand.some((c) => c && c.id === "ch_sacrifice");
+    if (hasTraitor && !localHeldTraitor) {
+      // Latched defective if the 3rd (final) true clue was ALREADY revealed before acquiring THE TRAITOR!
+      localTraitorDefective = Boolean(
+        App.Clues && App.Clues.isFinalClueRevealed && App.Clues.isFinalClueRevealed(matchStateRef)
+      );
+    } else if (!hasTraitor) {
+      localTraitorDefective = false;
+    }
+    localHeldTraitor = hasTraitor;
+    return {
+      hasTraitor,
+      traitorDefective: hasTraitor && localTraitorDefective,
+      hasSacrifice
+    };
+  }
+
+  function syncLocalHeldRoles() {
+    if (!matchStateRef) return;
+    const roleState = getLocalHeldRoleState();
+    const localPid = (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : "local";
+    matchStateRef.heldRolesByPlayer = matchStateRef.heldRolesByPlayer || {};
+    matchStateRef.heldRolesByPlayer[localPid] = roleState;
+    if (isMultiplayerNet()) {
+      App.Network.sendGameAction("MP_HELD_ROLES", Object.assign({ playerId: localPid }, roleState));
+    }
+  }
+
+  function normalizeAngle(rad) {
+    return ((rad % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  }
+
+  function getActiveSeats() {
+    if (matchStateRef && Array.isArray(matchStateRef.playerSeats) && matchStateRef.playerSeats.length) {
+      return matchStateRef.playerSeats;
+    }
+    return [0];
+  }
+
+  function isMultiplayerCoop() {
+    return Boolean(matchStateRef && matchStateRef.mode === "MULTIPLAYER" && getActiveSeats().length > 1);
+  }
+
+  function isMultiplayerNet() {
+    return Boolean(
+      matchStateRef &&
+      matchStateRef.mode === "MULTIPLAYER" &&
+      App.Network &&
+      App.Network.isMultiplayerMatch &&
+      App.Network.isMultiplayerMatch()
+    );
+  }
+
+  function getLocalSeatId() {
+    return matchStateRef && typeof matchStateRef.localSeatIdx === "number" ? matchStateRef.localSeatIdx : 0;
+  }
+
+  function getActiveSeatId() {
+    const seats = getActiveSeats();
+    const idx = matchStateRef ? (matchStateRef.activeSeatIdx || 0) : 0;
+    return seats[((idx % seats.length) + seats.length) % seats.length] || 0;
+  }
+
+  function getSeatDisplayName(seatId) {
+    if (App.Network && App.Network.getSeatName && isMultiplayerNet()) {
+      return App.Network.getSeatName(seatId);
+    }
+    return `SEAT ${seatId + 1}`;
+  }
+
+  function isLocalPlayersTurn() {
+    if (!isMultiplayerCoop()) return true;
+    return getActiveSeatId() === getLocalSeatId();
+  }
+
+  function getWorldAngleForSeatId(seatId) {
+    const seats = getActiveSeats();
+    if (!isMultiplayerCoop()) return 0;
+    if (App.Network && App.Network.getSeatWorldAngle) {
+      return App.Network.getSeatWorldAngle(seatId, seats);
+    }
+    return SEAT_ANGLES[seatId % SEAT_ANGLES.length] || 0;
+  }
+
+  function getMyWorldSeatAngle() {
+    if (!isMultiplayerCoop()) return 0;
+    return getWorldAngleForSeatId(getLocalSeatId());
+  }
+
+  function syncDisplayRimAngleFromWorld() {
+    const worldA = normalizeAngle(anim.worldRimAngle || 0);
+    if (isMultiplayerCoop()) {
+      anim.rimAngleOffset = normalizeAngle(worldA - getMyWorldSeatAngle());
+    } else {
+      anim.rimAngleOffset = anim.worldRimAngle || 0;
+    }
+    if (matchStateRef) {
+      matchStateRef.rimAngleOffset = worldA;
+    }
+  }
+
+  // Checks if ALL players in the match are currently seated at the round table
+  function getSeatedGate() {
+    if (!isMultiplayerCoop() || !isMultiplayerNet() || !App.Network || !App.Network.getSeatedStatus) {
+      return { allSeated: true, seatedCount: 1, totalPlayers: 1, waitingNames: [] };
+    }
+    const localInfo = App.GameWorld && App.GameWorld.getLocalSeatedInfo
+      ? App.GameWorld.getLocalSeatedInfo()
+      : { seated: isOpen, roomCoord: { x: 0, y: 0 } };
+    return App.Network.getSeatedStatus(localInfo.seated, localInfo.roomCoord);
+  }
+
+  function isWaitingForAllSeated() {
+    if (!isMultiplayerCoop()) return false;
+    return !getSeatedGate().allSeated;
+  }
 
   // Animation State for Table Intro, Very Slow Pawn Gliding, Outer Rim Turn Rotation & Light Flicker
   const anim = {
@@ -700,17 +826,21 @@ window.Duskwood = window.Duskwood || {};
     archFlickerLight: 1.0,
     drawAnimating: false,
     shuffleAnimating: false,
+    penaltyPlaying: false,
     // Sequential Turn Animation Queue (Slow Notch-by-Notch Pawn Glides -> Deal -> Rim Turn)
     stepQueue: [],
     activeStep: null,
-    // Outer Rim Turntable Rotation (Graveyard Pedestal + Played Outer-Rim Cards)
+    // Outer Rim Turntable Rotation (worldRimAngle = canonical world angle; rimAngleOffset = local POV angle)
+    worldRimAngle: 0,
     rimAngleOffset: 0,
     rimRotating: false,
+    rimPausedBySeat: false,
     rimElapsed: 0,
     rimDuration: 7.0,
     rimStartAngle: 0,
     rimTargetAngle: 0,
-    rimLastTickIdx: 0
+    rimLastTickIdx: 0,
+    rimOnComplete: null
   };
 
   // Pan & Zoom for center wooden room-card layout
@@ -786,6 +916,72 @@ window.Duskwood = window.Duskwood || {};
         anim.activeStep = next;
         triggerHarvesterEmergence();
         syncUI();
+        return;
+      }
+
+      if (next.type === "ROTATE_TO_SEAT") {
+        // Table ONLY rotates when ALL players are seated! If someone stood up, re-queue at head and wait!
+        if (isWaitingForAllSeated()) {
+          anim.stepQueue.unshift(next);
+          syncUI();
+          return;
+        }
+        anim.activeStep = next;
+        startRimTurnRotation(Boolean(next.forcedRandomSeat), {
+          targetOrderIdx: typeof next.targetOrderIdx === "number" ? next.targetOrderIdx : undefined,
+          onComplete: () => {
+            anim.activeStep = null;
+            syncUI();
+            if (onStateChangeCallback) onStateChangeCallback();
+            startNextQueuedStep();
+          }
+        });
+        return;
+      }
+
+      if (next.type === "DEAL_SEAT_3") {
+        if (isWaitingForAllSeated()) {
+          anim.stepQueue.unshift(next);
+          syncUI();
+          return;
+        }
+        anim.activeStep = next;
+        anim.dealingCards = true;
+        const seats = getActiveSeats();
+        const targetSeatId = seats[next.targetOrderIdx] || 0;
+        const isForMe = targetSeatId === getLocalSeatId();
+        mpDealingTargetName = getSeatDisplayName(targetSeatId);
+        syncUI();
+
+        const cards = (next.cards || []).map((c) => (typeof c === "string" ? App.CardsDB.getById(c) : c)).filter(Boolean);
+        const dealCount = Math.max(1, cards.length || 3);
+        for (let i = 0; i < dealCount; i++) {
+          const card = cards[i] || null;
+          const id = setTimeout(() => {
+            if (isForMe && card) {
+              hand.push(card);
+              dealAnimIndices = new Set([hand.length - 1]);
+              if (App.GuideUI) App.GuideUI.discoverCard(card.id);
+              syncLocalHeldRoles();
+            }
+            App.Audio.cardDraw();
+            if (i === dealCount - 1) {
+              anim.dealingCards = false;
+              mpDealingTargetName = "";
+              anim.activeStep = null;
+              syncUI();
+              if (onStateChangeCallback) onStateChangeCallback();
+              const finishId = setTimeout(() => {
+                startNextQueuedStep();
+              }, 360);
+              dealTimeouts.push(finishId);
+              return;
+            }
+            syncUI();
+            if (onStateChangeCallback) onStateChangeCallback();
+          }, 160 + i * 500);
+          dealTimeouts.push(id);
+        }
         return;
       }
 
@@ -869,10 +1065,16 @@ window.Duskwood = window.Duskwood || {};
       anim.rimRotating ||
       anim.drawAnimating ||
       anim.shuffleAnimating ||
+      anim.penaltyPlaying ||
+      Boolean(matchStateRef && matchStateRef.pendingPenaltyAnim) ||
+      mpAwaitingDrawResponse ||
       Boolean(pendingDrawnCard) ||
       thiefWheelActive ||
       Boolean(anim.activeStep) ||
-      anim.stepQueue.length > 0
+      anim.stepQueue.length > 0 ||
+      isWaitingForAllSeated() ||
+      !isLocalPlayersTurn() ||
+      (matchStateRef && matchStateRef.setupPhase === "STARTER_DEAL")
     );
   }
 
@@ -937,12 +1139,25 @@ window.Duskwood = window.Duskwood || {};
     matchStateRef.eventCooldownTurns = 0;
     matchStateRef.drawnEventCardIds = [];
     matchStateRef.atticEvent = null;
+    mpAwaitingDrawResponse = false;
+    mpIntroRequested = false;
+    mpLastAllSeated = true;
+    mpDealingTargetName = "";
+    localHeldTraitor = false;
+    localTraitorDefective = false;
+    anim.penaltyPlaying = false;
+    matchStateRef.pendingPenaltyAnim = null;
+    matchStateRef.heldRolesByPlayer = {};
+    matchStateRef.persistentEventProps = {};
+    anim.worldRimAngle = 0;
     anim.rimAngleOffset = 0;
     anim.rimRotating = false;
+    anim.rimPausedBySeat = false;
     anim.rimElapsed = 0;
     anim.rimStartAngle = 0;
     anim.rimTargetAngle = 0;
     anim.rimLastTickIdx = 0;
+    anim.rimOnComplete = null;
     if (App.Audio && App.Audio.stopRimTurn) App.Audio.stopRimTurn();
 
     matchStateRef.turnCount = 0;
@@ -991,10 +1206,46 @@ window.Duskwood = window.Duskwood || {};
     };
   }
 
+  function alignInitialRimToSeat1() {
+    if (!matchStateRef) return;
+    const seats = getActiveSeats();
+    matchStateRef.activeSeatIdx = 0;
+    const seat1Id = seats[0] || 0;
+    anim.worldRimAngle = isMultiplayerCoop() ? getWorldAngleForSeatId(seat1Id) : 0;
+    syncDisplayRimAngleFromWorld();
+    matchStateRef.seatLabel = `SEAT ${getLocalSeatId() + 1}`;
+  }
+
   // ==================== TABLE INTRO ANIMATION (11s SYNCED TO audio/human_intro.mp3) ====================
-  function beginTableIntro() {
+  function beginTableIntro(fromNetwork) {
     if (!matchStateRef || matchStateRef.tableIntroDone) return;
     if (anim.introStage !== "WAITING") return;
+
+    alignInitialRimToSeat1();
+
+    // Multiplayer: Table ONLY starts intro when ALL players are seated at the round table!
+    if (isMultiplayerCoop() && !fromNetwork) {
+      if (isWaitingForAllSeated()) {
+        syncUI();
+        return;
+      }
+      if (isMultiplayerNet()) {
+        if (App.Network.isHost()) {
+          App.Network.sendGameAction("MP_START_INTRO", {
+            clueManifest: matchStateRef.clueManifest || null,
+            sanctuaryRoomId: matchStateRef.sanctuaryRoomId || "",
+            sanctuaryClueKeys: matchStateRef.sanctuaryClueKeys || []
+          });
+        } else {
+          if (!mpIntroRequested) {
+            mpIntroRequested = true;
+            App.Network.sendGameAction("MP_REQ_START_INTRO", {});
+          }
+          syncUI();
+          return;
+        }
+      }
+    }
 
     anim.introStage = "PLAYER_RISE";
     anim.introTimer = 0;
@@ -1009,11 +1260,31 @@ window.Duskwood = window.Duskwood || {};
   function updateAnimations(dt) {
     if (!matchStateRef) return;
 
+    // 0. Live Multiplayer All-Seated monitor & Pending Event-Loss Penalty Scene trigger!
+    if (isMultiplayerCoop()) {
+      const gate = getSeatedGate();
+      if (gate.allSeated !== mpLastAllSeated) {
+        mpLastAllSeated = gate.allSeated;
+        syncUI();
+      }
+      if (gate.allSeated) {
+        if (!matchStateRef.tableIntroDone && anim.introStage === "WAITING" && isOpen) {
+          beginTableIntro(false);
+        } else if (isOpen && matchStateRef.pendingPenaltyAnim && anim.introStage === "DONE" && !anim.activeStep && !anim.rimRotating) {
+          maybeStartPendingPenaltyScene();
+        } else if (!anim.activeStep && !anim.rimRotating && anim.stepQueue.length > 0) {
+          startNextQueuedStep();
+        }
+      }
+    } else if (isOpen && matchStateRef.pendingPenaltyAnim && anim.introStage === "DONE" && !anim.activeStep && !anim.rimRotating) {
+      maybeStartPendingPenaltyScene();
+    }
+
     // 1. 11-Second Table Intro synced to audio/human_intro.mp3:
     //    0.0s -> 2.0s  : Player piece rises slowly from underneath XII
     //    2.0s -> 2.4s  : Brief settle beat at XII
-    //    2.4s -> 10.3s : Slower, smooth 1 full clockwise lap (7.9s for 12 hours / 48 notches)
-    //    10.3s -> 11.0s: Final pause at XII -> deal ONLY Root Cellar -> unlock Turn 1!
+    //    2.4s -> 10.3s : Slower, smooth 1 full lap (7.9s for 12 hours / 48 notches)
+    //    10.3s -> 11.0s: Final pause at XII -> deal ONLY The Cellar to Seat 1 -> unlock Turn 1!
     if (anim.introStage !== "DONE" && anim.introStage !== "WAITING") {
       const t = App.Audio.getHumanIntroTime();
 
@@ -1061,7 +1332,7 @@ window.Duskwood = window.Duskwood || {};
         return;
       }
 
-      // 11.0s reached: Intro complete -> Deal ONLY The Cellar with draw_card.mp3 SFX!
+      // 11.0s reached: Intro complete -> Seat 1 ALWAYS receives ONLY The Cellar!
       anim.playerRise = 1;
       anim.visualPlayerMinutes = 0;
       anim.introStage = "DONE";
@@ -1069,10 +1340,16 @@ window.Duskwood = window.Duskwood || {};
       matchStateRef.tableIntroDone = true;
       matchStateRef.setupPhase = "TURN_1_CELLAR";
       matchStateRef.turnCount = 1;
+      matchStateRef.activeSeatIdx = 0;
+      alignInitialRimToSeat1();
 
       const cellar = App.CardsDB.getById("bp_cellar");
-      hand = [cellar];
-      dealAnimIndices = new Set([0]);
+      if (isLocalPlayersTurn()) {
+        hand = [cellar];
+        dealAnimIndices = new Set([0]);
+      } else {
+        hand = [];
+      }
       if (App.GuideUI) App.GuideUI.discoverCard(cellar.id);
       App.Audio.cardDraw();
       syncUI();
@@ -1133,10 +1410,17 @@ window.Duskwood = window.Duskwood || {};
         }
       }
     } else if (!anim.dealingCards && !anim.rimRotating) {
-      // Keep visual minutes aligned when idle
-      anim.visualPlayerMinutes = matchStateRef.clockMinutes;
-      if (matchStateRef.harvesterSpawned) {
-        anim.visualHarvesterMinutes = matchStateRef.harvesterMinutes;
+      // Keep visual minutes aligned when idle — EXCEPT while a Death Penalty glide is queued to play on table return!
+      if (matchStateRef.pendingPenaltyAnim) {
+        anim.visualPlayerMinutes = matchStateRef.pendingPenaltyAnim.fromPlayerMin;
+        if (matchStateRef.harvesterSpawned) {
+          anim.visualHarvesterMinutes = matchStateRef.pendingPenaltyAnim.fromHarvMin;
+        }
+      } else {
+        anim.visualPlayerMinutes = matchStateRef.clockMinutes;
+        if (matchStateRef.harvesterSpawned) {
+          anim.visualHarvesterMinutes = matchStateRef.harvesterMinutes;
+        }
       }
     }
 
@@ -1168,12 +1452,27 @@ window.Duskwood = window.Duskwood || {};
     }
 
     // 5. Outer Rim Turntable Rotation (Graveyard Pedestal + Played Outer-Rim Cards)
+    //    In Multiplayer, rotation pauses immediately if any player leaves their chair and resumes once all sit!
     if (anim.rimRotating) {
+      if (isWaitingForAllSeated()) {
+        if (!anim.rimPausedBySeat) {
+          anim.rimPausedBySeat = true;
+          if (App.Audio && App.Audio.stopRimTurn) App.Audio.stopRimTurn();
+          syncUI();
+        }
+        return;
+      } else if (anim.rimPausedBySeat) {
+        anim.rimPausedBySeat = false;
+        const remainSec = Math.max(0.4, anim.rimDuration - anim.rimElapsed);
+        if (App.Audio && App.Audio.playRimTurn) App.Audio.playRimTurn(remainSec);
+        syncUI();
+      }
+
       anim.rimElapsed += dt;
       const p = Math.max(0, Math.min(1, anim.rimElapsed / Math.max(0.1, anim.rimDuration)));
       const eased = easeInOutCubic(p);
-      anim.rimAngleOffset = anim.rimStartAngle + (anim.rimTargetAngle - anim.rimStartAngle) * eased;
-      matchStateRef.rimAngleOffset = anim.rimAngleOffset;
+      anim.worldRimAngle = anim.rimStartAngle + (anim.rimTargetAngle - anim.rimStartAngle) * eased;
+      syncDisplayRimAngleFromWorld();
 
       if (App.Audio.isRimTurnUsingFallback && App.Audio.isRimTurnUsingFallback()) {
         const ticks = Math.floor((eased * (anim.rimTargetAngle - anim.rimStartAngle)) / (Math.PI / 6));
@@ -1187,11 +1486,18 @@ window.Duskwood = window.Duskwood || {};
 
       if (p >= 1) {
         anim.rimRotating = false;
-        anim.rimAngleOffset = ((anim.rimTargetAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-        matchStateRef.rimAngleOffset = anim.rimAngleOffset;
+        anim.rimPausedBySeat = false;
+        anim.worldRimAngle = normalizeAngle(anim.rimTargetAngle);
+        syncDisplayRimAngleFromWorld();
         App.Audio.stopRimTurn();
-        syncUI();
-        if (onStateChangeCallback) onStateChangeCallback();
+        const doneCb = anim.rimOnComplete;
+        anim.rimOnComplete = null;
+        if (typeof doneCb === "function") {
+          doneCb();
+        } else {
+          syncUI();
+          if (onStateChangeCallback) onStateChangeCallback();
+        }
       }
     }
   }
@@ -1250,49 +1556,55 @@ window.Duskwood = window.Duskwood || {};
   }
 
   // Starts the outer-rim turntable rotation every turn!
-  // - Singleplayer (1 player): rotates 1 FULL 360° lap, duration EQUAL to human_intro.mp3 (11s)
-  // - Multiplayer (2-4 players): rotates directly to target player's seat center, SHORTER proportional duration!
-  function startRimTurnRotation(forcedRandomSeat) {
+  // - Singleplayer (1 player): rotates 1 FULL 360° lap back to 6 o'clock (7.0s)
+  // - Multiplayer (2-4 players): rotates clockwise directly to the target player's FIXED seat angle!
+  function startRimTurnRotation(forcedRandomSeat, opts) {
     if (!matchStateRef) return;
-    const seats = matchStateRef.playerSeats && matchStateRef.playerSeats.length ? matchStateRef.playerSeats : [0];
+    const o = opts || {};
+    const seats = getActiveSeats();
     const isSingleplayer = seats.length <= 1;
-    // Shortened rim SFX: uses ONLY 4.0s -> 11.0s (7.0s) of human_intro.mp3 for SP, and shorter for MP!
     const fullDur = App.Audio.getRimClipDuration ? App.Audio.getRimClipDuration() : 7.0;
 
-    const currentNorm = ((anim.rimAngleOffset % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const currentWorld = normalizeAngle(anim.worldRimAngle || 0);
     let deltaRad = Math.PI * 2;
 
     if (isSingleplayer) {
-      // Singleplayer: exact 1 full clockwise revolution back to 6 o'clock (duration = human_intro.mp3)
       deltaRad = Math.PI * 2;
       matchStateRef.activeSeatIdx = 0;
     } else {
-      // Multiplayer: advance to next seat (or random seat on Shifting Seat card)
-      let nextIdx = (matchStateRef.activeSeatIdx + 1) % seats.length;
-      if (forcedRandomSeat && seats.length > 1) {
+      let nextIdx = typeof o.targetOrderIdx === "number"
+        ? ((o.targetOrderIdx % seats.length) + seats.length) % seats.length
+        : (matchStateRef.activeSeatIdx + 1) % seats.length;
+
+      if (typeof o.targetOrderIdx !== "number" && forcedRandomSeat && seats.length > 1) {
         const others = seats.map((_, i) => i).filter((i) => i !== matchStateRef.activeSeatIdx);
         nextIdx = others[Math.floor(Math.random() * others.length)];
       }
       matchStateRef.activeSeatIdx = nextIdx;
       const targetSeatId = seats[nextIdx] || 0;
-      const targetAngle = SEAT_ANGLES[targetSeatId % SEAT_ANGLES.length] || 0;
-      deltaRad = ((targetAngle - currentNorm) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+      const targetWorldAngle = getWorldAngleForSeatId(targetSeatId);
+      deltaRad = normalizeAngle(targetWorldAngle - currentWorld);
       if (deltaRad < 0.05) deltaRad = Math.PI * 2;
-      matchStateRef.seatLabel = `SEAT ${targetSeatId + 1}`;
     }
 
     const durationSec = isSingleplayer
       ? fullDur
-      : Math.max(1.75, fullDur * (deltaRad / (Math.PI * 2)));
+      : Math.max(1.65, fullDur * (deltaRad / (Math.PI * 2)));
 
     anim.rimRotating = true;
+    anim.rimPausedBySeat = false;
     anim.rimElapsed = 0;
     anim.rimDuration = durationSec;
-    anim.rimStartAngle = currentNorm;
-    anim.rimTargetAngle = currentNorm + deltaRad;
+    anim.rimStartAngle = currentWorld;
+    anim.rimTargetAngle = currentWorld + deltaRad;
     anim.rimLastTickIdx = 0;
+    anim.rimOnComplete = typeof o.onComplete === "function" ? o.onComplete : null;
 
-    App.Audio.playRimTurn(durationSec);
+    if (!isWaitingForAllSeated()) {
+      App.Audio.playRimTurn(durationSec);
+    } else {
+      anim.rimPausedBySeat = true;
+    }
     syncUI();
   }
 
@@ -1600,18 +1912,27 @@ window.Duskwood = window.Duskwood || {};
     const trayPrev = document.getElementById("fp-tray-preview");
     const harvBtn = document.getElementById("fp-harvester-groove-btn");
 
+    const gate = getSeatedGate();
+    const myTurn = isLocalPlayersTurn();
+    const activeName = getSeatDisplayName(getActiveSeatId());
+
     if (plaque) {
-      if (anim.introStage !== "DONE") plaque.textContent = "The Game Begins...";
+      if (isMultiplayerCoop() && !gate.allSeated) plaque.textContent = `Sit Down (${gate.seatedCount}/${gate.totalPlayers})`;
+      else if (anim.introStage === "WAITING") plaque.textContent = "Waiting to Start...";
+      else if (anim.introStage !== "DONE") plaque.textContent = "The Game Begins...";
+      else if (anim.activeStep && anim.activeStep.isPenalty) plaque.textContent = "Time Lost!";
       else if (anim.activeStep && anim.activeStep.type === "MOVE_PLAYER") plaque.textContent = "Moving Piece...";
       else if (anim.activeStep && anim.activeStep.type === "MOVE_HARVESTER") plaque.textContent = "Harvester Moving...";
-      else if (anim.dealingCards) plaque.textContent = "Dealing 3 Cards...";
+      else if (anim.dealingCards) plaque.textContent = mpDealingTargetName ? `Dealing: ${mpDealingTargetName}` : "Dealing 3 Cards...";
       else if (anim.rimRotating) plaque.textContent = "Turning Table...";
       else if (anim.harvesterRisingNow) plaque.textContent = "IT HAS ARRIVED";
-      else if (phase === "TURN_1_CELLAR") plaque.textContent = "Place The Cellar";
-      else if (phase === "TURN_2_HARVESTER") plaque.textContent = turnStep === 1 ? "Draw Turn 2 Card" : "Play Harvester";
-      else if (phase === "LAST_CHANCE") plaque.textContent = "LAST CHANCE!";
+      else if (phase === "STARTER_DEAL") plaque.textContent = "Dealing Hands...";
+      else if (phase === "TURN_1_CELLAR") plaque.textContent = myTurn ? "Place The Cellar" : `${activeName}: Cellar`;
+      else if (phase === "TURN_2_HARVESTER") plaque.textContent = myTurn ? (turnStep === 1 ? "Draw Harvester" : "Play Harvester") : `${activeName}: Turn 2`;
+      else if (phase === "LAST_CHANCE") plaque.textContent = myTurn ? "LAST CHANCE!" : `${activeName}: Last Chance`;
       else if (phase === "MIDNIGHT") plaque.textContent = "12:00 AM - MAP ONLY";
       else if (phase === "GAME_OVER") plaque.textContent = "Turn Ended";
+      else if (!myTurn) plaque.textContent = `${activeName}'s Turn`;
       else plaque.textContent = turnStep === 1 ? "It is Your Turn" : "Play a Card";
     }
 
@@ -1840,12 +2161,30 @@ window.Duskwood = window.Duskwood || {};
     const seatLabel = document.getElementById("fp-seat-label");
     const gameOverModal = document.getElementById("fp-gameover-modal");
 
-    if (anim.introStage !== "DONE") {
+    const gate = getSeatedGate();
+    const myTurn = isLocalPlayersTurn();
+    const activeName = getSeatDisplayName(getActiveSeatId());
+
+    if (isMultiplayerCoop() && !gate.allSeated) {
+      stepTag.textContent = `WAIT (${gate.seatedCount}/${gate.totalPlayers})`;
+      const waitList = gate.waitingNames && gate.waitingNames.length ? gate.waitingNames.join(", ") : "ALL PLAYERS";
+      stepDesc.textContent = `Table locked until EVERY player sits at their fixed chair! Waiting for: ${waitList}`;
+    } else if (anim.introStage === "WAITING") {
+      stepTag.textContent = "READY";
+      stepDesc.textContent = "All players seated! Preparing the opening table ritual...";
+    } else if (anim.introStage !== "DONE") {
       stepTag.textContent = "INTRO";
       stepDesc.textContent =
         anim.introStage === "PLAYER_RISE"
           ? "Your piece rises from beneath the table..."
           : "Completing the opening circuit around the clock track...";
+    } else if (anim.activeStep && anim.activeStep.isPenalty) {
+      const lostMin = anim.activeStep.penaltyMin || 60;
+      const lostLbl = lostMin >= 60 && lostMin % 60 === 0 ? `+${lostMin / 60} HOUR${lostMin > 60 ? "S" : ""}` : `+${lostMin} MIN`;
+      stepTag.textContent = `PENALTY (${lostLbl})`;
+      stepDesc.textContent = anim.activeStep.type === "MOVE_PLAYER"
+        ? "Event lost — your piece advances the lost time along the clock groove..."
+        : "Event lost — The Hollow Harvester advances the lost time right behind you...";
     } else if (anim.activeStep && anim.activeStep.type === "MOVE_PLAYER") {
       stepTag.textContent = "ADVANCING";
       stepDesc.textContent = "Your piece glides slowly along the carved clock groove...";
@@ -1854,25 +2193,37 @@ window.Duskwood = window.Duskwood || {};
       stepDesc.textContent = "The Hollow Harvester glides slowly along the clock groove...";
     } else if (anim.dealingCards) {
       stepTag.textContent = "DEALING";
-      stepDesc.textContent = "Drawing your 3 starting cards from the pedestal...";
+      stepDesc.textContent = mpDealingTargetName
+        ? `Dealing 3 starting cards to ${mpDealingTargetName}...`
+        : "Drawing your 3 starting cards from the pedestal...";
     } else if (anim.rimRotating) {
       stepTag.textContent = "TURNING";
-      stepDesc.textContent = "Rotating the table rim to the next turn...";
+      stepDesc.textContent = isMultiplayerCoop()
+        ? `Rotating table rim to ${activeName}'s fixed seat...`
+        : "Rotating the table rim to the next turn...";
     } else if (anim.harvesterRisingNow) {
       stepTag.textContent = "AWAKENED!";
       stepDesc.textContent = "The Hollow Harvester rises out of the carved groove at XII!";
+    } else if (phase === "STARTER_DEAL") {
+      stepTag.textContent = "DEALING";
+      stepDesc.textContent = "Rotating around the table to deal 3 starting cards to every player...";
     } else if (phase === "TURN_1_CELLAR") {
       stepTag.textContent = "TURN 1";
-      stepDesc.textContent = "Place The Cellar adjacent to Main Parlor (3 cards dealt after)";
+      stepDesc.textContent = myTurn
+        ? "Seat 1: Place The Cellar adjacent to The Dining Room (starts full-circle 3-card deal)"
+        : `Waiting for ${activeName} (Seat 1) to place The Cellar...`;
     } else if (phase === "TURN_2_HARVESTER") {
       stepTag.textContent = `TURN 2 • STEP ${turnStep}/2`;
-      stepDesc.textContent =
-        turnStep === 1
-          ? "Draw the guaranteed Hollow Harvester card from the pedestal"
-          : "Lay down The Hollow Harvester (spawns at XII after 3 turns)";
+      stepDesc.textContent = myTurn
+        ? (turnStep === 1
+            ? "Draw the guaranteed Hollow Harvester card from the pedestal"
+            : "Lay down The Hollow Harvester (spawns at XII after 3 turns)")
+        : `Waiting for ${activeName} to draw & lay down The Hollow Harvester...`;
     } else if (phase === "LAST_CHANCE") {
       stepTag.textContent = "LAST CHANCE!";
-      stepDesc.textContent = "Harvester caught you! Play Progress or Ward this turn or lose!";
+      stepDesc.textContent = myTurn
+        ? "Harvester caught you! Play Progress or Ward this turn or lose!"
+        : `LAST CHANCE! Waiting for ${activeName} to escape the Harvester!`;
     } else if (phase === "MIDNIGHT") {
       const eg = matchStateRef.endgame;
       const secs = eg && eg.stage === "CHOOSE_20S" ? Math.max(0, Math.ceil(eg.countdown || 0)) : null;
@@ -1881,6 +2232,9 @@ window.Duskwood = window.Duskwood || {};
     } else if (phase === "GAME_OVER") {
       stepTag.textContent = "CAUGHT";
       stepDesc.textContent = "The Hollow Harvester claimed the table";
+    } else if (!myTurn) {
+      stepTag.textContent = `TURN ${matchStateRef.turnCount} • ${activeName}`;
+      stepDesc.textContent = `It is ${activeName}'s turn at the pedestal...`;
     } else {
       stepTag.textContent = `TURN ${matchStateRef.turnCount} • STEP ${turnStep}/2`;
       stepDesc.textContent =
@@ -1892,7 +2246,7 @@ window.Duskwood = window.Duskwood || {};
     if (stepTag) {
       stepTag.classList.toggle(
         "tag-danger",
-        phase === "LAST_CHANCE" || phase === "MIDNIGHT" || phase === "GAME_OVER" || anim.harvesterRisingNow
+        phase === "LAST_CHANCE" || phase === "MIDNIGHT" || phase === "GAME_OVER" || anim.harvesterRisingNow || anim.penaltyPlaying
       );
     }
     if (clockEl) clockEl.textContent = formatClock(anim.activeStep && anim.activeStep.type === 'MOVE_PLAYER' ? Math.round(anim.visualPlayerMinutes / 15) * 15 : matchStateRef.clockMinutes);
@@ -1913,7 +2267,7 @@ window.Duskwood = window.Duskwood || {};
     }
 
     if (pName) pName.textContent = (ch.name || "SURVIVOR").toUpperCase();
-    if (seatLabel && matchStateRef.seatLabel) seatLabel.textContent = matchStateRef.seatLabel;
+    if (seatLabel) seatLabel.textContent = `SEAT ${getLocalSeatId() + 1}`;
     if (gameOverModal) gameOverModal.classList.toggle("hidden", phase !== "GAME_OVER");
 
     renderCabinMap();
@@ -1922,9 +2276,11 @@ window.Duskwood = window.Duskwood || {};
     renderHandAndPrompt();
   }
 
-  // ==================== TURN 1: PLACE CELLAR -> DEAL 3 RANDOM CARDS ====================
-  function placeTurn1CellarAt(x, y, rotationSteps) {
+  // ==================== TURN 1: PLACE CELLAR -> STARTER DEAL ROUND -> TURN 2 HARVESTER ====================
+  function placeTurn1CellarAt(x, y, rotationSteps, fromNetwork, netStarterHands) {
     if (matchStateRef.setupPhase !== "TURN_1_CELLAR") return;
+    if (!fromNetwork && isInputLocked()) return;
+
     const cellar = App.CardsDB.getById("bp_cellar");
     const rot = rotationSteps || 0;
     const doors = App.CardsDB.getRotatedDoors(cellar.meta.shape, rot);
@@ -1948,39 +2304,119 @@ window.Duskwood = window.Duskwood || {};
     matchStateRef.roomsBuilt = Object.keys(matchStateRef.roomMap).length;
     selectedRotation = 0;
 
-    // Player pawn glides slowly +15 minutes after Turn 1, then deals 3 cards with 3x draw_card.mp3!
     const startMin = anim.visualPlayerMinutes;
     matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, matchStateRef.clockMinutes + PASSIVE_PLAYER_STEP_MIN);
     matchStateRef.turnCount = 2;
-    matchStateRef.setupPhase = "TURN_2_HARVESTER";
     turnStep = 1;
 
-    // Unlock all draw_card.mp3 audio slots inside this direct click gesture so all 3 starter cards play cleanly!
     if (App.Audio.warmUpDrawCard) App.Audio.warmUpDrawCard();
-
-    // Silent overhead bulb flicker signals the cabin architecture physically shifted! (NO extra SFX)
     triggerArchitectureFlicker();
     App.Audio.cardPlay();
 
-    const starter3 = App.CardsDB.buildStartingHand(
-      3,
-      Object.values(matchStateRef.roomMap || {}).map((r) => r.id),
-      [],
-      drawPity,
-      uniqueDrawnCardIds
-    );
-    starter3.forEach(recordUniqueCardIfNeeded);
-    enqueueTurnSteps([
-      { type: "MOVE_PLAYER", fromMin: startMin, toMin: matchStateRef.clockMinutes },
-      { type: "DEAL_STARTER_3", cards: starter3 },
-      { type: "CALLBACK", fn: () => startRimTurnRotation(false) }
-    ]);
+    const seats = getActiveSeats();
+    const isMp = isMultiplayerCoop();
+
+    if (!isMp) {
+      // Singleplayer (1 player): move +15m -> deal 3 SP-filtered cards -> spin 1 full lap -> Turn 2 Harvester
+      matchStateRef.setupPhase = "TURN_2_HARVESTER";
+      const starter3 = App.CardsDB.buildStartingHand(
+        3,
+        Object.values(matchStateRef.roomMap || {}).map((r) => r.id),
+        [],
+        drawPity,
+        uniqueDrawnCardIds,
+        false
+      );
+      starter3.forEach(recordUniqueCardIfNeeded);
+      enqueueTurnSteps([
+        { type: "MOVE_PLAYER", fromMin: startMin, toMin: matchStateRef.clockMinutes },
+        { type: "DEAL_STARTER_3", cards: starter3 },
+        { type: "ROTATE_TO_SEAT", targetOrderIdx: 0 }
+      ]);
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+
+    // MULTIPLAYER (2-4 players):
+    //   Exact sequence: Seat 1 placed Cellar -> Rim rotates Seat 2 -> ... -> Seat N -> back to Seat 1
+    //   dealing 3 cards to each seated player -> rotates to Seat 2 so Seat 2 draws The Hollow Harvester!
+    matchStateRef.setupPhase = "STARTER_DEAL";
+
+    let handsBySeatId = netStarterHands || null;
+    if (!handsBySeatId) {
+      handsBySeatId = {};
+      const usedRooms = new Set(Object.values(matchStateRef.roomMap || {}).map((r) => r.id));
+      const usedOmens = [];
+      // Deal order: Seat 2 (index 1) -> ... -> Seat N -> Seat 1 (index 0)
+      const dealOrder = [];
+      for (let i = 1; i < seats.length; i++) dealOrder.push(i);
+      dealOrder.push(0);
+
+      dealOrder.forEach((orderIdx) => {
+        const sId = seats[orderIdx];
+        const dealt = App.CardsDB.buildStartingHand(
+          3,
+          Array.from(usedRooms),
+          usedOmens,
+          drawPity,
+          uniqueDrawnCardIds,
+          true
+        );
+        dealt.forEach((c) => {
+          recordUniqueCardIfNeeded(c);
+          if (c.type === "BLUEPRINT") usedRooms.add(c.id);
+          if (c.type === "OMEN") usedOmens.push(c.id);
+        });
+        handsBySeatId[sId] = dealt.map((c) => c.id);
+      });
+
+      if (!fromNetwork && isMultiplayerNet()) {
+        App.Network.sendGameAction("MP_TURN1_CELLAR", {
+          x,
+          y,
+          rotationSteps: rot,
+          starterHandsBySeatId: handsBySeatId,
+          uniqueDrawnCardIds: Array.from(uniqueDrawnCardIds)
+        });
+      }
+    }
+
+    const steps = [
+      { type: "MOVE_PLAYER", fromMin: startMin, toMin: matchStateRef.clockMinutes }
+    ];
+
+    // Rotate clockwise starting from Player 2 -> ... -> Player N -> back to Player 1 (completing 1 full loop!)
+    for (let i = 1; i < seats.length; i++) {
+      const sId = seats[i];
+      steps.push({ type: "ROTATE_TO_SEAT", targetOrderIdx: i });
+      steps.push({ type: "DEAL_SEAT_3", targetOrderIdx: i, cards: handsBySeatId[sId] || [] });
+    }
+    // Complete full circle back to Player 1 (index 0) & deal 3 cards to Player 1!
+    steps.push({ type: "ROTATE_TO_SEAT", targetOrderIdx: 0 });
+    steps.push({ type: "DEAL_SEAT_3", targetOrderIdx: 0, cards: handsBySeatId[seats[0]] || [] });
+
+    // Finally rotate clockwise one step to Player 2 (index 1) so Player 2 draws THE HOLLOW HARVESTER!
+    steps.push({ type: "ROTATE_TO_SEAT", targetOrderIdx: 1 });
+    steps.push({
+      type: "CALLBACK",
+      fn: () => {
+        matchStateRef.setupPhase = "TURN_2_HARVESTER";
+        matchStateRef.activeSeatIdx = 1;
+        turnStep = 1;
+        syncUI();
+        if (onStateChangeCallback) onStateChangeCallback();
+      }
+    });
+
+    enqueueTurnSteps(steps);
     if (onStateChangeCallback) onStateChangeCallback();
   }
 
   // ==================== TURN 2: PLAY GUARANTEED HARVESTER CARD ====================
-  function playTurn2Harvester() {
-    if (matchStateRef.setupPhase !== "TURN_2_HARVESTER" || turnStep !== 2) return;
+  function playTurn2Harvester(fromNetwork) {
+    if (matchStateRef.setupPhase !== "TURN_2_HARVESTER") return;
+    if (!fromNetwork && (turnStep !== 2 || isInputLocked())) return;
+
     const hIdx = hand.findIndex((c) => c.id === "hx_harvester");
     const harvCard = hIdx >= 0 ? hand.splice(hIdx, 1)[0] : App.CardsDB.getById("hx_harvester");
 
@@ -1989,7 +2425,7 @@ window.Duskwood = window.Duskwood || {};
     matchStateRef.harvesterSpawned = false;
     matchStateRef.harvesterDelayTurns = 3; // Harvester rises at XII after 3 turns!
 
-    // Complete Turn 2: Player pawn glides slowly +15 min (now at 12:30 PM), then rim turns!
+    // Complete Turn 2: Player pawn glides slowly +15 min (now at 12:30 PM), then rim rotates to next seat!
     const startMin = anim.visualPlayerMinutes;
     matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, matchStateRef.clockMinutes + PASSIVE_PLAYER_STEP_MIN);
     matchStateRef.turnCount = 3;
@@ -1997,10 +2433,19 @@ window.Duskwood = window.Duskwood || {};
     turnStep = 1;
     selectedHandIdx = -1;
 
+    const seats = getActiveSeats();
+    const nextOrderIdx = seats.length > 1 ? ((matchStateRef.activeSeatIdx + 1) % seats.length) : 0;
+
+    if (!fromNetwork && isMultiplayerNet()) {
+      App.Network.sendGameAction("MP_TURN2_HARVESTER", {
+        nextOrderIdx
+      });
+    }
+
     App.Audio.hexAlert();
     enqueueTurnSteps([
       { type: "MOVE_PLAYER", fromMin: startMin, toMin: matchStateRef.clockMinutes },
-      { type: "CALLBACK", fn: () => startRimTurnRotation(false) }
+      { type: "ROTATE_TO_SEAT", targetOrderIdx: nextOrderIdx }
     ]);
     if (onStateChangeCallback) onStateChangeCallback();
   }
@@ -2136,13 +2581,11 @@ window.Duskwood = window.Duskwood || {};
       }
     }
 
-    // 5. After pawns finish their slow mechanical glide, rotate the outer rim!
+    // 5. After pawns finish their slow mechanical glide, rotate the outer rim (gated on All-Seated in MP)!
     steps.push({
-      type: "CALLBACK",
-      fn: () => {
-        startRimTurnRotation(forcedRandomSeat);
-        if (onStateChangeCallback) onStateChangeCallback();
-      }
+      type: "ROTATE_TO_SEAT",
+      forcedRandomSeat,
+      targetOrderIdx: typeof opts.targetOrderIdx === "number" ? opts.targetOrderIdx : undefined
     });
 
     enqueueTurnSteps(steps);
@@ -2237,7 +2680,8 @@ window.Duskwood = window.Duskwood || {};
         </div>`;
     }
     if (card.type === "CHIME" && card.meta && card.meta.deltaMinutes) {
-      return `<div class="vc-corner-pill">+${card.meta.deltaMinutes}M</div>`;
+      const dm = card.meta.deltaMinutes;
+      return `<div class="vc-corner-pill">${dm > 0 ? "+" : ""}${dm}M</div>`;
     }
     if (card.type === "WARD" && card.meta && card.meta.harvesterBackSteps) {
       return `<div class="vc-corner-pill is-ward">-${card.meta.harvesterBackSteps * 30}M</div>`;
@@ -2304,9 +2748,9 @@ window.Duskwood = window.Duskwood || {};
     hx_musical_rooms: {
       paragraphs: [
         "A GIANT MONKEY APPEARS BESIDE YOU IN THE DARK. AFTER 10 SECONDS, THE DINING TABLE BECOMES A CARDBOARD BOX.",
-        "PICK UP POPCORN [F] AND HOLD/RELEASE [F] TO THROW 10 POPCORNS INTO THE BOX WITHIN 35 SECONDS."
+        "THROW 20 POPCORNS INTO THE BOX [F]. IF THE MUSIC STOPS BEFORE YOU FINISH, FIND & ENTER THE GLOWING RED ROOM TO HALT THE MONKEY AND RESUME!"
       ],
-      warning: "WHEN THE MUSIC STOPS, THE MONKEY HUNTS."
+      warning: "ALL PLAYERS MUST ENTER THE RED ROOM TO STOP THE HUNT."
     },
     hx_cellar_breakers: {
       paragraphs: [
@@ -2321,6 +2765,34 @@ window.Duskwood = window.Duskwood || {};
         "A GLOWING FOUR-LEGGED BEAST HUNTS EVERY DARK ROOM AND VANISHES IF IT TOUCHES THE LIGHT."
       ],
       warning: "SURVIVE FOR 90 SECONDS."
+    },
+    ch_plus_15: {
+      paragraphs: [
+        "ADVANCES ONLY YOUR PIECE FORWARD BY 15 MINUTES TOWARD 12:00 AM MIDNIGHT.",
+        "THE HOLLOW HARVESTER REMAINS FROZEN IN PLACE THIS TURN."
+      ],
+      warning: "STEADY PACE — HARVESTER STAYS STILL."
+    },
+    ch_rewind_30: {
+      paragraphs: [
+        "REWINDS YOUR PIECE BACK BY 30 MINUTES AWAY FROM 12:00 AM MIDNIGHT.",
+        "THE HOLLOW HARVESTER DOES NOT ADVANCE THIS TURN, BUYING EXTRA TIME TO UNCOVER ALL 3 CLUES."
+      ],
+      warning: "CLOCK -30M — HARVESTER STAYS STILL."
+    },
+    ch_sacrifice: {
+      paragraphs: [
+        "SACRIFICE YOUR LIFE AT THE END OF THE GAME TO SPARE THE LIFE OF ANOTHER.",
+        "THIS CARD WILL ONLY ACTIVATE IF LEFT IN YOUR HAND BY THE END OF THE GAME. OTHERWISE IT PLAYS AS A NORMAL +30 MINUTES PROGRESS CARD."
+      ],
+      warning: "(DEFECTIVE IF SOMEONE IS HOLDING THE 'TRAITOR' CARD)"
+    },
+    ch_traitor: {
+      paragraphs: [
+        "PREVENTS THE FINAL CLUE FROM APPEARING, BUT GUARANTEES YOUR ESCAPE.",
+        "THIS CARD WILL ONLY ACTIVATE IF LEFT IN YOUR HAND BY THE END OF THE GAME. OTHERWISE IT PLAYS AS A NORMAL +30 MINUTES PROGRESS CARD."
+      ],
+      warning: "(DEFECTIVE IF THE FINAL CLUE HAS ALREADY BEEN REVEALED)"
     },
     ch_the_thief: {
       paragraphs: [
@@ -2547,6 +3019,126 @@ window.Duskwood = window.Duskwood || {};
     spot.classList.remove("hidden");
   }
 
+  function computeNextSeatOrderIdx(forcedRandomSeat) {
+    const seats = getActiveSeats();
+    if (seats.length <= 1) return 0;
+    if (forcedRandomSeat) {
+      const others = seats.map((_, i) => i).filter((i) => i !== matchStateRef.activeSeatIdx);
+      return others[Math.floor(Math.random() * others.length)];
+    }
+    return (matchStateRef.activeSeatIdx + 1) % seats.length;
+  }
+
+  function launchHexEventCard(card, nextOrderIdx) {
+    if (!card || !matchStateRef) return;
+    rimPlayedCards.push(card);
+    App.Audio.cardPlay();
+    if (App.Clues && matchStateRef.activeOmenId) {
+      App.Clues.evaluateTopGraveyardClue(matchStateRef);
+    }
+
+    const advanceSeatAfterImmediateEvent = () => {
+      if (isMultiplayerCoop() && typeof nextOrderIdx === "number") {
+        matchStateRef.activeSeatIdx = nextOrderIdx;
+        const seats = getActiveSeats();
+        anim.worldRimAngle = getWorldAngleForSeatId(seats[nextOrderIdx] || 0);
+        syncDisplayRimAngleFromWorld();
+      }
+    };
+
+    if (card.id === "hx_attic" && App.Attic && App.Attic.startAtticEvent) {
+      selectedHandIdx = -1;
+      turnStep = 1;
+      matchStateRef.turnCount += 1;
+      advanceSeatAfterImmediateEvent();
+      close(true);
+      if (App.GameWorld && App.GameWorld.forceStandUpForEvent) App.GameWorld.forceStandUpForEvent();
+      App.Attic.startAtticEvent(matchStateRef);
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+    if (card.id === "hx_tall_stalker" && App.Stalkers && App.Stalkers.startTallManEvent) {
+      selectedHandIdx = -1;
+      turnStep = 1;
+      matchStateRef.turnCount += 1;
+      advanceSeatAfterImmediateEvent();
+      close(true);
+      if (App.GameWorld && App.GameWorld.forceStandUpForEvent) App.GameWorld.forceStandUpForEvent();
+      App.Stalkers.startTallManEvent(matchStateRef);
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+    if (card.id === "hx_balloons" && App.Stalkers && App.Stalkers.startRedBalloonsEvent) {
+      selectedHandIdx = -1;
+      turnStep = 1;
+      matchStateRef.turnCount += 1;
+      advanceSeatAfterImmediateEvent();
+      close(true);
+      if (App.GameWorld && App.GameWorld.forceStandUpForEvent) App.GameWorld.forceStandUpForEvent();
+      App.Stalkers.startRedBalloonsEvent(matchStateRef);
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+    if (card.id === "hx_tiny_toys" && App.Stalkers && App.Stalkers.startFeelingSmallEvent) {
+      selectedHandIdx = -1;
+      turnStep = 1;
+      matchStateRef.turnCount += 1;
+      advanceSeatAfterImmediateEvent();
+      close(true);
+      if (App.GameWorld && App.GameWorld.forceStandUpForEvent) App.GameWorld.forceStandUpForEvent();
+      App.Stalkers.startFeelingSmallEvent(matchStateRef);
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+    if (card.id === "hx_musical_rooms" && App.Musical && App.Musical.startMusicalRoomsEvent) {
+      selectedHandIdx = -1;
+      turnStep = 1;
+      matchStateRef.turnCount += 1;
+      advanceSeatAfterImmediateEvent();
+      close(true);
+      if (App.GameWorld && App.GameWorld.forceStandUpForEvent) App.GameWorld.forceStandUpForEvent();
+      if (App.GameWorld && App.GameWorld.startMusicalRooms) App.GameWorld.startMusicalRooms();
+      else App.Musical.startMusicalRoomsEvent(matchStateRef, null);
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+    if (card.id === "hx_cellar_breakers" && App.Basement && App.Basement.startBasementEvent) {
+      selectedHandIdx = -1;
+      turnStep = 1;
+      matchStateRef.turnCount += 1;
+      advanceSeatAfterImmediateEvent();
+      close(true);
+      if (App.GameWorld && App.GameWorld.forceStandUpForEvent) App.GameWorld.forceStandUpForEvent();
+      if (App.GameWorld && App.GameWorld.startBasementEvent) App.GameWorld.startBasementEvent();
+      else App.Basement.startBasementEvent(matchStateRef, null);
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+    if (card.id === "hx_stay_lit" && App.StayLit && App.StayLit.startStayInLightEvent) {
+      selectedHandIdx = -1;
+      turnStep = 1;
+      matchStateRef.turnCount += 1;
+      advanceSeatAfterImmediateEvent();
+      close(true);
+      if (App.GameWorld && App.GameWorld.forceStandUpForEvent) App.GameWorld.forceStandUpForEvent();
+      App.StayLit.startStayInLightEvent(matchStateRef);
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+    if (card.id === "hx_knight" && App.Knight && App.Knight.startKnightEvent) {
+      selectedHandIdx = -1;
+      turnStep = 1;
+      matchStateRef.turnCount += 1;
+      advanceSeatAfterImmediateEvent();
+      close(true);
+      if (App.GameWorld && App.GameWorld.forceStandUpForEvent) App.GameWorld.forceStandUpForEvent();
+      App.Knight.startKnightEvent(matchStateRef);
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+    resolveEndOfTurn(true, false, { targetOrderIdx: nextOrderIdx });
+  }
+
   function handleDrawDeck() {
     if (pendingDrawnCard || anim.drawAnimating || isInputLocked() || isMidnightMapOnly()) return;
     if (App.Audio.warmUpDrawCard) App.Audio.warmUpDrawCard();
@@ -2556,6 +3148,9 @@ window.Duskwood = window.Duskwood || {};
     if (phase === "TURN_2_HARVESTER" && turnStep === 1) {
       const harvCard = App.CardsDB.getById("hx_harvester");
       if (App.GuideUI) App.GuideUI.discoverCard(harvCard.id);
+      if (isMultiplayerNet()) {
+        App.Network.sendGameAction("MP_TURN2_HARVESTER_DRAW", {});
+      }
       App.Audio.cardDraw();
       if (App.Audio.playEventDraw) App.Audio.playEventDraw();
       animateCardFromDeckToCenter(harvCard, () => {
@@ -2606,6 +3201,16 @@ window.Duskwood = window.Duskwood || {};
       if (!matchStateRef.drawnEventCardIds.includes(card.id)) {
         matchStateRef.drawnEventCardIds.push(card.id);
       }
+      if (isMultiplayerNet()) {
+        App.Network.sendGameAction("MP_DRAW_CARD", {
+          cardId: card.id,
+          wasHex: true,
+          deckCount: deck.length,
+          eventCooldownTurns: matchStateRef.eventCooldownTurns,
+          drawnEventCardIds: matchStateRef.drawnEventCardIds,
+          uniqueDrawnCardIds: Array.from(uniqueDrawnCardIds)
+        });
+      }
       // Play audio/event_draw.mp3 (4 seconds) whenever an Event card is drawn!
       if (App.Audio.playEventDraw) App.Audio.playEventDraw();
       if (App.Events) App.Events.onEventCardDrawn(card, matchStateRef);
@@ -2613,6 +3218,14 @@ window.Duskwood = window.Duskwood || {};
         showDrawnSpotlight(card, true, false);
       });
     } else {
+      if (isMultiplayerNet()) {
+        App.Network.sendGameAction("MP_DRAW_CARD", {
+          cardId: card.id,
+          wasHex: false,
+          deckCount: deck.length,
+          uniqueDrawnCardIds: Array.from(uniqueDrawnCardIds)
+        });
+      }
       animateCardFromDeckToCenter(card, () => {
         showDrawnSpotlight(card, false, false);
       });
@@ -2635,120 +3248,19 @@ window.Duskwood = window.Duskwood || {};
     // Animate physical card flying from center -> Player's Hand Fan (or Outer Rim for HEX events)!
     animateCardFromCenterToTarget(card, wasHex, () => {
       if (wasHex) {
-        rimPlayedCards.push(card);
-        App.Audio.cardPlay();
-        if (App.Clues && matchStateRef.activeOmenId) {
-          App.Clues.evaluateTopGraveyardClue(matchStateRef);
+        const nextOrderIdx = computeNextSeatOrderIdx(false);
+        if (isMultiplayerNet()) {
+          App.Network.sendGameAction("MP_LAUNCH_HEX", {
+            cardId: card.id,
+            nextOrderIdx
+          });
         }
-        if (card.id === "hx_attic" && App.Attic && App.Attic.startAtticEvent) {
-          selectedHandIdx = -1;
-          turnStep = 1;
-          matchStateRef.turnCount += 1;
-          close(true);
-          if (App.GameWorld && App.GameWorld.forceStandUpForEvent) {
-            App.GameWorld.forceStandUpForEvent();
-          }
-          App.Attic.startAtticEvent(matchStateRef);
-          if (onStateChangeCallback) onStateChangeCallback();
-          return;
-        }
-        if (card.id === "hx_tall_stalker" && App.Stalkers && App.Stalkers.startTallManEvent) {
-          selectedHandIdx = -1;
-          turnStep = 1;
-          matchStateRef.turnCount += 1;
-          close(true);
-          if (App.GameWorld && App.GameWorld.forceStandUpForEvent) {
-            App.GameWorld.forceStandUpForEvent();
-          }
-          App.Stalkers.startTallManEvent(matchStateRef);
-          if (onStateChangeCallback) onStateChangeCallback();
-          return;
-        }
-        if (card.id === "hx_balloons" && App.Stalkers && App.Stalkers.startRedBalloonsEvent) {
-          selectedHandIdx = -1;
-          turnStep = 1;
-          matchStateRef.turnCount += 1;
-          close(true);
-          if (App.GameWorld && App.GameWorld.forceStandUpForEvent) {
-            App.GameWorld.forceStandUpForEvent();
-          }
-          App.Stalkers.startRedBalloonsEvent(matchStateRef);
-          if (onStateChangeCallback) onStateChangeCallback();
-          return;
-        }
-        if (card.id === "hx_tiny_toys" && App.Stalkers && App.Stalkers.startFeelingSmallEvent) {
-          selectedHandIdx = -1;
-          turnStep = 1;
-          matchStateRef.turnCount += 1;
-          close(true);
-          if (App.GameWorld && App.GameWorld.forceStandUpForEvent) {
-            App.GameWorld.forceStandUpForEvent();
-          }
-          App.Stalkers.startFeelingSmallEvent(matchStateRef);
-          if (onStateChangeCallback) onStateChangeCallback();
-          return;
-        }
-        if (card.id === "hx_musical_rooms" && App.Musical && App.Musical.startMusicalRoomsEvent) {
-          selectedHandIdx = -1;
-          turnStep = 1;
-          matchStateRef.turnCount += 1;
-          close(true);
-          if (App.GameWorld && App.GameWorld.forceStandUpForEvent) {
-            App.GameWorld.forceStandUpForEvent();
-          }
-          if (App.GameWorld && App.GameWorld.startMusicalRooms) {
-            App.GameWorld.startMusicalRooms();
-          } else {
-            App.Musical.startMusicalRoomsEvent(matchStateRef, null);
-          }
-          if (onStateChangeCallback) onStateChangeCallback();
-          return;
-        }
-        if (card.id === "hx_cellar_breakers" && App.Basement && App.Basement.startBasementEvent) {
-          selectedHandIdx = -1;
-          turnStep = 1;
-          matchStateRef.turnCount += 1;
-          close(true);
-          if (App.GameWorld && App.GameWorld.forceStandUpForEvent) {
-            App.GameWorld.forceStandUpForEvent();
-          }
-          if (App.GameWorld && App.GameWorld.startBasementEvent) {
-            App.GameWorld.startBasementEvent();
-          } else {
-            App.Basement.startBasementEvent(matchStateRef, null);
-          }
-          if (onStateChangeCallback) onStateChangeCallback();
-          return;
-        }
-        if (card.id === "hx_stay_lit" && App.StayLit && App.StayLit.startStayInLightEvent) {
-          selectedHandIdx = -1;
-          turnStep = 1;
-          matchStateRef.turnCount += 1;
-          close(true);
-          if (App.GameWorld && App.GameWorld.forceStandUpForEvent) {
-            App.GameWorld.forceStandUpForEvent();
-          }
-          App.StayLit.startStayInLightEvent(matchStateRef);
-          if (onStateChangeCallback) onStateChangeCallback();
-          return;
-        }
-        if (card.id === "hx_knight" && App.Knight && App.Knight.startKnightEvent) {
-          selectedHandIdx = -1;
-          turnStep = 1;
-          matchStateRef.turnCount += 1;
-          close(true);
-          if (App.GameWorld && App.GameWorld.forceStandUpForEvent) {
-            App.GameWorld.forceStandUpForEvent();
-          }
-          App.Knight.startKnightEvent(matchStateRef);
-          if (onStateChangeCallback) onStateChangeCallback();
-          return;
-        }
-        resolveEndOfTurn(true, false);
+        launchHexEventCard(card, nextOrderIdx);
       } else {
         hand.push(card);
         dealAnimIndices = new Set([hand.length - 1]);
         turnStep = 2;
+        syncLocalHeldRoles();
         App.Audio.cardDeal();
         syncUI();
         if (onStateChangeCallback) onStateChangeCallback();
@@ -2794,6 +3306,9 @@ window.Duskwood = window.Duskwood || {};
           matchStateRef.activeOmenId = newTop ? newTop.id : null;
           turnStep = 2;
           modal.classList.add("hidden");
+          if (isMultiplayerNet()) {
+            App.Network.sendGameAction("MP_RECLAIM_CLUE", { idx, cardId: card.id });
+          }
           App.Audio.cardDraw();
           syncUI();
           if (onStateChangeCallback) onStateChangeCallback();
@@ -2817,15 +3332,22 @@ window.Duskwood = window.Duskwood || {};
     App.Audio.close();
   }
 
-  function playBlueprintAtCoord(x, y, rotationSteps) {
-    if (isInputLocked() || turnStep !== 2 || selectedHandIdx < 0) return;
-    const card = hand[selectedHandIdx];
+  function playBlueprintAtCoord(x, y, rotationSteps, fromNetwork, netCardId, netNextOrderIdx) {
+    let card = null;
+    if (fromNetwork) {
+      card = App.CardsDB.getById(netCardId);
+    } else {
+      if (isInputLocked() || turnStep !== 2 || selectedHandIdx < 0) return;
+      card = hand[selectedHandIdx];
+    }
     if (!card || card.type !== "BLUEPRINT") return;
 
     const rot = rotationSteps || 0;
     const doors = App.CardsDB.getRotatedDoors(card.meta?.shape || "dead_end", rot);
 
-    hand.splice(selectedHandIdx, 1);
+    if (!fromNetwork && selectedHandIdx >= 0) {
+      hand.splice(selectedHandIdx, 1);
+    }
     matchStateRef.roomMap[keyOf(x, y)] = {
       x,
       y,
@@ -2844,6 +3366,20 @@ window.Duskwood = window.Duskwood || {};
     matchStateRef.roomsBuilt = Object.keys(matchStateRef.roomMap).length;
     selectedRotation = 0;
 
+    const nextOrderIdx = typeof netNextOrderIdx === "number"
+      ? netNextOrderIdx
+      : computeNextSeatOrderIdx(false);
+
+    if (!fromNetwork && isMultiplayerNet()) {
+      App.Network.sendGameAction("MP_PLAY_ROOM", {
+        cardId: card.id,
+        x,
+        y,
+        rotationSteps: rot,
+        nextOrderIdx
+      });
+    }
+
     // Silent overhead bulb flicker signals the cabin architecture changed! (NO extra SFX)
     triggerArchitectureFlicker();
     App.Audio.cardPlay();
@@ -2854,6 +3390,11 @@ window.Duskwood = window.Duskwood || {};
       turnStep = 1;
       matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, matchStateRef.clockMinutes + PASSIVE_PLAYER_STEP_MIN);
       matchStateRef.turnCount += 1;
+      if (isMultiplayerCoop()) {
+        matchStateRef.activeSeatIdx = nextOrderIdx;
+        anim.worldRimAngle = getWorldAngleForSeatId(getActiveSeats()[nextOrderIdx] || 0);
+        syncDisplayRimAngleFromWorld();
+      }
       if ((matchStateRef.eventCooldownTurns || 0) > 0) {
         matchStateRef.eventCooldownTurns = Math.max(0, matchStateRef.eventCooldownTurns - 1);
       }
@@ -2864,15 +3405,16 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
 
-    resolveEndOfTurn(false, false);
+    resolveEndOfTurn(false, false, { targetOrderIdx: nextOrderIdx });
   }
 
-  function applyRandomBoardEffect() {
+  function applyRandomBoardEffect(forcedPickId) {
     let effects = App.CardsDB.RANDOM_BOARD_EFFECTS;
     if (matchStateRef && matchStateRef.bannedGraveyardWipe) {
       effects = effects.filter((e) => e.id !== "tray_wipe");
     }
-    const pick = effects[Math.floor(Math.random() * effects.length)];
+    const pick = (forcedPickId && effects.find((e) => e.id === forcedPickId))
+      || effects[Math.floor(Math.random() * effects.length)];
     let escaped = false;
 
     if (pick.id === "lose_30") {
@@ -2893,7 +3435,7 @@ window.Duskwood = window.Duskwood || {};
       }
     }
 
-    return escaped;
+    return { escaped, pickId: pick.id };
   }
 
   // ==================== SHUFFLE CARD: UNDER-THE-TABLE HAND ANIMATION (EXACT CABIN GAME POV!) ====================
@@ -2912,7 +3454,8 @@ window.Duskwood = window.Duskwood || {};
           Object.values(matchStateRef.roomMap || {}).map((r) => r.id),
           candleTray.map((c) => c.id),
           drawPity,
-          uniqueDrawnCardIds
+          uniqueDrawnCardIds,
+          matchStateRef.mode === "MULTIPLAYER"
         )
       : [];
     newCards.forEach(recordUniqueCardIfNeeded);
@@ -2981,6 +3524,7 @@ window.Duskwood = window.Duskwood || {};
     // Stage 4: Release fresh cards into the player's hand fan & retract creepy hand back beneath the table!
     const t3 = setTimeout(() => {
       hand = newCards;
+      syncLocalHeldRoles();
       dealAnimIndices = new Set(newCards.map((_, idx) => idx));
       renderHandAndPrompt();
       if (handFan) handFan.classList.remove("is-receiving");
@@ -3181,7 +3725,15 @@ window.Duskwood = window.Duskwood || {};
         document.getElementById("fp-thief-modal")?.classList.add("hidden");
         thiefWheelActive = false;
         thiefWheelSpinning = false;
+        const nextOrderIdx = computeNextSeatOrderIdx(false);
+        if (isMultiplayerNet()) {
+          App.Network.sendGameAction("MP_THIEF_OUTCOME", {
+            wedgeId: wedge.id,
+            nextOrderIdx
+          });
+        }
         resolveEndOfTurn(false, escaped, {
+          targetOrderIdx: nextOrderIdx,
           freezeHarvester: wedge.id === "time_gain",
           skipPassiveStep: wedge.id === "time_gain"
         });
@@ -3259,16 +3811,29 @@ window.Duskwood = window.Duskwood || {};
     return "S";
   }
 
-  function triggerNeighborCard() {
-    const doorDir = pickNeighborDoorDir();
-    const options = pickNeighborThreeOptions();
+  function triggerNeighborCard(fromNetwork, netPayload) {
+    const doorDir = (fromNetwork && netPayload && netPayload.doorDir) || pickNeighborDoorDir();
+    const options = (fromNetwork && netPayload && netPayload.options) || pickNeighborThreeOptions();
+    const ownerSeatId = (fromNetwork && netPayload && typeof netPayload.ownerSeatId === "number")
+      ? netPayload.ownerSeatId
+      : getLocalSeatId();
+
     matchStateRef.neighborEncounter = {
       active: true,
       doorOpened: false,
       doorDir,
       options,
+      ownerSeatId,
       knockStartMs: performance.now()
     };
+
+    if (!fromNetwork && isMultiplayerNet()) {
+      App.Network.sendGameAction("MP_NEIGHBOR_TRIGGER", {
+        doorDir,
+        options,
+        ownerSeatId
+      });
+    }
 
     selectedHandIdx = -1;
     turnStep = 1;
@@ -3284,8 +3849,9 @@ window.Duskwood = window.Duskwood || {};
     if (onStateChangeCallback) onStateChangeCallback();
   }
 
-  function resolveNeighborBargain(optionId) {
+  function resolveNeighborBargain(optionId, fromNetwork, netNextOrderIdx) {
     if (!matchStateRef) return "";
+    const isOwner = !fromNetwork;
     let summary = "";
 
     if (optionId === "clear_graveyard") {
@@ -3305,13 +3871,17 @@ window.Duskwood = window.Duskwood || {};
         summary = "The Hollow Harvester will remain delayed for 3 turns once it rises!";
       }
     } else if (optionId === "receive_clue") {
-      const owned = [...hand.filter((c) => c.type === "OMEN").map((c) => c.id), ...candleTray.map((c) => c.id)];
-      const pool = App.CardsDB.getByType("OMEN").filter((c) => !owned.includes(c.id));
-      const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : App.CardsDB.getByType("OMEN")[0];
-      if (pick) {
-        hand.push(pick);
-        if (App.GuideUI) App.GuideUI.discoverCard(pick.id);
-        summary = `The Neighbor slipped "${pick.name}" into your hand.`;
+      if (isOwner) {
+        const owned = [...hand.filter((c) => c.type === "OMEN").map((c) => c.id), ...candleTray.map((c) => c.id)];
+        const pool = App.CardsDB.getByType("OMEN").filter((c) => !owned.includes(c.id));
+        const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : App.CardsDB.getByType("OMEN")[0];
+        if (pick) {
+          hand.push(pick);
+          if (App.GuideUI) App.GuideUI.discoverCard(pick.id);
+          summary = `The Neighbor slipped "${pick.name}" into your hand.`;
+        }
+      } else {
+        summary = "The Neighbor handed a Clue card to the bargain owner.";
       }
     } else if (optionId === "rewind_clock_1h") {
       matchStateRef.clockMinutes = Math.max(0, (matchStateRef.clockMinutes || 0) - 60);
@@ -3336,25 +3906,45 @@ window.Duskwood = window.Duskwood || {};
       anim.visualPlayerMinutes = matchStateRef.clockMinutes;
       summary = "Your piece stepped +30 minutes closer to Midnight.";
     } else if (optionId === "receive_room") {
-      const taken = new Set([
-        "bp_cellar",
-        ...Object.values(matchStateRef.roomMap || {}).map((r) => r.id),
-        ...hand.filter((c) => c.type === "BLUEPRINT").map((c) => c.id)
-      ]);
-      const avail = App.CardsDB.getByType("BLUEPRINT").filter((c) => !taken.has(c.id));
-      if (avail.length) {
-        const roomCard = avail[Math.floor(Math.random() * avail.length)];
-        hand.push(roomCard);
-        if (App.GuideUI) App.GuideUI.discoverCard(roomCard.id);
-        summary = `The Neighbor handed you "${roomCard.name}".`;
+      if (isOwner) {
+        const taken = new Set([
+          "bp_cellar",
+          ...Object.values(matchStateRef.roomMap || {}).map((r) => r.id),
+          ...hand.filter((c) => c.type === "BLUEPRINT").map((c) => c.id)
+        ]);
+        const avail = App.CardsDB.getByType("BLUEPRINT").filter((c) => !taken.has(c.id));
+        if (avail.length) {
+          const roomCard = avail[Math.floor(Math.random() * avail.length)];
+          hand.push(roomCard);
+          if (App.GuideUI) App.GuideUI.discoverCard(roomCard.id);
+          summary = `The Neighbor handed you "${roomCard.name}".`;
+        } else {
+          summary = "Every room is already drawn — the Neighbor nods silently.";
+        }
       } else {
-        summary = "Every room is already drawn — the Neighbor nods silently.";
+        summary = "The Neighbor handed a Room Blueprint to the bargain owner.";
       }
     }
 
-    // Complete The Neighbor's turn cleanly (advance turn count, tick event cooldown & check top Graveyard clue!)
+    // Complete The Neighbor's turn cleanly (advance turn count, seat turn & check top Graveyard clue!)
+    const nextOrderIdx = typeof netNextOrderIdx === "number"
+      ? netNextOrderIdx
+      : computeNextSeatOrderIdx(false);
+
+    if (!fromNetwork && isMultiplayerNet()) {
+      App.Network.sendGameAction("MP_NEIGHBOR_BARGAIN", {
+        optionId,
+        nextOrderIdx
+      });
+    }
+
     matchStateRef.neighborEncounter = null;
     matchStateRef.turnCount += 1;
+    if (isMultiplayerCoop()) {
+      matchStateRef.activeSeatIdx = nextOrderIdx;
+      anim.worldRimAngle = getWorldAngleForSeatId(getActiveSeats()[nextOrderIdx] || 0);
+      syncDisplayRimAngleFromWorld();
+    }
     if ((matchStateRef.eventCooldownTurns || 0) > 0) {
       matchStateRef.eventCooldownTurns = Math.max(0, matchStateRef.eventCooldownTurns - 1);
     }
@@ -3378,6 +3968,7 @@ window.Duskwood = window.Duskwood || {};
     if (!card || card.type === "BLUEPRINT") return;
 
     hand.splice(selectedHandIdx, 1);
+    syncLocalHeldRoles();
     const meta = card.meta || {};
     let playedEscape = false;
 
@@ -3426,9 +4017,21 @@ window.Duskwood = window.Duskwood || {};
           );
           if (meta.deltaMinutes > 0) playedEscape = true;
         }
+        const nextOrderIdx = computeNextSeatOrderIdx(false);
+        if (isMultiplayerNet()) {
+          App.Network.sendGameAction("MP_PLAY_CARD", {
+            cardId: card.id,
+            action: "shuffle_hand",
+            nextOrderIdx,
+            freezeHarvester: true,
+            skipPassiveStep: true,
+            playedEscape
+          });
+        }
         App.Audio.cardPlay();
         runShuffleHandAnimation(() => {
           resolveEndOfTurn(false, playedEscape, {
+            targetOrderIdx: nextOrderIdx,
             forcedRandomSeat: false,
             freezeHarvester: true,
             skipPassiveStep: true
@@ -3444,9 +4047,12 @@ window.Duskwood = window.Duskwood || {};
         );
         if (meta.deltaMinutes > 0) playedEscape = true;
       }
+      var randomBoardPickId = null;
       if (meta.action === "random_board") {
         App.Audio.clockChime();
-        if (applyRandomBoardEffect()) playedEscape = true;
+        const rbRes = applyRandomBoardEffect();
+        randomBoardPickId = rbRes.pickId;
+        if (rbRes.escaped) playedEscape = true;
       } else if (meta.action === "random_turn") {
         isShiftingSeat = true;
         App.Audio.cardPlay();
@@ -3455,11 +4061,84 @@ window.Duskwood = window.Duskwood || {};
       }
     }
 
+    const nextOrderIdx = computeNextSeatOrderIdx(isShiftingSeat);
+    if (isMultiplayerNet()) {
+      App.Network.sendGameAction("MP_PLAY_CARD", {
+        cardId: card.id,
+        action: meta.action || "",
+        randomBoardPickId: typeof randomBoardPickId === "string" ? randomBoardPickId : null,
+        nextOrderIdx,
+        forcedRandomSeat: isShiftingSeat,
+        freezeHarvester,
+        skipPassiveStep,
+        playedEscape
+      });
+    }
+
     resolveEndOfTurn(false, playedEscape, {
+      targetOrderIdx: nextOrderIdx,
       forcedRandomSeat: isShiftingSeat,
       freezeHarvester,
       skipPassiveStep
     });
+  }
+
+  // Plays the animated pawn-gliding penalty sequence when returning to the round table after losing an Event!
+  function maybeStartPendingPenaltyScene() {
+    if (!matchStateRef || !matchStateRef.pendingPenaltyAnim) return false;
+    if (anim.introStage !== "DONE" || anim.activeStep || anim.rimRotating) return false;
+    if (isWaitingForAllSeated()) return false;
+
+    const pen = matchStateRef.pendingPenaltyAnim;
+    matchStateRef.pendingPenaltyAnim = null;
+
+    anim.visualPlayerMinutes = pen.fromPlayerMin;
+    if (pen.harvesterSpawned) {
+      anim.visualHarvesterMinutes = pen.fromHarvMin;
+    }
+    anim.penaltyPlaying = true;
+
+    const steps = [];
+    if (Math.abs(pen.toPlayerMin - pen.fromPlayerMin) > 0.1) {
+      steps.push({
+        type: "MOVE_PLAYER",
+        fromMin: pen.fromPlayerMin,
+        toMin: pen.toPlayerMin,
+        isPenalty: true,
+        penaltyMin: pen.totalPenaltyMin || Math.round(pen.toPlayerMin - pen.fromPlayerMin)
+      });
+    }
+    if (pen.harvesterSpawned && Math.abs(pen.toHarvMin - pen.fromHarvMin) > 0.1) {
+      steps.push({
+        type: "MOVE_HARVESTER",
+        fromMin: pen.fromHarvMin,
+        toMin: pen.toHarvMin,
+        isPenalty: true,
+        penaltyMin: pen.totalPenaltyMin || Math.round(pen.toHarvMin - pen.fromHarvMin)
+      });
+    }
+    steps.push({
+      type: "CALLBACK",
+      fn: () => {
+        anim.penaltyPlaying = false;
+        anim.visualPlayerMinutes = matchStateRef.clockMinutes;
+        if (matchStateRef.harvesterSpawned) {
+          anim.visualHarvesterMinutes = matchStateRef.harvesterMinutes;
+        }
+        // If event loss time penalty pushed the clock all the way to 12:00 AM Midnight, trigger Endgame now!
+        if (matchStateRef.clockMinutes >= CLOCK_TOTAL_MINUTES) {
+          matchStateRef.setupPhase = "MIDNIGHT";
+          if (App.GameWorld && App.GameWorld.triggerMidnightEndgame) {
+            App.GameWorld.triggerMidnightEndgame();
+          }
+        }
+        syncUI();
+        if (onStateChangeCallback) onStateChangeCallback();
+      }
+    });
+
+    enqueueTurnSteps(steps);
+    return true;
   }
 
   // ==================== LIFECYCLE & EVENTS ====================
@@ -3476,8 +4155,10 @@ window.Duskwood = window.Duskwood || {};
     if (!matchStateRef.tableIntroDone && anim.introStage === "WAITING") {
       beginTableIntro();
     } else {
-      syncUI();
       App.Audio.open();
+      if (!maybeStartPendingPenaltyScene()) {
+        syncUI();
+      }
     }
   }
 
@@ -3510,6 +4191,235 @@ window.Duskwood = window.Duskwood || {};
     if (veil) veil.style.opacity = "0";
     document.getElementById("game-hud")?.classList.remove("hidden");
     if (!silent) App.Audio.close();
+  }
+
+  function updateBackground(dt) {
+    if (!matchStateRef || isOpen) return;
+    if (!isMultiplayerCoop()) return;
+    updateAnimations(dt || 0.016);
+  }
+
+  function handleNetworkMessage(action, payload) {
+    if (!matchStateRef || !action) return;
+    const p = payload || {};
+
+    if (action === "MP_REQ_START_INTRO") {
+      if (App.Network && App.Network.isHost() && !matchStateRef.tableIntroDone && anim.introStage === "WAITING") {
+        if (!isWaitingForAllSeated()) {
+          beginTableIntro(false);
+        }
+      }
+      return;
+    }
+
+    if (action === "MP_START_INTRO") {
+      if (p.clueManifest) matchStateRef.clueManifest = p.clueManifest;
+      if (p.sanctuaryRoomId) matchStateRef.sanctuaryRoomId = p.sanctuaryRoomId;
+      if (Array.isArray(p.sanctuaryClueKeys)) matchStateRef.sanctuaryClueKeys = p.sanctuaryClueKeys.slice();
+      beginTableIntro(true);
+      return;
+    }
+
+    if (action === "MP_TURN1_CELLAR") {
+      if (Array.isArray(p.uniqueDrawnCardIds)) {
+        p.uniqueDrawnCardIds.forEach((id) => uniqueDrawnCardIds.add(id));
+        matchStateRef.uniqueDrawnCardIds = Array.from(uniqueDrawnCardIds);
+      }
+      placeTurn1CellarAt(p.x, p.y, p.rotationSteps, true, p.starterHandsBySeatId);
+      return;
+    }
+
+    if (action === "MP_TURN2_HARVESTER_DRAW") {
+      turnStep = 2;
+      App.Audio.cardDraw();
+      if (App.Audio.playEventDraw) App.Audio.playEventDraw();
+      syncUI();
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+
+    if (action === "MP_TURN2_HARVESTER") {
+      playTurn2Harvester(true);
+      return;
+    }
+
+    if (action === "MP_DRAW_CARD") {
+      if (typeof p.deckCount === "number") {
+        while (deck.length > p.deckCount && deck.length > 0) deck.pop();
+      }
+      if (Array.isArray(p.uniqueDrawnCardIds)) {
+        p.uniqueDrawnCardIds.forEach((id) => uniqueDrawnCardIds.add(id));
+        matchStateRef.uniqueDrawnCardIds = Array.from(uniqueDrawnCardIds);
+      }
+      const card = App.CardsDB.getById(p.cardId);
+      if (p.wasHex && card) {
+        matchStateRef.eventCooldownTurns = typeof p.eventCooldownTurns === "number" ? p.eventCooldownTurns : 2;
+        if (Array.isArray(p.drawnEventCardIds)) matchStateRef.drawnEventCardIds = p.drawnEventCardIds.slice();
+        if (App.Audio.playEventDraw) App.Audio.playEventDraw();
+        if (App.Events) App.Events.onEventCardDrawn(card, matchStateRef);
+      } else {
+        turnStep = 2;
+        App.Audio.cardDraw();
+      }
+      syncUI();
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+
+    if (action === "MP_LAUNCH_HEX") {
+      const card = App.CardsDB.getById(p.cardId);
+      if (card) launchHexEventCard(card, p.nextOrderIdx);
+      return;
+    }
+
+    if (action === "MP_RECLAIM_CLUE") {
+      if (typeof p.idx === "number" && p.idx >= 0 && p.idx < candleTray.length) {
+        candleTray.splice(p.idx, 1);
+      }
+      const newTop = candleTray.length ? candleTray[candleTray.length - 1] : null;
+      matchStateRef.activeOmen = newTop ? newTop.name : null;
+      matchStateRef.activeOmenId = newTop ? newTop.id : null;
+      turnStep = 2;
+      App.Audio.cardDraw();
+      syncUI();
+      if (onStateChangeCallback) onStateChangeCallback();
+      return;
+    }
+
+    if (action === "MP_PLAY_ROOM") {
+      playBlueprintAtCoord(p.x, p.y, p.rotationSteps, true, p.cardId, p.nextOrderIdx);
+      return;
+    }
+
+    if (action === "MP_PLAY_CARD") {
+      const card = App.CardsDB.getById(p.cardId);
+      if (!card) return;
+      const meta = card.meta || {};
+      let playedEscape = Boolean(p.playedEscape);
+      if (card.type === "OMEN") {
+        candleTray.push(card);
+        matchStateRef.activeOmen = card.name;
+        matchStateRef.activeOmenId = card.id;
+        App.Audio.cardPlay();
+      } else if (card.type === "WARD") {
+        rimPlayedCards.push(card);
+        const backMins = (meta.harvesterBackSteps || 1) * 30;
+        if (matchStateRef.harvesterSpawned) {
+          matchStateRef.harvesterMinutes = Math.max(0, matchStateRef.harvesterMinutes - backMins);
+          playedEscape = true;
+        } else if (matchStateRef.harvesterCardPlayed) {
+          matchStateRef.harvesterDelayTurns += meta.harvesterBackSteps || 1;
+        }
+        App.Audio.clockChime();
+      } else if (card.type === "CHIME") {
+        rimPlayedCards.push(card);
+        if (meta.deltaMinutes) {
+          matchStateRef.clockMinutes = Math.max(
+            0,
+            Math.min(CLOCK_TOTAL_MINUTES, matchStateRef.clockMinutes + meta.deltaMinutes)
+          );
+          if (meta.deltaMinutes > 0) playedEscape = true;
+        }
+        if (meta.action === "random_board" && p.randomBoardPickId) {
+          applyRandomBoardEffect(p.randomBoardPickId);
+        }
+        App.Audio.cardPlay();
+      }
+      resolveEndOfTurn(false, playedEscape, {
+        targetOrderIdx: p.nextOrderIdx,
+        forcedRandomSeat: Boolean(p.forcedRandomSeat),
+        freezeHarvester: Boolean(p.freezeHarvester),
+        skipPassiveStep: Boolean(p.skipPassiveStep)
+      });
+      return;
+    }
+
+    if (action === "MP_THIEF_OUTCOME") {
+      const wedge = THIEF_WEDGES.find((w) => w.id === p.wedgeId);
+      let escaped = false;
+      if (wedge) {
+        // Apply only shared board effects on non-active clients (hand gifts belong only to active player!)
+        if (wedge.id === "time_lose") {
+          matchStateRef.clockMinutes = Math.max(0, matchStateRef.clockMinutes - 30);
+        } else if (wedge.id === "time_gain") {
+          matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, matchStateRef.clockMinutes + 30);
+          escaped = true;
+        } else if (wedge.id === "gy_wipe" && !matchStateRef.bannedGraveyardWipe) {
+          candleTray = [];
+          matchStateRef.activeOmen = null;
+          matchStateRef.activeOmenId = null;
+        } else if (wedge.id === "room_blackout") {
+          matchStateRef.roomLightStates = { "0,0": false };
+          Object.keys(matchStateRef.roomMap || {}).forEach((k) => { matchStateRef.roomLightStates[k] = false; });
+        } else if (wedge.id === "gy_reclaim") {
+          if (matchStateRef.harvesterSpawned) {
+            matchStateRef.harvesterMinutes = Math.max(0, matchStateRef.harvesterMinutes - 30);
+            escaped = true;
+          } else if (matchStateRef.harvesterCardPlayed) {
+            matchStateRef.harvesterDelayTurns += 1;
+          }
+        } else if (wedge.id === "clue_reveal" && App.Clues && App.Clues.forceRevealOneClue) {
+          App.Clues.forceRevealOneClue(matchStateRef);
+        }
+      }
+      resolveEndOfTurn(false, escaped, {
+        targetOrderIdx: p.nextOrderIdx,
+        freezeHarvester: wedge && wedge.id === "time_gain",
+        skipPassiveStep: wedge && wedge.id === "time_gain"
+      });
+      return;
+    }
+
+    if (action === "MP_NEIGHBOR_TRIGGER") {
+      triggerNeighborCard(true, p);
+      return;
+    }
+
+    if (action === "MP_NEIGHBOR_BARGAIN") {
+      resolveNeighborBargain(p.optionId, true, p.nextOrderIdx);
+      return;
+    }
+
+    if (action === "MP_HELD_ROLES" && p.playerId) {
+      matchStateRef.heldRolesByPlayer = matchStateRef.heldRolesByPlayer || {};
+      matchStateRef.heldRolesByPlayer[p.playerId] = {
+        hasTraitor: Boolean(p.hasTraitor),
+        traitorDefective: Boolean(p.traitorDefective),
+        hasSacrifice: Boolean(p.hasSacrifice)
+      };
+      return;
+    }
+
+    if (action === "MP_DEATH_PENALTY") {
+      const prevClock = typeof p.prevClock === "number" ? p.prevClock : (matchStateRef.clockMinutes || 0);
+      const prevHarv = typeof p.prevHarv === "number" ? p.prevHarv : (matchStateRef.harvesterMinutes || 0);
+      if (typeof p.clockMinutes === "number") {
+        matchStateRef.clockMinutes = Math.max(matchStateRef.clockMinutes || 0, p.clockMinutes);
+      }
+      if (typeof p.harvesterMinutes === "number" && matchStateRef.harvesterSpawned) {
+        matchStateRef.harvesterMinutes = Math.max(matchStateRef.harvesterMinutes || 0, p.harvesterMinutes);
+      }
+      const adv = Math.max(0, (matchStateRef.clockMinutes || 0) - prevClock);
+      if (adv > 0) {
+        if (!matchStateRef.pendingPenaltyAnim) {
+          matchStateRef.pendingPenaltyAnim = {
+            fromPlayerMin: prevClock,
+            toPlayerMin: matchStateRef.clockMinutes,
+            fromHarvMin: prevHarv,
+            toHarvMin: matchStateRef.harvesterMinutes || 0,
+            harvesterSpawned: Boolean(matchStateRef.harvesterSpawned),
+            totalPenaltyMin: adv
+          };
+        } else {
+          matchStateRef.pendingPenaltyAnim.toPlayerMin = matchStateRef.clockMinutes;
+          matchStateRef.pendingPenaltyAnim.toHarvMin = matchStateRef.harvesterMinutes || 0;
+          matchStateRef.pendingPenaltyAnim.harvesterSpawned = Boolean(matchStateRef.harvesterSpawned);
+          matchStateRef.pendingPenaltyAnim.totalPenaltyMin += adv;
+        }
+      }
+      syncUI();
+      if (onStateChangeCallback) onStateChangeCallback();
+    }
   }
 
   function renderFrame(timeSec, dt) {
@@ -3672,8 +4582,11 @@ window.Duskwood = window.Duskwood || {};
     open,
     close,
     renderFrame,
+    updateBackground,
+    handleNetworkMessage,
     resolveNeighborBargain,
+    getLocalHeldRoleState,
     isOpen: () => isOpen,
-    isBusy: () => anim.introStage !== "DONE" || anim.dealingCards || anim.harvesterRisingNow || anim.rimRotating || anim.drawAnimating || anim.shuffleAnimating || Boolean(pendingDrawnCard) || thiefWheelActive || Boolean(anim.activeStep) || anim.stepQueue.length > 0
+    isBusy: () => anim.introStage !== "DONE" || anim.dealingCards || anim.harvesterRisingNow || anim.rimRotating || anim.drawAnimating || anim.shuffleAnimating || anim.penaltyPlaying || Boolean(pendingDrawnCard) || thiefWheelActive || Boolean(anim.activeStep) || anim.stepQueue.length > 0
   };
 })(window.Duskwood);

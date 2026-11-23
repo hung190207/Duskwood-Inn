@@ -152,6 +152,7 @@ window.Duskwood = window.Duskwood || {};
           clueKey: "corrupt_painting",
           omenId: "om_corrupt_painting",
           roomId: pickSpawnRoom(PAINTING_ROOMS),
+          corruptVariantIdx: Math.random() < 0.5 ? 0 : 1,
           isTrueClue: true,
           revealed: false
         });
@@ -227,6 +228,45 @@ window.Duskwood = window.Duskwood || {};
     if (App.FieldBook) App.FieldBook.resetNotes();
   }
 
+  function isFinalClueRevealed(matchState) {
+    return Boolean(
+      matchState &&
+      matchState.clueManifest &&
+      Array.isArray(matchState.clueManifest.revealedTrueKeys) &&
+      matchState.clueManifest.revealedTrueKeys.length >= 3
+    );
+  }
+
+  // Returns true if ANY player in a Multiplayer match is actively holding a non-defective THE TRAITOR card!
+  function isTraitorBlockingFinalClue(matchState) {
+    if (!matchState || matchState.mode !== "MULTIPLAYER") return false;
+    const map = matchState.heldRolesByPlayer;
+    if (!map || typeof map !== "object") return false;
+    return Object.values(map).some((r) => Boolean(r && r.hasTraitor && !r.traitorDefective));
+  }
+
+  // Checks if revealing `entry` right now would complete the 3rd (final) true clue while THE TRAITOR is held!
+  // For Tic-Tac-Toe (X/O), specifically blocks the 3rd winning X or 3rd winning O when 2 other clues are already revealed!
+  function isEntryBlockedByTraitor(entry, manifest, matchState) {
+    if (!entry || !manifest || !entry.isTrueClue) return false;
+    if (!isTraitorBlockingFinalClue(matchState)) return false;
+    const revTrueCount = Array.isArray(manifest.revealedTrueKeys) ? manifest.revealedTrueKeys.length : 0;
+    if (revTrueCount < 2) return false;
+    if (manifest.revealedTrueKeys.includes(entry.clueKey)) return false;
+
+    if (entry.omenId === "om_chalk_grid") {
+      const winSym = entry.clueKey === "winning_x" ? "X" : "O";
+      if (entry.symbol !== winSym) return false; // Losing symbols may still appear; ONLY block 3rd winning X/O!
+      const revWinCnt = manifest.entries.filter(
+        (x) => x.omenId === "om_chalk_grid" && x.revealed && x.symbol === winSym
+      ).length;
+      return revWinCnt >= 2;
+    }
+
+    // Any other single-room true clue would immediately become the 3rd revealed true clue -> BLOCK!
+    return true;
+  }
+
   // ==================== 2. TURN-END TOP GRAVEYARD CLUE CHECK ====================
   // Checks ONLY the TOP Clue Card currently on the Graveyard!
   // Smart Built-Room Re-binding: once the player has built >= 4 rooms (Dining + Cellar + 2+),
@@ -239,7 +279,9 @@ window.Duskwood = window.Duskwood || {};
     const builtRoomIds = new Set(Object.values(matchState.roomMap || {}).map((r) => r.id));
     const builtNonCellar = Array.from(builtRoomIds).filter((id) => id !== "bp_cellar");
 
-    const matching = manifest.entries.filter((e) => e.omenId === topOmenId && !e.revealed);
+    const matching = manifest.entries.filter(
+      (e) => e.omenId === topOmenId && !e.revealed && !isEntryBlockedByTraitor(e, manifest, matchState)
+    );
 
     const newlyRevealed = [];
 
@@ -306,6 +348,7 @@ window.Duskwood = window.Duskwood || {};
       manifest.entries.forEach((entry) => {
         if (entry.omenId !== topOmenId) return;
         if (entry.revealed) return;
+        if (isEntryBlockedByTraitor(entry, manifest, matchState)) return; // Blocked by THE TRAITOR!
         if (!builtRoomIds.has(entry.roomId)) return; // Room does not exist yet!
 
         entry.revealed = true;
@@ -342,6 +385,16 @@ window.Duskwood = window.Duskwood || {};
     return getRevealedEntriesForRoom(roomId, matchState).some(
       (e) => e.omenId === "om_corrupt_painting"
     );
+  }
+
+  function getCorruptPaintingVariant(roomId, matchState) {
+    const entry = getRevealedEntriesForRoom(roomId, matchState).find(
+      (e) => e.omenId === "om_corrupt_painting"
+    );
+    if (entry && typeof entry.corruptVariantIdx === "number") {
+      return entry.corruptVariantIdx;
+    }
+    return 0;
   }
 
   // ==================== 3. VERIFIED, VARIED ROOM-AWARE CLUE PLACEMENT ANCHORS ====================
@@ -1114,7 +1167,7 @@ window.Duskwood = window.Duskwood || {};
     const manifest = matchState.clueManifest;
     const builtRoomIds = new Set(Object.values(matchState.roomMap || {}).map((r) => r.id));
     const candidates = manifest.entries.filter(
-      (e) => !e.revealed && e.isTrueClue && builtRoomIds.has(e.roomId)
+      (e) => !e.revealed && e.isTrueClue && builtRoomIds.has(e.roomId) && !isEntryBlockedByTraitor(e, manifest, matchState)
     );
     if (!candidates.length) return null;
 
@@ -1145,8 +1198,11 @@ window.Duskwood = window.Duskwood || {};
     initMatchClues,
     evaluateTopGraveyardClue,
     forceRevealOneClue,
+    isFinalClueRevealed,
+    isTraitorBlockingFinalClue,
     getRevealedEntriesForRoom,
     isRoomPaintingCorrupted,
+    getCorruptPaintingVariant,
     getClueLightPoints,
     renderRoomClues,
     renderRoomClueHighlights,

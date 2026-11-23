@@ -180,7 +180,21 @@ window.Duskwood = window.Duskwood || {};
 
   function isLockedInChosenRoom(matchState) {
     const eg = matchState && matchState.endgame;
-    return Boolean(eg && eg.active && (eg.stage === "JUDGMENT_SHAKE" || eg.stage === "PRE_LOSE_DARK"));
+    return Boolean(
+      eg &&
+      eg.active &&
+      (eg.stage === "JUDGMENT_SHAKE" || eg.stage === "PRE_LOSE_DARK" || eg.stage === "PRE_MIXED_DARK")
+    );
+  }
+
+  function isLocalDeadSpectator(matchState) {
+    const eg = matchState && matchState.endgame;
+    return Boolean(eg && eg.active && eg.deadSpectator);
+  }
+
+  function isLocalInCar(matchState) {
+    const eg = matchState && matchState.endgame;
+    return Boolean(eg && eg.active && (eg.localBoardedCar || eg.stage === "WIN_CAR_DRIVE" || eg.stage === "WIN_CREDITS"));
   }
 
   function canInspectTableMap(matchState) {
@@ -261,11 +275,18 @@ window.Duskwood = window.Duskwood || {};
 
     matchState.endgame = {
       active: true,
-      stage: "ALARM_3X", // ALARM_3X -> CHOOSE_20S -> JUDGMENT_SHAKE -> PRE_LOSE_DARK -> LOSE_CUTSCENE | WIN_DAWN_CABIN -> WIN_FOREST -> WIN_CAR_DRIVE -> WIN_CREDITS
+      stage: "ALARM_3X", // ALARM_3X -> CHOOSE_20S -> JUDGMENT_SHAKE -> PRE_LOSE_DARK | PRE_MIXED_DARK -> LOSE_CUTSCENE | WIN_DAWN_CABIN -> WIN_FOREST -> WIN_CAR_DRIVE -> WIN_CREDITS
       countdown: 20.0,
       chosenRoomKey: null,
       chosenRoomId: null,
       playerWon: false,
+      survivors: [],
+      deadPlayers: [],
+      mpChoiceMap: {},
+      judgmentSyncedFromHost: false,
+      deadSpectator: false,
+      localBoardedCar: false,
+      boardedCarIds: new Set(),
       shatterWaves: [],
       shatterWaveIdx: 0,
       shatterTimer: 5.0,
@@ -323,13 +344,91 @@ window.Duskwood = window.Duskwood || {};
     );
   }
 
-  function buildWrongRoomShatterWaves(matchState, chosenRoomKey, playerWon) {
+  function isMultiplayerMatch(matchState) {
+    return Boolean(
+      matchState &&
+      matchState.mode === "MULTIPLAYER" &&
+      App.Network &&
+      App.Network.isMultiplayerMatch &&
+      App.Network.isMultiplayerMatch()
+    );
+  }
+
+  function getLocalPlayerEntry(matchState, chosenRoomKey, chosenRoomId, trueExitId) {
+    const ch = (App.Config && App.Config.state && App.Config.state.character) || {};
+    const localPid = (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : "local";
+    const seatIdx = typeof matchState.localSeatIdx === "number" ? matchState.localSeatIdx : 0;
+    const chairId = typeof matchState.localChairId === "number" ? matchState.localChairId : 0;
+    return {
+      playerId: localPid,
+      seatIdx,
+      chairId,
+      name: (ch.name || "SURVIVOR").toUpperCase(),
+      character: Object.assign({}, ch),
+      roomKey: chosenRoomKey,
+      roomId: chosenRoomId,
+      survived: Boolean(trueExitId && chosenRoomId === trueExitId)
+    };
+  }
+
+  function buildAllMatchPlayersSnapshot(matchState, localEntry, choiceMap) {
+    const trueExitId = getTrueExitRoomId(matchState);
+    const roomMap = matchState.roomMap || {};
+    if (!isMultiplayerMatch(matchState)) {
+      return [localEntry];
+    }
+
+    const seats = (App.Network && App.Network.getAllMatchSeats) ? App.Network.getAllMatchSeats() : [];
+    const remotes = (App.Network && App.Network.getAllRemotePlayers) ? App.Network.getAllRemotePlayers() : [];
+    const remoteById = new Map(remotes.map((r) => [r.playerId, r]));
+    const localPid = localEntry.playerId;
+
+    const entries = [];
+    seats.forEach((s) => {
+      if (s.playerId === localPid) {
+        entries.push(localEntry);
+        return;
+      }
+      const explicit = choiceMap && choiceMap[s.playerId];
+      if (explicit) {
+        entries.push({
+          playerId: s.playerId,
+          seatIdx: s.seatIdx,
+          chairId: s.chairId,
+          name: s.name,
+          character: s.character,
+          roomKey: explicit.roomKey,
+          roomId: explicit.roomId,
+          survived: Boolean(trueExitId && explicit.roomId === trueExitId)
+        });
+        return;
+      }
+      const rp = remoteById.get(s.playerId);
+      const rk = rp ? `${rp.roomX || 0},${rp.roomY || 0}` : "0,0";
+      const rObj = roomMap[rk] || { id: "dining_room" };
+      entries.push({
+        playerId: s.playerId,
+        seatIdx: s.seatIdx,
+        chairId: s.chairId,
+        name: s.name,
+        character: s.character,
+        roomKey: rk,
+        roomId: rObj.id,
+        survived: Boolean(trueExitId && rObj.id === trueExitId)
+      });
+    });
+
+    return entries.length ? entries : [localEntry];
+  }
+
+  function buildWrongRoomShatterWaves(matchState, occupiedWrongKeys) {
     const sanctuaryId = getTrueExitRoomId(matchState);
     const roomMap = matchState.roomMap || {};
     const wrongKeys = Object.keys(roomMap).filter((k) => roomMap[k].id !== sanctuaryId);
+    const occSet = new Set((occupiedWrongKeys || []).filter((k) => wrongKeys.includes(k)));
 
-    // Shuffle non-chosen wrong rooms
-    const otherWrong = wrongKeys.filter((k) => k !== chosenRoomKey);
+    // Shuffle unoccupied wrong rooms first so occupied wrong rooms shatter dramatically on the FINAL wave!
+    const otherWrong = wrongKeys.filter((k) => !occSet.has(k));
     for (let i = otherWrong.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [otherWrong[i], otherWrong[j]] = [otherWrong[j], otherWrong[i]];
@@ -340,7 +439,6 @@ window.Duskwood = window.Duskwood || {};
     if (otherWrong.length <= 3) {
       otherWrong.forEach((k) => waves.push([k]));
     } else {
-      // Group non-player wrong rooms into 3 suspenseful waves (every 5 seconds!)
       const waveCount = 3;
       for (let i = 0; i < waveCount; i++) waves.push([]);
       otherWrong.forEach((k, idx) => {
@@ -348,15 +446,116 @@ window.Duskwood = window.Duskwood || {};
       });
     }
 
-    // GUARANTEE: Whenever player is in ANY wrong room (including The Dining Room "0,0"!),
-    // their room's light bulb MUST ALWAYS shatter on the final wave!
-    if (!playerWon || wrongKeys.includes(chosenRoomKey)) {
-      if (!waves.some((w) => w.includes(chosenRoomKey))) {
-        waves.push([chosenRoomKey]);
-      }
+    // Put ALL occupied wrong rooms on the final wave so players in wrong rooms stay in suspense until the end!
+    if (occSet.size > 0) {
+      waves.push(Array.from(occSet));
     }
 
     return waves.filter((w) => w.length > 0);
+  }
+
+  function resolveRoleForPlayer(matchState, eg, pid) {
+    const fromChoice = eg && eg.mpChoiceMap && eg.mpChoiceMap[pid] && eg.mpChoiceMap[pid].roles;
+    if (fromChoice) return fromChoice;
+    const fromState = matchState && matchState.heldRolesByPlayer && matchState.heldRolesByPlayer[pid];
+    if (fromState) return fromState;
+    const localPid = (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : "local";
+    if (pid === localPid && App.TableView && App.TableView.getLocalHeldRoleState) {
+      return App.TableView.getLocalHeldRoleState();
+    }
+    return { hasTraitor: false, traitorDefective: false, hasSacrifice: false };
+  }
+
+  function applyLocalVerdictFields(eg, matchState) {
+    const localPid = (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : "local";
+    const localSurv = (eg.survivors || []).find((e) => e.playerId === localPid);
+    const localDead = (eg.deadPlayers || []).find((e) => e.playerId === localPid);
+    const mine = localSurv || localDead || null;
+    if (mine) {
+      eg.playerWon = Boolean(mine.survived);
+      eg.localSavedByTraitor = Boolean(mine.savedByTraitor);
+      eg.localSavedBySacrifice = Boolean(mine.savedBySacrifice);
+      eg.localDiedBySacrifice = Boolean(mine.diedBySacrifice);
+      eg.localSacrificeDefective = Boolean(mine.sacrificeDefective);
+      eg.localPickedCorrectRoom = Boolean(mine.pickedCorrectRoom);
+    }
+  }
+
+  function recomputeGeneralVerdict(matchState, broadcastIfHost) {
+    const eg = matchState && matchState.endgame;
+    if (!eg || !eg.active) return;
+
+    const trueExitId = getTrueExitRoomId(matchState);
+    const localEntry = getLocalPlayerEntry(matchState, eg.chosenRoomKey, eg.chosenRoomId, trueExitId);
+    const allEntries = buildAllMatchPlayersSnapshot(matchState, localEntry, eg.mpChoiceMap);
+
+    // 1. Annotate every player with raw room correctness & held Multiplayer Special Role cards!
+    const isMp = isMultiplayerMatch(matchState);
+    allEntries.forEach((e) => {
+      e.pickedCorrectRoom = Boolean(trueExitId && e.roomId === trueExitId);
+      const roles = isMp ? resolveRoleForPlayer(matchState, eg, e.playerId) : { hasTraitor: false, traitorDefective: false, hasSacrifice: false };
+      e.hasTraitorActive = Boolean(roles.hasTraitor && !roles.traitorDefective);
+      e.hasSacrifice = Boolean(roles.hasSacrifice);
+      e.savedByTraitor = false;
+      e.savedBySacrifice = false;
+      e.diedBySacrifice = false;
+      e.sacrificeDefective = false;
+      // Base survival: THE TRAITOR (when held & non-defective) guarantees Good Ending even on a wrong room!
+      if (e.hasTraitorActive) {
+        e.survived = true;
+        e.savedByTraitor = !e.pickedCorrectRoom;
+      } else {
+        e.survived = e.pickedCorrectRoom;
+      }
+    });
+
+    // 2. Apply THE SACRIFICE (Multiplayer only — DEFECTIVE if anyone holds an active THE TRAITOR card!)
+    const anyActiveTraitor = allEntries.some((e) => e.hasTraitorActive);
+    if (isMp) {
+      allEntries.forEach((holder) => {
+        if (!holder.hasSacrifice) return;
+        if (anyActiveTraitor) {
+          holder.sacrificeDefective = true;
+          return;
+        }
+        const deadOthers = allEntries.filter((o) => o.playerId !== holder.playerId && !o.survived);
+        if (deadOthers.length > 0) {
+          // Pick 1 random dead teammate (keep stable pick if already chosen this judgment!)
+          let rescued = eg.sacrificeRescuedId
+            ? deadOthers.find((o) => o.playerId === eg.sacrificeRescuedId)
+            : null;
+          if (!rescued) {
+            rescued = deadOthers[Math.floor(Math.random() * deadOthers.length)];
+            eg.sacrificeRescuedId = rescued.playerId;
+          }
+          // Even if the Sacrifice holder picked the RIGHT room, it becomes a life-swap:
+          // holder dies (headless bloody corpse on Good Ending table) and the rescued teammate enters Good Ending!
+          rescued.survived = true;
+          rescued.savedBySacrifice = true;
+          holder.survived = false;
+          holder.diedBySacrifice = true;
+        }
+      });
+    }
+
+    eg.survivors = allEntries.filter((e) => e.survived);
+    eg.deadPlayers = allEntries.filter((e) => !e.survived);
+    applyLocalVerdictFields(eg, matchState);
+
+    const occupiedWrongKeys = eg.deadPlayers.map((d) => d.roomKey).filter(Boolean);
+    if (!eg.judgmentSyncedFromHost || (isMp && App.Network.isHost())) {
+      eg.shatterWaves = buildWrongRoomShatterWaves(matchState, occupiedWrongKeys);
+    }
+
+    if (broadcastIfHost && isMp && App.Network.isHost()) {
+      App.Network.sendGameAction("MP_ENDGAME_JUDGMENT", {
+        trueExitId,
+        waves: eg.shatterWaves,
+        survivors: eg.survivors,
+        deadPlayers: eg.deadPlayers,
+        sacrificeRescuedId: eg.sacrificeRescuedId || null
+      });
+    }
   }
 
   function beginJudgmentLockdown(matchState) {
@@ -377,6 +576,10 @@ window.Duskwood = window.Duskwood || {};
     eg.chosenRoomKey = rk;
     eg.chosenRoomId = chosenRoom.id;
     eg.playerWon = Boolean(trueExitId && chosenRoom.id === trueExitId);
+    eg.deadSpectator = false;
+    eg.localBoardedCar = false;
+    eg.boardedCarIds = new Set();
+    eg.sacrificeRescuedId = null;
 
     // Turn ALL built rooms' lights ON so every single room flickers violently together!
     matchState.roomLightStates = {};
@@ -384,7 +587,21 @@ window.Duskwood = window.Duskwood || {};
       matchState.roomLightStates[k] = true;
     });
 
-    eg.shatterWaves = buildWrongRoomShatterWaves(matchState, rk, eg.playerWon);
+    if (isMultiplayerMatch(matchState)) {
+      const localPid = App.Network.getLocalPlayerId();
+      const localRoles = (App.TableView && App.TableView.getLocalHeldRoleState)
+        ? App.TableView.getLocalHeldRoleState()
+        : { hasTraitor: false, traitorDefective: false, hasSacrifice: false };
+      eg.mpChoiceMap[localPid] = { roomKey: rk, roomId: chosenRoom.id, roles: localRoles };
+      App.Network.sendGameAction("MP_ENDGAME_CHOICE", {
+        playerId: localPid,
+        roomKey: rk,
+        roomId: chosenRoom.id,
+        roles: localRoles
+      });
+    }
+
+    recomputeGeneralVerdict(matchState, true);
     eg.shatterWaveIdx = 0;
     eg.shatterTimer = 5.0; // First wrong-room shatter hits after 5 seconds, then every 5 seconds!
     eg.notice = `LOCKED IN ${chosenRoom.fullName || chosenRoom.name} — THE CABIN IS SHAKING VIOLENTLY!`;
@@ -414,9 +631,22 @@ window.Duskwood = window.Duskwood || {};
     matchState.roomLightStates[eg.chosenRoomKey] = false;
     if (player) player.lanternOn = false; // Plunge the shattered room cleanly into darkness!
     spawnGlassShards(eg, eg.chosenRoomKey === "0,0");
-    eg.notice = "YOUR ROOM'S LIGHT BULB SHATTERED! THIS WAS THE WRONG ROOM...";
-    eg.stage = "PRE_LOSE_DARK";
-    eg.preLoseTimer = 2.4;
+
+    // GENERAL / COMBINED ENDING CHECK:
+    // - If at least 1 teammate survived -> Dead player enters mixed Dawn Good Ending as a headless corpse on the table!
+    // - If NOBODY survived (0 survivors) -> Full Bad Ending Lose Cutscene with all corpses slumped on the table!
+    if (isMultiplayerMatch(matchState) && eg.survivors && eg.survivors.length > 0) {
+      eg.deadSpectator = true;
+      eg.notice = eg.localDiedBySacrifice
+        ? "THE SACRIFICE ACTIVATED — YOU GAVE YOUR LIFE TO SPARE A TEAMMATE!"
+        : `YOUR ROOM SHATTERED — YOU DIED! (${eg.survivors.length} TEAMMATE${eg.survivors.length > 1 ? "S" : ""} SURVIVED...)`;
+      eg.stage = "PRE_MIXED_DARK";
+      eg.preLoseTimer = eg.localDiedBySacrifice && eg.localPickedCorrectRoom ? 2.4 : 5.0;
+    } else {
+      eg.notice = "YOUR ROOM'S LIGHT BULB SHATTERED! THIS WAS THE WRONG ROOM...";
+      eg.stage = "PRE_LOSE_DARK";
+      eg.preLoseTimer = 2.4;
+    }
   }
 
   function triggerNextWrongRoomShatter(matchState, player) {
@@ -424,11 +654,11 @@ window.Duskwood = window.Duskwood || {};
     if (!eg || !eg.active) return;
 
     if (eg.shatterWaveIdx >= eg.shatterWaves.length) {
-      // Every wrong room has shattered -> ONLY the true Exit Room survives!
+      // Every wrong room has shattered -> check final survival (including THE TRAITOR & THE SACRIFICE)!
       if (eg.playerWon) {
         enterDawnWinCabin(matchState, player);
       } else {
-        // Hard safety guard: never let a wrong room win; shatter player's room bulb now!
+        // Wrong room OR Sacrifice holder who traded their life on the right room -> shatter bulb now!
         if (App.Audio && App.Audio.playLightBreak) App.Audio.playLightBreak(5.0);
         eg.shatterFlashTimer = 0.32;
         shatterPlayerRoomAndLose(matchState, player);
@@ -447,6 +677,16 @@ window.Duskwood = window.Duskwood || {};
     let hitPlayerRoom = false;
 
     wave.forEach((rk) => {
+      // If local player is shielded by THE TRAITOR or spared by THE SACRIFICE while in a wrong room,
+      // keep their bulb glowing instead of plunging them into death!
+      if (rk === eg.chosenRoomKey && eg.playerWon) {
+        eg.notice = eg.localSavedByTraitor
+          ? "THE TRAITOR SHIELDED YOU — YOUR LIGHT REFUSES TO BREAK!"
+          : eg.localSavedBySacrifice
+            ? "THE SACRIFICE SPARED YOUR LIFE — YOUR LIGHT HOLDS STRONG!"
+            : eg.notice;
+        return;
+      }
       eg.shatteredRooms.add(rk);
       matchState.roomLightStates[rk] = false;
       const rObj = matchState.roomMap && matchState.roomMap[rk];
@@ -454,7 +694,7 @@ window.Duskwood = window.Duskwood || {};
       if (rk === eg.chosenRoomKey) hitPlayerRoom = true;
     });
 
-    if (hitPlayerRoom) {
+    if (hitPlayerRoom && !eg.playerWon) {
       shatterPlayerRoomAndLose(matchState, player);
       return;
     }
@@ -491,7 +731,11 @@ window.Duskwood = window.Duskwood || {};
     const truthEl = document.getElementById("endgame-true-room-reveal");
     if (overlayEl) overlayEl.classList.add("hidden");
     if (reasonEl) {
-      reasonEl.textContent = eg.loseReason || "YOU CHOSE THE WRONG EXIT ROOM AT MIDNIGHT.";
+      reasonEl.textContent =
+        eg.loseReason ||
+        (isMultiplayerMatch(matchState)
+          ? "NO ONE CHOSE THE TRUE EXIT ROOM AT MIDNIGHT."
+          : "YOU CHOSE THE WRONG EXIT ROOM AT MIDNIGHT.");
     }
     if (truthEl) {
       const trueId = getTrueExitRoomId(matchState);
@@ -506,9 +750,186 @@ window.Duskwood = window.Duskwood || {};
     if (App.Audio && App.Audio.startGameOverBgm) App.Audio.startGameOverBgm();
   }
 
-  // Triggered when The Hollow Harvester catches & eliminates the player on the clock track!
-  function startHarvesterLoseCutscene(matchState) {
+  function getPaletteColors(charCfg) {
+    const ch = charCfg || (App.Config && App.Config.state && App.Config.state.character) || {};
+    const pal = App.Config ? App.Config.PALETTES : null;
+    return {
+      shirtCol: (pal && pal.shirt[ch.shirtColor]?.base) || "#96997a",
+      pantsCol: (pal && pal.pants[ch.pantsColor]?.base) || "#5b7496",
+      shoeCol:  (pal && pal.shoes[ch.shoeColor]?.base) || "#363734",
+      skinCol:  (pal && pal.skin[ch.skin]?.base) || "#eb885e"
+    };
+  }
+
+  function getLoseCutsceneCorpses(matchState) {
+    const eg = matchState && matchState.endgame;
+    if (eg && Array.isArray(eg.deadPlayers) && eg.deadPlayers.length > 0) {
+      return eg.deadPlayers;
+    }
+    if (isMultiplayerMatch(matchState) && App.Network && App.Network.getAllMatchSeats) {
+      return App.Network.getAllMatchSeats();
+    }
+    const ch = (App.Config && App.Config.state && App.Config.state.character) || {};
+    return [{
+      playerId: "local",
+      seatIdx: 0,
+      chairId: typeof matchState?.localChairId === "number" ? matchState.localChairId : 0,
+      name: (ch.name || "SURVIVOR").toUpperCase(),
+      character: ch
+    }];
+  }
+
+  // Draws ONE bloody headless pixel corpse slumped face-down over the round table from ANY fixed chair (0=W, 1=E, 2=N, 3=S)!
+  // Center of table is (cx, cy). Used in BOTH top-down LOSE_CUTSCENE (120, 54) AND playable Good Ending Dining Room (104, 126)!
+  function drawSlumpedHeadlessCorpseAtChair(c, cx, cy, chairId, charCfg, spread, scaleMode) {
+    const cols = getPaletteColors(charCfg);
+    const sp = Math.max(0, Math.min(1, typeof spread === "number" ? spread : 1));
+    const isDawnRoom = scaleMode === "DAWN_PARLOR";
+
+    // Offset slightly inward for 3/4 Parlor table (rx=30, ry=24) vs top-down Lose Cutscene table (rx=25, ry=19)
+    const rxOff = isDawnRoom ? 2 : 0;
+    const ryOff = isDawnRoom ? 2 : 0;
+
+    if (chairId === 0) {
+      // WEST CHAIR -> Slumped face-down EAST across the left side of the round table!
+      const bx = cx - 4 - rxOff;
+      const by = cy - 1;
+      fillPixelEllipse(c, bx + 2, by, Math.round(7 + sp * 6), Math.round(5 + sp * 4), "#4f070c");
+      fillPixelEllipse(c, bx + 3, by - 1, Math.round(5 + sp * 4), Math.round(3 + sp * 3), "#7a0c14");
+      fillPixelEllipse(c, bx + 4, by - 1, Math.round(2 + sp * 2), Math.round(2 + sp * 1.5), "#9e141e");
+      px(c, bx + 8, by - 4, 3, 2, "#780c14");
+      px(c, bx - 3, by + 11, 3, 5, "#5c080e");
+      px(c, bx - 4, by + 17, 4, 3, "#47060a");
+
+      // Legs & boots hanging back on West chair
+      px(c, cx - 35 - rxOff, cy - 3, 9, 5, "#1a1414");
+      px(c, cx - 34 - rxOff, cy - 2, 7, 3, cols.pantsCol);
+      px(c, cx - 38 - rxOff, cy - 2, 4, 4, cols.shoeCol);
+      // Slumped torso collapsed forward onto table
+      px(c, cx - 27 - rxOff, cy - 7, 17, 13, "#141010");
+      px(c, cx - 26 - rxOff, cy - 6, 15, 11, cols.shirtCol);
+      px(c, cx - 25 - rxOff, cy - 5, 13, 3, "rgba(0,0,0,0.22)");
+      // Limp arms splayed forward on blood-soaked planks
+      px(c, cx - 15 - rxOff, cy - 11, 11, 4, cols.shirtCol);
+      px(c, cx - 4 - rxOff,  cy - 11, 4, 3, cols.skinCol);
+      px(c, cx - 14 - rxOff, cy + 4,  10, 4, cols.shirtCol);
+      px(c, cx - 4 - rxOff,  cy + 5,  4, 3, cols.skinCol);
+      // Severed crimson neck stump — HEAD COMPLETELY GONE!
+      px(c, cx - 11 - rxOff, cy - 4, 4, 6, "#54080d");
+      px(c, cx - 10 - rxOff, cy - 3, 3, 4, "#96121c");
+      px(c, cx - 9 - rxOff,  cy - 2, 1, 2, "#d9c9b8");
+      return;
+    }
+
+    if (chairId === 1) {
+      // EAST CHAIR -> Slumped face-down WEST across the right side of the round table!
+      const bx = cx + 4 + rxOff;
+      const by = cy - 1;
+      fillPixelEllipse(c, bx - 2, by, Math.round(7 + sp * 6), Math.round(5 + sp * 4), "#4f070c");
+      fillPixelEllipse(c, bx - 3, by - 1, Math.round(5 + sp * 4), Math.round(3 + sp * 3), "#7a0c14");
+      fillPixelEllipse(c, bx - 4, by - 1, Math.round(2 + sp * 2), Math.round(2 + sp * 1.5), "#9e141e");
+      px(c, bx - 10, by + 3, 3, 2, "#780c14");
+      px(c, bx + 2, by + 11, 3, 5, "#5c080e");
+      px(c, bx + 2, by + 17, 4, 3, "#47060a");
+
+      // Legs & boots hanging back on East chair
+      px(c, cx + 26 + rxOff, cy - 3, 9, 5, "#1a1414");
+      px(c, cx + 27 + rxOff, cy - 2, 7, 3, cols.pantsCol);
+      px(c, cx + 34 + rxOff, cy - 2, 4, 4, cols.shoeCol);
+      // Slumped torso collapsed forward onto table
+      px(c, cx + 10 + rxOff, cy - 7, 17, 13, "#141010");
+      px(c, cx + 11 + rxOff, cy - 6, 15, 11, cols.shirtCol);
+      px(c, cx + 12 + rxOff, cy - 5, 13, 3, "rgba(0,0,0,0.22)");
+      // Limp arms splayed forward on blood-soaked planks
+      px(c, cx + 4 + rxOff, cy - 11, 11, 4, cols.shirtCol);
+      px(c, cx + 0 + rxOff, cy - 11, 4, 3, cols.skinCol);
+      px(c, cx + 4 + rxOff, cy + 4,  10, 4, cols.shirtCol);
+      px(c, cx + 0 + rxOff, cy + 5,  4, 3, cols.skinCol);
+      // Severed crimson neck stump — HEAD COMPLETELY GONE!
+      px(c, cx + 7 + rxOff, cy - 4, 4, 6, "#54080d");
+      px(c, cx + 7 + rxOff, cy - 3, 3, 4, "#96121c");
+      px(c, cx + 8 + rxOff, cy - 2, 1, 2, "#d9c9b8");
+      return;
+    }
+
+    if (chairId === 2) {
+      // NORTH CHAIR -> Slumped face-down SOUTH across the top side of the round table!
+      const bx = cx;
+      const by = cy - 4 - ryOff;
+      fillPixelEllipse(c, bx, by + 2, Math.round(6 + sp * 5), Math.round(5 + sp * 4), "#4f070c");
+      fillPixelEllipse(c, bx, by + 3, Math.round(4 + sp * 4), Math.round(3 + sp * 3), "#7a0c14");
+      fillPixelEllipse(c, bx, by + 4, Math.round(2 + sp * 2), Math.round(2 + sp * 1.5), "#9e141e");
+      px(c, bx + 5, by + 7, 2, 3, "#780c14");
+
+      // Legs & boots hanging back on North chair
+      px(c, cx - 3, cy - 29 - ryOff, 6, 8, "#1a1414");
+      px(c, cx - 2, cy - 28 - ryOff, 4, 6, cols.pantsCol);
+      px(c, cx - 2, cy - 32 - ryOff, 4, 4, cols.shoeCol);
+      // Slumped torso collapsed downward onto table
+      px(c, cx - 7, cy - 22 - ryOff, 14, 14, "#141010");
+      px(c, cx - 6, cy - 21 - ryOff, 12, 12, cols.shirtCol);
+      px(c, cx - 5, cy - 20 - ryOff, 10, 3, "rgba(0,0,0,0.22)");
+      // Limp arms splayed downward onto table
+      px(c, cx - 10, cy - 13 - ryOff, 4, 10, cols.shirtCol);
+      px(c, cx - 10, cy - 3 - ryOff,  3, 3, cols.skinCol);
+      px(c, cx + 6,  cy - 13 - ryOff, 4, 10, cols.shirtCol);
+      px(c, cx + 7,  cy - 3 - ryOff,  3, 3, cols.skinCol);
+      // Severed crimson neck stump — HEAD COMPLETELY GONE!
+      px(c, cx - 3, cy - 9 - ryOff, 6, 4, "#54080d");
+      px(c, cx - 2, cy - 8 - ryOff, 4, 3, "#96121c");
+      px(c, cx - 1, cy - 7 - ryOff, 2, 1, "#d9c9b8");
+      return;
+    }
+
+    // SOUTH CHAIR (chairId === 3) -> Slumped face-down NORTH across the bottom side of the round table!
+    const bx = cx;
+    const by = cy + 4 + ryOff;
+    fillPixelEllipse(c, bx, by - 2, Math.round(6 + sp * 5), Math.round(5 + sp * 4), "#4f070c");
+    fillPixelEllipse(c, bx, by - 3, Math.round(4 + sp * 4), Math.round(3 + sp * 3), "#7a0c14");
+    fillPixelEllipse(c, bx, by - 4, Math.round(2 + sp * 2), Math.round(2 + sp * 1.5), "#9e141e");
+    px(c, bx - 6, by + 12, 3, 4, "#5c080e");
+    px(c, bx - 6, by + 17, 4, 3, "#47060a");
+
+    // Legs & boots hanging back on South chair
+    px(c, cx - 3, cy + 21 + ryOff, 6, 8, "#1a1414");
+    px(c, cx - 2, cy + 22 + ryOff, 4, 6, cols.pantsCol);
+    px(c, cx - 2, cy + 28 + ryOff, 4, 4, cols.shoeCol);
+    // Slumped torso collapsed upward onto table
+    px(c, cx - 7, cy + 8 + ryOff, 14, 14, "#141010");
+    px(c, cx - 6, cy + 9 + ryOff, 12, 12, cols.shirtCol);
+    px(c, cx - 5, cy + 10 + ryOff, 10, 3, "rgba(0,0,0,0.22)");
+    // Limp arms splayed upward onto table
+    px(c, cx - 10, cy + 3 + ryOff, 4, 10, cols.shirtCol);
+    px(c, cx - 10, cy + 0 + ryOff, 3, 3, cols.skinCol);
+    px(c, cx + 6,  cy + 3 + ryOff, 4, 10, cols.shirtCol);
+    px(c, cx + 7,  cy + 0 + ryOff, 3, 3, cols.skinCol);
+    // Severed crimson neck stump — HEAD COMPLETELY GONE!
+    px(c, cx - 3, cy + 5 + ryOff, 6, 4, "#54080d");
+    px(c, cx - 2, cy + 5 + ryOff, 4, 3, "#96121c");
+    px(c, cx - 1, cy + 6 + ryOff, 2, 1, "#d9c9b8");
+  }
+
+  // Draws the bloody headless corpses of DEAD players directly on the sunlit Round Table in the Good Ending Dining Room!
+  function renderDawnTableCorpses(ctx, timeSec, matchState) {
+    const eg = matchState && matchState.endgame;
+    if (!eg || !eg.active || eg.stage !== "WIN_DAWN_CABIN") return;
+    if (!Array.isArray(eg.deadPlayers) || eg.deadPlayers.length === 0) return;
+
+    const tbl = (App.GameRoom && App.GameRoom.TABLE) || { cx: 104, cy: 126 };
+    // Sort corpses cleanly by chair Y depth: North (2) -> West (0) / East (1) -> South (3)
+    const order = { 2: 0, 0: 1, 1: 2, 3: 3 };
+    const sorted = eg.deadPlayers.slice().sort((a, b) => (order[a.chairId] || 0) - (order[b.chairId] || 0));
+    sorted.forEach((dead) => {
+      drawSlumpedHeadlessCorpseAtChair(ctx, tbl.cx, tbl.cy, dead.chairId || 0, dead.character, 1.0, "DAWN_PARLOR");
+    });
+  }
+
+  // Triggered when The Hollow Harvester catches & eliminates the player(s) on the clock track!
+  function startHarvesterLoseCutscene(matchState, fromNetwork) {
     if (!matchState) return false;
+    if (matchState.endgame && matchState.endgame.active && matchState.endgame.stage === "LOSE_CUTSCENE") {
+      return true;
+    }
 
     if (App.Stalkers && App.Stalkers.cleanup) App.Stalkers.cleanup(matchState);
     if (App.Musical && App.Musical.cleanup) App.Musical.cleanup(matchState);
@@ -519,6 +940,10 @@ window.Duskwood = window.Duskwood || {};
     if (App.Clues && App.Clues.isInspectOpen()) App.Clues.closeInspectModal(true);
     if (App.TableView && App.TableView.isOpen()) App.TableView.close(true);
 
+    const allDead = isMultiplayerMatch(matchState) && App.Network && App.Network.getAllMatchSeats
+      ? App.Network.getAllMatchSeats()
+      : [getLocalPlayerEntry(matchState, "0,0", "dining_room", "")];
+
     matchState.setupPhase = "GAME_OVER";
     matchState.endgame = {
       active: true,
@@ -528,6 +953,13 @@ window.Duskwood = window.Duskwood || {};
       chosenRoomKey: "0,0",
       chosenRoomId: "dining_room",
       playerWon: false,
+      survivors: [],
+      deadPlayers: allDead,
+      mpChoiceMap: {},
+      judgmentSyncedFromHost: true,
+      deadSpectator: false,
+      localBoardedCar: false,
+      boardedCarIds: new Set(),
       shatterWaves: [],
       shatterWaveIdx: 0,
       shatterTimer: 0,
@@ -542,6 +974,13 @@ window.Duskwood = window.Duskwood || {};
       carDriveTimer: 0,
       notice: ""
     };
+
+    if (!fromNetwork && isMultiplayerMatch(matchState)) {
+      App.Network.sendGameAction("MP_HARVESTER_LOSE", {
+        deadPlayers: allDead,
+        loseReason: matchState.endgame.loseReason
+      });
+    }
 
     enterLoseCutscene(matchState, matchState.endgame.loseReason);
     return true;
@@ -604,11 +1043,11 @@ window.Duskwood = window.Duskwood || {};
     fillPixelEllipse(c, 120, 54, 37, 29, "#7d5e31");
     fillPixelEllipse(c, 120, 54, 34, 26, "#4d1d24");
 
-    // 4 Chairs around table (one pushed slightly back where player slumped!)
-    px(c, 82, 48, 10, 12, "#382114"); // West chair (player's chair pushed back!)
-    px(c, 150, 48, 10, 12, "#382114"); // East chair
-    px(c, 114, 20, 12, 10, "#382114"); // North chair
-    px(c, 114, 78, 12, 10, "#382114"); // South chair
+    // 4 Chairs around table
+    px(c, 82, 48, 10, 12, "#382114");  // West chair (0)
+    px(c, 150, 48, 10, 12, "#382114"); // East chair (1)
+    px(c, 114, 20, 12, 10, "#382114"); // North chair (2)
+    px(c, 114, 78, 12, 10, "#382114"); // South chair (3)
 
     // 3. Round Wooden Dining Table (top-down view, center 120, 54)
     fillPixelEllipse(c, 120, 56, 28, 22, "rgba(0,0,0,0.55)");
@@ -624,46 +1063,20 @@ window.Duskwood = window.Duskwood || {};
     c.ellipse(120, 54, 19, 14, 0, 0, Math.PI * 2);
     c.stroke();
 
-    // 4. SPREADING DARK CRIMSON BLOOD POOL ON THE TABLE & FLOOR!
+    // 4. ALL DEAD PLAYERS' HEADLESS BLOODY CORPSES SLUMPED OVER THE ROUND TABLE AT THEIR EXACT SEATS!
     const spread = Math.min(1, t / 3.5);
-    fillPixelEllipse(c, 118, 53, Math.round(9 + spread * 8), Math.round(7 + spread * 6), "#4f070c");
-    fillPixelEllipse(c, 119, 52, Math.round(6 + spread * 6), Math.round(4 + spread * 4), "#7a0c14");
-    fillPixelEllipse(c, 121, 51, Math.round(3 + spread * 3), Math.round(2 + spread * 2), "#9e141e");
-    // Blood splatter droplets & dripping trail down the table edge onto the rug!
-    px(c, 128, 49, 3, 2, "#780c14");
-    px(c, 132, 54, 2, 2, "#61080f");
-    px(c, 115, 64, 3, 5, "#5c080e");
-    px(c, 114, 71, 4, 3, "#47060a"); // Blood puddle on rug beneath table
-
-    // 5. PLAYER'S HEADLESS PIXEL CORPSE SLUMPED COLLAPSED OVER THE ROUND TABLE!
-    const ch = (App.Config && App.Config.state && App.Config.state.character) || {};
-    const pal = App.Config ? App.Config.PALETTES : null;
-    const shirtCol = (pal && pal.shirt[ch.shirtColor]?.base) || "#96997a";
-    const pantsCol = (pal && pal.pants[ch.pantsColor]?.base) || "#5b7496";
-    const shoeCol  = (pal && pal.shoes[ch.shoeColor]?.base) || "#363734";
-    const skinCol  = (pal && pal.skin[ch.skin]?.base) || "#eb885e";
-
-    // Legs & boots hanging limply back on the West chair
-    px(c, 85, 51, 9, 5, "#1a1414");
-    px(c, 86, 52, 7, 3, pantsCol);
-    px(c, 82, 52, 4, 4, shoeCol);
-    // Slumped torso collapsed forward face-down across the round wooden table!
-    px(c, 93, 47, 17, 13, "#141010");
-    px(c, 94, 48, 15, 11, shirtCol);
-    px(c, 95, 49, 13, 3, "rgba(0,0,0,0.22)");
-    // Limp arms splayed forward across the blood-soaked planks
-    px(c, 105, 43, 12, 4, shirtCol);
-    px(c, 116, 43, 4, 3, skinCol); // Left lifeless hand
-    px(c, 106, 58, 11, 4, shirtCol);
-    px(c, 116, 59, 4, 3, skinCol); // Right lifeless hand
-    // SEVERED NECK STUMP — HEAD COMPLETELY GONE, soaked in crimson blood!
-    px(c, 109, 50, 4, 6, "#54080d");
-    px(c, 110, 51, 3, 4, "#96121c");
-    px(c, 111, 52, 1, 2, "#d9c9b8"); // Exposed pale cervical bone pixel
+    const corpses = getLoseCutsceneCorpses(matchState);
+    const order = { 2: 0, 0: 1, 1: 2, 3: 3 };
+    corpses
+      .slice()
+      .sort((a, b) => (order[a.chairId] || 0) - (order[b.chairId] || 0))
+      .forEach((dead) => {
+        drawSlumpedHeadlessCorpseAtChair(c, 120, 54, dead.chairId || 0, dead.character, spread, "TOP_DOWN");
+      });
 
     c.restore();
 
-    // 6. Dim flickering dim-bulb overhead cone + cold moonlight from open front door
+    // 5. Dim flickering dim-bulb overhead cone + cold moonlight from open front door
     const flick = 0.88 + Math.sin(timeSec * 14) * 0.12;
     const vig = c.createRadialGradient(W / 2, H * 0.45, 18, W / 2, H * 0.5, 145);
     vig.addColorStop(0, `rgba(255, 196, 132, ${(0.07 * flick).toFixed(3)})`);
@@ -683,6 +1096,7 @@ window.Duskwood = window.Duskwood || {};
 
     eg.stage = "WIN_DAWN_CABIN";
     eg.shatteredRooms.clear();
+    matchState.persistentEventProps = {};
     matchState.archFlickerLight = 1.0;
 
     // ERASE ALL OTHER ROOMS! Create a single map with ONLY The Dining Room & 1 sunlit exit door (South)!
@@ -705,36 +1119,113 @@ window.Duskwood = window.Duskwood || {};
     matchState.roomLightStates = { "0,0": true };
     matchState.currentRoomCoord = { x: 0, y: 0 };
 
-    // Place player inside the sunlit Dining Room facing the bright open South door!
+    // Place living survivors in the sunlit Dining Room; keep dead players spectating their headless corpse on the table!
     if (player) {
       player.seated = false;
       player.crouching = false;
-      player.x = 104;
-      player.y = 166;
+      const seatOffset = ((matchState.localSeatIdx || 0) - 1) * 12;
+      player.x = Math.max(40, Math.min(168, 104 + (isMultiplayerMatch(matchState) ? seatOffset : 0)));
+      player.y = 168;
       player.facing = 1;
     }
 
-    eg.notice = "YOU CHOSE THE RIGHT ROOM! MORNING HAS BROKEN — STEP OUTSIDE THROUGH THE FRONT DOOR!";
+    const deadCount = Array.isArray(eg.deadPlayers) ? eg.deadPlayers.length : 0;
+    if (eg.deadSpectator) {
+      eg.notice = eg.localDiedBySacrifice
+        ? `THE SACRIFICE CLAIMED YOUR LIFE AT THE TABLE — WATCHING ${eg.survivors.length} SURVIVOR${eg.survivors.length > 1 ? "S" : ""} ESCAPE!`
+        : `YOU DIED AT THE TABLE — WATCHING ${eg.survivors.length} SURVIVOR${eg.survivors.length > 1 ? "S" : ""} ESCAPE AT DAWN...`;
+    } else if (eg.localSavedByTraitor) {
+      eg.notice = "THE TRAITOR GUARANTEED YOUR ESCAPE! STEP OUTSIDE THROUGH THE SUNLIT FRONT DOOR!";
+    } else if (eg.localSavedBySacrifice) {
+      eg.notice = "ANOTHER GUEST SACRIFICED THEIR LIFE FOR YOU! STEP OUTSIDE TO THE CAR!";
+    } else if (deadCount > 0) {
+      eg.notice = `DAWN HAS BROKEN! ${deadCount} GUEST${deadCount > 1 ? "S" : ""} DID NOT MAKE IT — STEP OUTSIDE TO THE CAR!`;
+    } else {
+      eg.notice = "YOU CHOSE THE RIGHT ROOM! MORNING HAS BROKEN — STEP OUTSIDE THROUGH THE FRONT DOOR!";
+    }
     App.Audio.clockChime();
     if (App.Audio && App.Audio.startGoodEndBgm) App.Audio.startGoodEndBgm();
   }
 
-  function enterForestExitMap(matchState, player) {
+  function getActiveSurvivorCount(matchState) {
+    const eg = matchState && matchState.endgame;
+    if (!eg || !isMultiplayerMatch(matchState)) return 1;
+    const currentSeats = (App.Network && App.Network.getAllMatchSeats) ? App.Network.getAllMatchSeats() : [];
+    const connectedIds = new Set(currentSeats.map((s) => s.playerId));
+    const activeSurvs = (eg.survivors || []).filter((s) => connectedIds.has(s.playerId));
+    return Math.max(1, activeSurvs.length);
+  }
+
+  function getBoardedActiveCount(matchState) {
+    const eg = matchState && matchState.endgame;
+    if (!eg || !eg.boardedCarIds) return 0;
+    if (!isMultiplayerMatch(matchState)) return eg.localBoardedCar ? 1 : 0;
+    const currentSeats = (App.Network && App.Network.getAllMatchSeats) ? App.Network.getAllMatchSeats() : [];
+    const connectedIds = new Set(currentSeats.map((s) => s.playerId));
+    const survIds = new Set((eg.survivors || []).filter((s) => connectedIds.has(s.playerId)).map((s) => s.playerId));
+    let count = 0;
+    eg.boardedCarIds.forEach((pid) => {
+      if (survIds.has(pid)) count += 1;
+    });
+    return count;
+  }
+
+  function launchCarDriveNow(matchState, player, fromNetwork) {
+    const eg = matchState && matchState.endgame;
+    if (!eg || eg.stage === "WIN_CAR_DRIVE" || eg.stage === "WIN_CREDITS") return;
+
+    eg.stage = "WIN_CAR_DRIVE";
+    eg.carDriveTimer = 0;
+    if (player) player.moving = false;
+    eg.notice = "ALL SURVIVORS IN THE CAR — ESCAPING DUSKWOOD INN!";
+    if (!fromNetwork && isMultiplayerMatch(matchState)) {
+      App.Network.sendGameAction("MP_CAR_DRIVE_START", {});
+    }
+    if (App.Audio && App.Audio.carEngineStart) App.Audio.carEngineStart();
+  }
+
+  function checkAllSurvivorsBoarded(matchState, player) {
+    const eg = matchState && matchState.endgame;
+    if (!eg || eg.stage !== "WIN_FOREST") return;
+    const needed = getActiveSurvivorCount(matchState);
+    const boarded = getBoardedActiveCount(matchState);
+    if (boarded >= needed) {
+      launchCarDriveNow(matchState, player, false);
+    } else if (eg.localBoardedCar) {
+      eg.notice = `IN THE CAR (${boarded}/${needed} SURVIVORS) — WAITING FOR EVERYONE TO BOARD...`;
+    }
+  }
+
+  function enterForestExitMap(matchState, player, fromSpectatorFollow) {
     const eg = matchState && matchState.endgame;
     if (!eg || eg.stage !== "WIN_DAWN_CABIN") return false;
+    if (eg.deadSpectator && !fromSpectatorFollow) return false;
 
     eg.stage = "WIN_FOREST";
     eg.carX = 114;
     eg.carY = 136;
-    if (player) {
+    if (player && !eg.deadSpectator) {
       player.seated = false;
       player.crouching = false;
       player.lanternOn = false;
-      player.x = 104;
+      const seatOffset = ((matchState.localSeatIdx || 0) - 1) * 10;
+      player.x = Math.max(60, Math.min(148, 104 + (isMultiplayerMatch(matchState) ? seatOffset : 0)));
       player.y = 66;
       player.facing = 1;
     }
-    eg.notice = "WALK TO THE CAR AND PRESS [E] TO ESCAPE DUSKWOOD INN!";
+
+    if (!fromSpectatorFollow && isMultiplayerMatch(matchState)) {
+      App.Network.sendGameAction("MP_FOREST_ENTER", {
+        playerId: App.Network.getLocalPlayerId()
+      });
+    }
+
+    const needed = getActiveSurvivorCount(matchState);
+    eg.notice = eg.deadSpectator
+      ? `SPECTATING SURVIVORS OUTSIDE (${getBoardedActiveCount(matchState)}/${needed} IN CAR)...`
+      : needed > 1
+        ? `WALK TO THE CAR AND PRESS [E] — ALL ${needed} SURVIVORS MUST BOARD TO DRIVE!`
+        : "WALK TO THE CAR AND PRESS [E] TO ESCAPE DUSKWOOD INN!";
     App.Audio.doorTransition();
     return true;
   }
@@ -742,14 +1233,24 @@ window.Duskwood = window.Duskwood || {};
   function startCarEscapeDrive(matchState, player) {
     const eg = matchState && matchState.endgame;
     if (!eg || eg.stage !== "WIN_FOREST") return false;
+    if (eg.deadSpectator || eg.localBoardedCar) return false;
 
-    eg.stage = "WIN_CAR_DRIVE";
-    eg.carDriveTimer = 0;
-    if (player) {
-      player.moving = false;
+    if (!isMultiplayerMatch(matchState)) {
+      eg.localBoardedCar = true;
+      launchCarDriveNow(matchState, player, false);
+      return true;
     }
-    eg.notice = "ESCAPING DUSKWOOD INN...";
-    if (App.Audio && App.Audio.carEngineStart) App.Audio.carEngineStart();
+
+    // Multiplayer: board the car & wait until ALL surviving players are inside!
+    const localPid = App.Network.getLocalPlayerId();
+    eg.localBoardedCar = true;
+    eg.boardedCarIds = eg.boardedCarIds || new Set();
+    eg.boardedCarIds.add(localPid);
+    if (player) player.moving = false;
+
+    App.Network.sendGameAction("MP_CAR_BOARD", { playerId: localPid });
+    App.Audio.doorTransition();
+    checkAllSurvivorsBoarded(matchState, player);
     return true;
   }
 
@@ -759,8 +1260,21 @@ window.Duskwood = window.Duskwood || {};
     eg.stage = "WIN_CREDITS";
 
     const modal = document.getElementById("endgame-credits-modal");
+    const badgeEl = modal ? modal.querySelector(".eg-credits-badge") : null;
     const roomEl = document.getElementById("credits-exit-room");
     const turnsEl = document.getElementById("credits-turns-survived");
+
+    if (badgeEl) {
+      if (isMultiplayerMatch(matchState)) {
+        const sCnt = (eg.survivors && eg.survivors.length) || 0;
+        const dCnt = (eg.deadPlayers && eg.deadPlayers.length) || 0;
+        badgeEl.textContent = dCnt > 0
+          ? `PARTIAL ESCAPE • ${sCnt} SURVIVED, ${dCnt} LOST AT THE TABLE`
+          : `DAWN SURVIVED • ALL ${sCnt} PLAYERS ESCAPED!`;
+      } else {
+        badgeEl.textContent = "DAWN SURVIVED • YOU ESCAPED!";
+      }
+    }
     if (roomEl) {
       const trueObj = App.FieldBook && App.FieldBook.EXIT_ROOM_MAP
         ? App.FieldBook.EXIT_ROOM_MAP[matchState.sanctuaryRoomId]
@@ -888,7 +1402,7 @@ window.Duskwood = window.Duskwood || {};
       { y: carY + 8, draw: () => drawGetawayCar(ctx, carX, carY, timeSec, driving) }
     ];
 
-    if (!driving && player) {
+    if (!driving && player && !(eg && (eg.deadSpectator || eg.localBoardedCar))) {
       actors.push({
         y: player.y,
         draw: () => {
@@ -903,6 +1417,28 @@ window.Duskwood = window.Duskwood || {};
             crouching: player.crouching
           });
         }
+      });
+    }
+
+    // Also render all living Co-op teammates who are walking in the Morning Forest & haven't boarded the car yet!
+    if (!driving && isMultiplayerMatch(matchState) && App.Network && App.Network.getAllRemotePlayers) {
+      App.Network.getAllRemotePlayers().forEach((rp) => {
+        if (!rp.inForest || rp.inCar || rp.deadSpectator) return;
+        actors.push({
+          y: rp.y,
+          draw: () => {
+            const rCfg = Object.assign({}, rp.character, {
+              facing: rp.facing,
+              walking: rp.moving,
+              lantern: false
+            });
+            App.Character.drawInWorld(ctx, rp.x, rp.y, rCfg, timeSec, {
+              seated: false,
+              sprinting: rp.sprinting,
+              crouching: rp.crouching
+            });
+          }
+        });
       });
     }
 
@@ -938,7 +1474,18 @@ window.Duskwood = window.Duskwood || {};
   function getForestPrompt(matchState, player) {
     const eg = matchState && matchState.endgame;
     if (!eg || eg.stage !== "WIN_FOREST") return null;
+    if (eg.deadSpectator) return null;
+    if (eg.localBoardedCar) {
+      const b = getBoardedActiveCount(matchState);
+      const n = getActiveSurvivorCount(matchState);
+      return { type: "car_waiting", prompt: `IN CAR (${b}/${n}) — WAITING FOR SURVIVING TEAMMATES...` };
+    }
     if (Math.hypot(player.x - eg.carX, player.y - eg.carY) <= 34) {
+      if (isMultiplayerMatch(matchState)) {
+        const b = getBoardedActiveCount(matchState);
+        const n = getActiveSurvivorCount(matchState);
+        return { type: "escape_car", prompt: `[E] BOARD GETAWAY CAR (${b}/${n} SURVIVORS)` };
+      }
       return { type: "escape_car", prompt: "[E] ENTER CAR & ESCAPE DUSKWOOD INN!" };
     }
     return null;
@@ -995,6 +1542,19 @@ window.Duskwood = window.Duskwood || {};
         enterLoseCutscene(matchState);
       }
       return;
+    }
+
+    if (eg.stage === "PRE_MIXED_DARK") {
+      eg.preLoseTimer -= dt;
+      if (eg.preLoseTimer <= 0) {
+        enterDawnWinCabin(matchState, player);
+      }
+      return;
+    }
+
+    if (eg.stage === "WIN_FOREST" && isMultiplayerMatch(matchState) && eg.boardedCarIds && eg.boardedCarIds.size > 0) {
+      // Continuously verify in case a surviving teammate disconnected while others waited inside the car
+      checkAllSurvivorsBoarded(matchState, player);
     }
 
     if (eg.stage === "LOSE_CUTSCENE") {
@@ -1060,19 +1620,88 @@ window.Duskwood = window.Duskwood || {};
     }
     if (eg.stage === "WIN_DAWN_CABIN") {
       return {
-        title: "DAWN HAS BROKEN — YOU SURVIVED!",
-        sub: "STEP OUT THROUGH THE SUNLIT FRONT DOOR",
+        title: eg.deadSpectator ? "YOU DIED AT THE TABLE (SPECTATING)" : "DAWN HAS BROKEN — YOU SURVIVED!",
+        sub: eg.deadSpectator
+          ? "WATCHING SURVIVING TEAMMATES LEAVE THE CABIN..."
+          : "STEP OUT THROUGH THE SUNLIT FRONT DOOR",
         notice: eg.notice || ""
       };
     }
     if (eg.stage === "WIN_FOREST") {
+      const b = getBoardedActiveCount(matchState);
+      const n = getActiveSurvivorCount(matchState);
       return {
-        title: "MORNING FOREST — GETAWAY CAR",
-        sub: "WALK TO THE CAR AND PRESS [E] TO ESCAPE",
+        title: eg.deadSpectator ? "SPECTATING ESCAPE — MORNING FOREST" : "MORNING FOREST — GETAWAY CAR",
+        sub: isMultiplayerMatch(matchState)
+          ? (eg.localBoardedCar
+              ? `BOARDED (${b}/${n}) — CAR DEPARTS WHEN ALL SURVIVORS BOARD`
+              : eg.deadSpectator
+                ? `SURVIVORS IN CAR: ${b}/${n}`
+                : `BOARD THE CAR [E] — ${b}/${n} SURVIVORS INSIDE`)
+          : "WALK TO THE CAR AND PRESS [E] TO ESCAPE",
         notice: eg.notice || ""
       };
     }
     return null;
+  }
+
+  function handleNetworkMessage(action, payload, matchState, player) {
+    if (!matchState || !action) return;
+    const p = payload || {};
+
+    if (action === "MP_HARVESTER_LOSE") {
+      startHarvesterLoseCutscene(matchState, true);
+      if (matchState.endgame && Array.isArray(p.deadPlayers)) {
+        matchState.endgame.deadPlayers = p.deadPlayers;
+      }
+      return;
+    }
+
+    const eg = matchState.endgame;
+    if (!eg || !eg.active) return;
+
+    if (action === "MP_ENDGAME_CHOICE" && p.playerId) {
+      eg.mpChoiceMap = eg.mpChoiceMap || {};
+      eg.mpChoiceMap[p.playerId] = { roomKey: p.roomKey, roomId: p.roomId, roles: p.roles || null };
+      if (eg.stage === "JUDGMENT_SHAKE") {
+        recomputeGeneralVerdict(matchState, true);
+      }
+      return;
+    }
+
+    if (action === "MP_ENDGAME_JUDGMENT") {
+      eg.judgmentSyncedFromHost = true;
+      if (p.sacrificeRescuedId) eg.sacrificeRescuedId = p.sacrificeRescuedId;
+      if (Array.isArray(p.survivors)) eg.survivors = p.survivors;
+      if (Array.isArray(p.deadPlayers)) eg.deadPlayers = p.deadPlayers;
+      if (Array.isArray(p.waves) && eg.stage === "JUDGMENT_SHAKE" && eg.shatterWaveIdx === 0) {
+        eg.shatterWaves = p.waves;
+      }
+      applyLocalVerdictFields(eg, matchState);
+      return;
+    }
+
+    if (action === "MP_FOREST_ENTER") {
+      // Dead spectators automatically follow the first survivor outside into the Morning Forest!
+      if (eg.deadSpectator && eg.stage === "WIN_DAWN_CABIN") {
+        enterForestExitMap(matchState, player, true);
+      }
+      return;
+    }
+
+    if (action === "MP_CAR_BOARD" && p.playerId) {
+      eg.boardedCarIds = eg.boardedCarIds || new Set();
+      eg.boardedCarIds.add(p.playerId);
+      checkAllSurvivorsBoarded(matchState, player);
+      return;
+    }
+
+    if (action === "MP_CAR_DRIVE_START") {
+      if (eg.stage === "WIN_DAWN_CABIN") {
+        enterForestExitMap(matchState, player, true);
+      }
+      launchCarDriveNow(matchState, player, true);
+    }
   }
 
   function cleanup(matchState) {
@@ -1094,7 +1723,9 @@ window.Duskwood = window.Duskwood || {};
     startCarEscapeDrive,
     update,
     renderForestExitViewport,
+    renderDawnTableCorpses,
     renderGlassShardsOverlay,
+    handleNetworkMessage,
     collidesInForest,
     getForestPrompt,
     getHudSummary,
@@ -1102,6 +1733,8 @@ window.Duskwood = window.Duskwood || {};
     getGlobalFlickerMultiplier,
     isEndgameActive,
     isLockedInChosenRoom,
+    isLocalDeadSpectator,
+    isLocalInCar,
     canInspectTableMap,
     isDaylightWinMode,
     isInForestExit,

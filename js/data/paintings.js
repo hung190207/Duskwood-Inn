@@ -97,6 +97,33 @@ window.Duskwood = window.Duskwood || {};
     }
   };
 
+  // Official Corrupt Painting Clue local artworks (image/cp.jpg & image/cp_1.jpg) with artist credits
+  const CORRUPT_PAINTINGS = [
+    {
+      id: "corrupt_cp",
+      title: "RELATIONSHIP (关系)",
+      artist: "Relationship (关系), 2016 - Zhang Yunyao",
+      url: "image/cp.jpg",
+      note: "The portrait has warped into something deeply uncanny — a Corrupt Painting clue has manifested in this room.",
+      palette: ["#1c1714", "#3d332c", "#c8bca8"],
+      isCorrupt: true
+    },
+    {
+      id: "corrupt_cp_1",
+      title: "TRAGIC FORMS",
+      artist: "Tragic Forms Album - Ken Currie",
+      url: "image/cp_1.jpg",
+      note: "A haunting, distorted visage stares back from inside the frame — a Corrupt Painting clue has manifested in this room.",
+      palette: ["#181416", "#382c30", "#c4b6a8"],
+      isCorrupt: true
+    }
+  ];
+
+  function getCorruptVariant(variantIdx) {
+    const idx = Math.abs(Number(variantIdx) || 0) % CORRUPT_PAINTINGS.length;
+    return CORRUPT_PAINTINGS[idx];
+  }
+
   // Dedicated UNCANNY VALLEY classical oil-portrait generator (4 museum-style variants):
   // Pure psychological Uncanny Valley — NO blood, NO ghosts, NO gore, NO monster fangs!
   // Uses eerie subtle anatomical wrongness: overly wide-set/large glassy eyes with visible
@@ -340,7 +367,9 @@ window.Duskwood = window.Duskwood || {};
 
   App.PaintingsDB = {
     PAINTINGS,
+    CORRUPT_PAINTINGS,
     getById,
+    getCorruptVariant,
     buildFallbackDataUrl,
     buildUncannyPortraitDataUrl
   };

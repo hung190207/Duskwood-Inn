@@ -232,11 +232,13 @@ window.Duskwood = window.Duskwood || {};
     if (stateBadge) {
       stateBadge.textContent = inAttic
         ? "NO LANTERNS • RITUAL"
-        : player.seated
-          ? "SEATED AT TABLE"
-          : player.crouching
-            ? "CROUCHING (SILENT)"
-            : "EXPLORING CABIN";
+        : gameState.pendingPenaltyAnim
+          ? "TIME LOST — RETURN TO TABLE [E]"
+          : player.seated
+            ? "SEATED AT TABLE"
+            : player.crouching
+              ? "CROUCHING (SILENT)"
+              : "EXPLORING CABIN";
     }
     syncAtticHud();
     if (diffTag) {
@@ -431,22 +433,21 @@ window.Duskwood = window.Duskwood || {};
       : false;
 
     const origArt = App.PaintingsDB.getById(paintingId);
+    const corruptIdx = isCorrupted && App.Clues && App.Clues.getCorruptPaintingVariant
+      ? App.Clues.getCorruptPaintingVariant(roomId, gameState)
+      : 0;
     const art = isCorrupted
-      ? App.PaintingsDB.getById("corrupt_omen")
+      ? (App.PaintingsDB.getCorruptVariant
+          ? App.PaintingsDB.getCorruptVariant(corruptIdx)
+          : App.PaintingsDB.getById("corrupt_omen"))
       : origArt;
 
     const fallbackUrl = App.PaintingsDB.buildFallbackDataUrl(origArt, isCorrupted);
-    if (isCorrupted) {
-      // Immediately render our bespoke Uncanny corrupted portrait (zero broken-image risk!)
+    imgEl.onerror = () => {
       imgEl.onerror = null;
-      imgEl.src = App.PaintingsDB.buildUncannyPortraitDataUrl(origArt);
-    } else {
-      imgEl.onerror = () => {
-        imgEl.onerror = null;
-        imgEl.src = fallbackUrl;
-      };
-      imgEl.src = art.url;
-    }
+      imgEl.src = fallbackUrl;
+    };
+    imgEl.src = art.url || fallbackUrl;
     imgEl.alt = art.title;
 
     if (titleEl) titleEl.textContent = art.title;
@@ -699,7 +700,7 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
     if (App.Musical && App.Musical.isActive && App.Musical.isActive(gameState)) {
-      showDialogue("Musical Rooms is active! Gather 10 popcorns [F] and throw them into the box before the music stops!");
+      showDialogue("Musical Rooms is active! Throw 20 popcorns [F] into the box — when the music stops, hide in the glowing Red Room!");
       return;
     }
     if (App.Basement && App.Basement.isActive && App.Basement.isActive(gameState)) {
@@ -734,7 +735,9 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
     closeDialogue();
-    gameState.seatLabel = App.GameRoom.CHAIRS[player.chairId].label;
+    gameState.seatLabel = gameState.mode === "MULTIPLAYER"
+      ? `SEAT ${(gameState.localSeatIdx || 0) + 1}`
+      : App.GameRoom.CHAIRS[player.chairId].label;
     App.TableView.open(
       gameState,
       () => standUp(),
@@ -750,6 +753,7 @@ window.Duskwood = window.Duskwood || {};
       if (App.Audio.setToyTrainAttenuation) App.Audio.setToyTrainAttenuation(0);
       if (App.Audio.setMonkeySfxAttenuation) App.Audio.setMonkeySfxAttenuation(0);
       if (App.Audio.setChainsawAttenuation) App.Audio.setChainsawAttenuation(0);
+      if (App.Audio.setBalloonsSfxAttenuation) App.Audio.setBalloonsSfxAttenuation(0);
     }
     updateSpatialClockAudio();
     if (paused) App.Audio.open();
@@ -824,6 +828,9 @@ window.Duskwood = window.Duskwood || {};
     }
     if (App.Endgame && App.Endgame.isInForestExit(gameState)) {
       return App.Endgame.getForestPrompt(gameState, player);
+    }
+    if (App.Endgame && App.Endgame.isLocalDeadSpectator && App.Endgame.isLocalDeadSpectator(gameState)) {
+      return null;
     }
     if (App.Endgame && App.Endgame.isDaylightWinMode(gameState) && isInDiningRoom()) {
       const sp = DOOR_PORTALS.find((p) => p.dir === "S");
@@ -941,20 +948,32 @@ window.Duskwood = window.Duskwood || {};
       const egActive = Boolean(App.Endgame && App.Endgame.isEndgameActive(gameState));
       const egCanMap = Boolean(App.Endgame && App.Endgame.canInspectTableMap && App.Endgame.canInspectTableMap(gameState));
       if (!egActive || egCanMap) {
+        const isMp = gameState.mode === "MULTIPLAYER";
+        const myChairId = typeof gameState.localChairId === "number" ? gameState.localChairId : 0;
+        const mySeatNum = (gameState.localSeatIdx || 0) + 1;
         for (const chair of App.GameRoom.CHAIRS) {
+          const dist = Math.hypot(player.x - chair.x, player.y - chair.y);
+          if (dist > 22) continue;
+
+          if (isMp && chair.id !== myChairId) {
+            return {
+              type: "chair_locked",
+              chair,
+              prompt: `FIXED SEAT — GO TO YOUR CHAIR (SEAT ${mySeatNum})`
+            };
+          }
           if (App.Network && App.Network.isMultiplayerMatch() && App.Network.isChairOccupiedByRemote(chair.id)) {
             continue;
           }
-          const dist = Math.hypot(player.x - chair.x, player.y - chair.y);
-          if (dist <= 22) {
-            return {
-              type: "chair",
-              chair,
-              prompt: egCanMap
-                ? `[E] CHECK ROOM MAP (${chair.label})`
+          return {
+            type: "chair",
+            chair,
+            prompt: egCanMap
+              ? `[E] CHECK ROOM MAP (SEAT ${mySeatNum})`
+              : isMp
+                ? `[E] SIT AT YOUR CHAIR (SEAT ${mySeatNum})`
                 : `[E] SIT AT TABLE (${chair.label})`
-            };
-          }
+          };
         }
       }
 
@@ -1024,7 +1043,20 @@ window.Duskwood = window.Duskwood || {};
       player.cornerLock = null;
       App.Audio.click();
     } else if (target.type === "neighbor_door") {
-      openNeighborModal();
+      const nb = gameState.neighborEncounter;
+      if (
+        gameState.mode === "MULTIPLAYER" &&
+        nb &&
+        typeof nb.ownerSeatId === "number" &&
+        nb.ownerSeatId !== (gameState.localSeatIdx || 0)
+      ) {
+        const ownerName = (App.Network && App.Network.getSeatName)
+          ? App.Network.getSeatName(nb.ownerSeatId)
+          : `SEAT ${nb.ownerSeatId + 1}`;
+        showDialogue(`Only ${ownerName} (who played The Neighbor) may answer and pick the bargain.`);
+      } else {
+        openNeighborModal();
+      }
     } else if (target.type === "attic_ladder_up") {
       if (App.Attic && App.Attic.enterAttic(gameState, player)) {
         roomTransitionAlpha = 0.94;
@@ -1064,6 +1096,8 @@ window.Duskwood = window.Duskwood || {};
       }
     } else if (target.type === "portal") {
       enterMatchedRoom(target.dir);
+    } else if (target.type === "chair_locked") {
+      showDialogue(`Every guest has a fixed seat! Walk to your assigned chair (SEAT ${(gameState.localSeatIdx || 0) + 1}).`);
     } else if (target.type === "chair") {
       if (App.Events && App.Events.isCuttingCornersActive(gameState)) return;
       sitAtChair(target.chair, true);
@@ -1082,6 +1116,9 @@ window.Duskwood = window.Duskwood || {};
         gameState.roomLightStates = gameState.roomLightStates || { "0,0": true };
         const isCurrentlyOn = gameState.roomLightStates[rk] !== false;
         gameState.roomLightStates[rk] = !isCurrentlyOn;
+        if (gameState.mode === "MULTIPLAYER" && App.Network && App.Network.isMultiplayerMatch()) {
+          App.Network.sendGameAction("MP_LIGHT_SWITCH", { rk, isOn: gameState.roomLightStates[rk] });
+        }
         App.Audio.lightSwitch();
         if (App.Stalkers && App.Stalkers.onLightSwitchToggled) {
           App.Stalkers.onLightSwitchToggled(gameState);
@@ -1171,7 +1208,7 @@ window.Duskwood = window.Duskwood || {};
       App.TableView.isOpen() ||
       App.GameIntro.isBlockingInput() ||
       (App.Jumpscare && App.Jumpscare.isActive()) ||
-      (App.Endgame && App.Endgame.isCutsceneBlocking(gameState)) ||
+      (App.Endgame && (App.Endgame.isCutsceneBlocking(gameState) || (App.Endgame.isLocalDeadSpectator && App.Endgame.isLocalDeadSpectator(gameState)) || (App.Endgame.isLocalInCar && App.Endgame.isLocalInCar(gameState)))) ||
       (App.Basement && (App.Basement.isSlideCutscene(gameState) || App.Basement.isRepairModalOpen(gameState)))
     ) {
       player.moving = false;
@@ -1287,6 +1324,23 @@ window.Duskwood = window.Duskwood || {};
     }
 
     if (App.TableView.isOpen()) {
+      if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
+        App.Network.updateRemoteInterpolation(dt);
+        App.Network.sendPlayerState({
+          x: player.x,
+          y: player.y,
+          facing: player.facing,
+          roomX: gameState.currentRoomCoord.x,
+          roomY: gameState.currentRoomCoord.y,
+          seated: player.seated,
+          chairId: player.chairId,
+          moving: false,
+          sprinting: false,
+          crouching: false,
+          lanternOn: player.lanternOn,
+          facingCorner: false
+        });
+      }
       App.TableView.renderFrame(timeSec, dt);
       if (App.Events && App.Events.update && !paused) {
         App.Events.update(dt, gameState, player, getCurrentRoomObj());
@@ -1295,6 +1349,10 @@ window.Duskwood = window.Duskwood || {};
         App.Endgame.update(dt, gameState, player);
       }
       return;
+    }
+
+    if (App.TableView && App.TableView.updateBackground && !paused) {
+      App.TableView.updateBackground(dt);
     }
 
     // Live-render Pixel-Art The Neighbor canvas (cupped hands -> open spreading hands offering 3 options!) while modal is open!
@@ -1308,10 +1366,11 @@ window.Duskwood = window.Duskwood || {};
       App.Endgame.renderNeighborPixelCanvas(document.getElementById("neighbor-fp-canvas"), timeSec, nbHandsOpenProgress);
     }
 
-    // Auto-trigger Midnight 12:00 AM Endgame if clock reaches 720 from any source (e.g. death +1h)!
+    // Auto-trigger Midnight 12:00 AM Endgame if clock reaches 720 (wait if a Death Penalty table glide is pending so player watches the pieces advance to XII first!)
     if (
       gameState.clockMinutes >= 720 &&
       gameState.tableIntroDone &&
+      !gameState.pendingPenaltyAnim &&
       App.Endgame &&
       !App.Endgame.isEndgameActive(gameState) &&
       !(App.Events && App.Events.isAnyEventActive(gameState))
@@ -1406,6 +1465,8 @@ window.Duskwood = window.Duskwood || {};
     worldCtx.drawImage(roomBuffer, ox, oy, drawW, drawH);
 
     // Sync local position/pose & interpolate remote Co-op teammates
+    const localDeadSpec = Boolean(App.Endgame && App.Endgame.isLocalDeadSpectator && App.Endgame.isLocalDeadSpectator(gameState));
+    const localInCar = Boolean(App.Endgame && App.Endgame.isLocalInCar && App.Endgame.isLocalInCar(gameState));
     if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
       App.Network.updateRemoteInterpolation(dt);
       App.Network.sendPlayerState({
@@ -1420,19 +1481,32 @@ window.Duskwood = window.Duskwood || {};
         sprinting: player.sprinting,
         crouching: player.crouching,
         lanternOn: player.lanternOn,
-        facingCorner: player.facingCorner
+        facingCorner: player.facingCorner,
+        inForest: inForestNow,
+        inCar: localInCar,
+        deadSpectator: localDeadSpec
       });
     }
 
     // Draw crisp high-res player name above local & remote Co-op characters (hide during car/slide cutscenes!)
     if (!(App.Endgame && App.Endgame.isCutsceneBlocking(gameState)) && !(App.Basement && App.Basement.isSlideCutscene(gameState))) {
       const nameLight = (inAtticNow || inBasementNow || inForestNow) ? 0.95 : lightLevel;
-      if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && !inAtticNow && !inBasementNow && !inForestNow) {
-        App.Network.getRemotePlayersInRoom(gameState.currentRoomCoord.x, gameState.currentRoomCoord.y).forEach((rp) => {
-          drawNameplateAt(rp.x, rp.y, rp.name, ox, oy, scale, nameLight, camOffX, camOffY, true);
-        });
+      if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && !inAtticNow && !inBasementNow) {
+        if (inForestNow && App.Network.getAllRemotePlayers) {
+          App.Network.getAllRemotePlayers().forEach((rp) => {
+            if (!rp.inForest || rp.inCar || rp.deadSpectator) return;
+            drawNameplateAt(rp.x, rp.y, rp.name, ox, oy, scale, nameLight, camOffX, camOffY, true);
+          });
+        } else if (!inForestNow) {
+          App.Network.getRemotePlayersInRoom(gameState.currentRoomCoord.x, gameState.currentRoomCoord.y).forEach((rp) => {
+            if (rp.deadSpectator || rp.inForest || rp.inCar) return;
+            drawNameplateAt(rp.x, rp.y, rp.name, ox, oy, scale, nameLight, camOffX, camOffY, true);
+          });
+        }
       }
-      drawPlayerNameplate(ox, oy, scale, nameLight, camOffX, camOffY);
+      if (!localDeadSpec && !localInCar) {
+        drawPlayerNameplate(ox, oy, scale, nameLight, camOffX, camOffY);
+      }
     }
 
     // Quick Stardew-style black blink transition when crossing doorways between rooms
@@ -1462,8 +1536,12 @@ window.Duskwood = window.Duskwood || {};
       gameState.playerSeats = activeSeats.length ? activeSeats : [0];
     }
 
-    const chairIdx = Math.max(0, Math.min(App.GameRoom.CHAIRS.length - 1, gameState.localSeatIdx));
-    const startChair = App.GameRoom.CHAIRS[chairIdx];
+    const chairIdx = (gameState.mode === "MULTIPLAYER" && App.Network && App.Network.getChairIdForSeat)
+      ? App.Network.getChairIdForSeat(gameState.localSeatIdx, gameState.playerSeats)
+      : Math.max(0, Math.min(App.GameRoom.CHAIRS.length - 1, gameState.localSeatIdx));
+    const startChair = App.GameRoom.CHAIRS[chairIdx] || App.GameRoom.CHAIRS[0];
+    gameState.localChairId = startChair.id;
+    gameState.seatLabel = `SEAT ${(gameState.localSeatIdx || 0) + 1}`;
     player.seated = true;
     player.chairId = startChair.id;
     player.facingCorner = false;
@@ -1563,6 +1641,7 @@ window.Duskwood = window.Duskwood || {};
     if (App.Audio.stopEventDraw) App.Audio.stopEventDraw();
     if (App.Audio.stopTypingSfx) App.Audio.stopTypingSfx();
     if (App.Audio.stopAtticGhostLoop) App.Audio.stopAtticGhostLoop();
+    if (App.Audio.stopBalloonsSfxLoop) App.Audio.stopBalloonsSfxLoop();
     if (App.Audio.stopToyTrainLoop) App.Audio.stopToyTrainLoop();
     if (App.Events && App.Events.hideSmudgeBanner) App.Events.hideSmudgeBanner();
     if (App.Stalkers && App.Stalkers.cleanup) App.Stalkers.cleanup(gameState);
@@ -1845,6 +1924,46 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.FieldBook) App.FieldBook.init();
     if (App.TableView) App.TableView.init();
+
+    if (App.Network && App.Network.on) {
+      App.Network.on("gameMessage", (msg) => {
+        if (!active || !msg || !msg.action) return;
+        const p = msg.payload || {};
+        if (msg.action === "MP_LIGHT_SWITCH" && p.rk) {
+          gameState.roomLightStates = gameState.roomLightStates || { "0,0": true };
+          gameState.roomLightStates[p.rk] = Boolean(p.isOn);
+          App.Audio.lightSwitch();
+          if (App.Stalkers && App.Stalkers.onLightSwitchToggled) {
+            App.Stalkers.onLightSwitchToggled(gameState);
+          }
+          syncHud();
+          return;
+        }
+        if (msg.action.startsWith("MP_MUSICAL_")) {
+          if (App.Musical && App.Musical.handleNetworkMessage) {
+            App.Musical.handleNetworkMessage(msg.action, p, gameState);
+            syncHud();
+          }
+          return;
+        }
+        if (
+          msg.action.startsWith("MP_ENDGAME_") ||
+          msg.action.startsWith("MP_CAR_") ||
+          msg.action.startsWith("MP_FOREST_") ||
+          msg.action === "MP_HARVESTER_LOSE"
+        ) {
+          if (App.Endgame && App.Endgame.handleNetworkMessage) {
+            App.Endgame.handleNetworkMessage(msg.action, p, gameState, player);
+            syncHud();
+          }
+          return;
+        }
+        if (App.TableView && App.TableView.handleNetworkMessage) {
+          App.TableView.handleNetworkMessage(msg.action, p, msg.seatIdx);
+        }
+      });
+    }
+
     bindEvents();
   }
 
@@ -1878,6 +1997,10 @@ window.Duskwood = window.Duskwood || {};
     startBasementEvent,
     triggerMidnightEndgame,
     renderFrame,
+    getLocalSeatedInfo: () => ({
+      seated: Boolean(player.seated),
+      roomCoord: gameState.currentRoomCoord || { x: 0, y: 0 }
+    }),
     isActive: () => active
   };
 })(window.Duskwood);

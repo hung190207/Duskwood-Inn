@@ -869,26 +869,59 @@ window.Duskwood = window.Duskwood || {};
   // Centralized Death Time Penalty:
   // - Singleplayer: +60 minutes (+1 HOUR) to BOTH Player piece AND Harvester piece!
   // - Multiplayer : +30 minutes per dead player to BOTH Player piece AND Harvester piece!
-  function applyDeathTimePenalty(matchState, deadPlayersCount) {
+  function applyDeathTimePenalty(matchState, deadPlayersCount, fromNetwork) {
     if (!matchState) return { penaltyMin: 60, label: "+1 HOUR" };
     const isMp = matchState.mode === "MULTIPLAYER";
     const count = Math.max(1, deadPlayersCount || 1);
     const penaltyMin = isMp ? (30 * count) : 60;
 
     const prevClock = matchState.clockMinutes || 0;
+    const prevHarv = matchState.harvesterMinutes || 0;
     const actualAdvance = Math.min(720 - prevClock, penaltyMin);
     matchState.clockMinutes = Math.min(720, prevClock + penaltyMin);
 
     if (matchState.harvesterSpawned) {
       matchState.harvesterMinutes = Math.min(
         matchState.clockMinutes,
-        (matchState.harvesterMinutes || 0) + actualAdvance
+        prevHarv + actualAdvance
       );
+    }
+
+    // Queue an animated Pawn-Glide Penalty Scene that plays on the round table the moment players sit back down!
+    if (actualAdvance > 0) {
+      if (!matchState.pendingPenaltyAnim) {
+        matchState.pendingPenaltyAnim = {
+          fromPlayerMin: prevClock,
+          toPlayerMin: matchState.clockMinutes,
+          fromHarvMin: prevHarv,
+          toHarvMin: matchState.harvesterMinutes || 0,
+          harvesterSpawned: Boolean(matchState.harvesterSpawned),
+          totalPenaltyMin: actualAdvance
+        };
+      } else {
+        matchState.pendingPenaltyAnim.toPlayerMin = matchState.clockMinutes;
+        matchState.pendingPenaltyAnim.toHarvMin = matchState.harvesterMinutes || 0;
+        matchState.pendingPenaltyAnim.harvesterSpawned = Boolean(matchState.harvesterSpawned);
+        matchState.pendingPenaltyAnim.totalPenaltyMin += actualAdvance;
+      }
     }
 
     const label = penaltyMin >= 60 && penaltyMin % 60 === 0
       ? `+${penaltyMin / 60} HOUR${penaltyMin > 60 ? "S" : ""}`
       : `+${penaltyMin} MIN`;
+
+    if (isMp && !fromNetwork && App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
+      App.Network.sendGameAction("MP_DEATH_PENALTY", {
+        deadPlayersCount: count,
+        penaltyMin,
+        actualAdvance,
+        prevClock,
+        prevHarv,
+        clockMinutes: matchState.clockMinutes,
+        harvesterMinutes: matchState.harvesterMinutes,
+        harvesterSpawned: Boolean(matchState.harvesterSpawned)
+      });
+    }
     return { penaltyMin, label };
   }
 

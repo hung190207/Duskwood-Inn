@@ -622,9 +622,13 @@ window.Duskwood = window.Duskwood || {};
       noticeTimer: 5.5
     };
 
-    // Start clown_laugh.mp3 looping 0.0s -> 9.0s from event start until event end!
+    // Start clown_laugh.mp3 + spatial balloons_sfx.mp3 proximity loop (audible across adjacent rooms!)
     if (App.Audio && App.Audio.playClownLaughLoop) {
       App.Audio.playClownLaughLoop();
+    }
+    if (App.Audio && App.Audio.startBalloonsSfxLoop) {
+      App.Audio.setBalloonsSfxAttenuation(0);
+      App.Audio.startBalloonsSfxLoop();
     }
 
     if (App.Events && App.Events.showSmudgeBanner) {
@@ -686,6 +690,7 @@ window.Duskwood = window.Duskwood || {};
     // GOLDEN BALLOON POPPED -> PLAYER WINS!
     if (b.isGold) {
       if (App.Audio && App.Audio.stopClownLaughLoop) App.Audio.stopClownLaughLoop();
+      if (App.Audio && App.Audio.stopBalloonsSfxLoop) App.Audio.stopBalloonsSfxLoop();
       restoreRoomLights(matchState, rb.savedLights);
       rb.active = false;
       matchState.redBalloonsEvent = null;
@@ -742,6 +747,7 @@ window.Duskwood = window.Duskwood || {};
     if (!rb) return;
 
     if (App.Audio && App.Audio.stopClownLaughLoop) App.Audio.stopClownLaughLoop();
+    if (App.Audio && App.Audio.stopBalloonsSfxLoop) App.Audio.stopBalloonsSfxLoop();
 
     restoreRoomLights(matchState, rb.savedLights);
     rb.active = false;
@@ -794,6 +800,35 @@ window.Duskwood = window.Duskwood || {};
     });
 
     const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+
+    // Spatial distance attenuation for audio/balloons_sfx.mp3:
+    // Computes global pixel distance across ALL built rooms so players hear balloons even from adjacent rooms!
+    if (App.Audio && App.Audio.setBalloonsSfxAttenuation) {
+      const ROOM_SZ = 208;
+      const pgx = (matchState.currentRoomCoord.x || 0) * ROOM_SZ + player.x;
+      const pgy = (matchState.currentRoomCoord.y || 0) * ROOM_SZ + player.y;
+      let minDist = Infinity;
+
+      for (const b of rb.balloons) {
+        if (b.popped) continue;
+        const rObj = matchState.roomMap && matchState.roomMap[b.roomKey];
+        if (!rObj) continue;
+        const bgx = rObj.x * ROOM_SZ + b.x;
+        const bgy = rObj.y * ROOM_SZ + b.y;
+        const d = Math.hypot(pgx - bgx, pgy - bgy);
+        if (d < minDist) minDist = d;
+      }
+
+      if (minDist < Infinity) {
+        const minAud = 24;
+        const maxAud = 385; // ~1.85 rooms -> clearly audible in same room AND adjacent rooms when nearby!
+        const t = Math.max(0, Math.min(1, (minDist - minAud) / (maxAud - minAud)));
+        const att = Math.pow(1 - t, 1.55);
+        App.Audio.setBalloonsSfxAttenuation(att);
+      } else {
+        App.Audio.setBalloonsSfxAttenuation(0);
+      }
+    }
 
     // Grace period at event start so player can hit [C] to Crouch
     if (rb.crouchGraceTimer > 0) {
@@ -979,20 +1014,22 @@ window.Duskwood = window.Duskwood || {};
 
   // Colorful Wooden Toy Train (modeled directly after image_98e60c.png!)
   // Shows Engine (blue hood, yellow cab, red roof, red wheels) + Cargo Car displaying needed shape!
-  function drawToyTrainSprite(ctx, train, reqShapeId, placedShapes, timeSec) {
+  function drawToyTrainSprite(ctx, train, reqShapeId, placedShapes, timeSec, isStaticProp) {
     const cx = Math.round(train.x);
     const cy = Math.round(train.y);
-    const chugBob = Math.sin(timeSec * 12) > 0 ? 0 : -1;
+    const chugBob = isStaticProp ? 0 : (Math.sin(timeSec * 12) > 0 ? 0 : -1);
     const dir = train.facing === 1 ? 1 : -1; // Default sprite faces left (-1); flip when heading right (+1)
 
     ctx.save();
-    // Little animated white pixel steam puffs rising from the wooden engine chimney!
-    for (let p = 0; p < 3; p++) {
-      const cyc = ((timeSec * 2.2 + p * 0.33) % 1);
-      const puffX = cx + (dir > 0 ? 17 : -17) - dir * Math.round(cyc * 9);
-      const puffY = cy - 13 - Math.round(cyc * 12);
-      ctx.fillStyle = `rgba(245, 248, 255, ${(0.65 * (1 - cyc)).toFixed(2)})`;
-      ctx.fillRect(puffX, puffY, cyc < 0.5 ? 2 : 3, 2);
+    // Little animated white pixel steam puffs rising from the wooden engine chimney (only while running!)
+    if (!isStaticProp) {
+      for (let p = 0; p < 3; p++) {
+        const cyc = ((timeSec * 2.2 + p * 0.33) % 1);
+        const puffX = cx + (dir > 0 ? 17 : -17) - dir * Math.round(cyc * 9);
+        const puffY = cy - 13 - Math.round(cyc * 12);
+        ctx.fillStyle = `rgba(245, 248, 255, ${(0.65 * (1 - cyc)).toFixed(2)})`;
+        ctx.fillRect(puffX, puffY, cyc < 0.5 ? 2 : 3, 2);
+      }
     }
     if (dir > 0) {
       ctx.translate(cx * 2, 0);
@@ -1225,11 +1262,43 @@ window.Duskwood = window.Duskwood || {};
     App.Audio.setToyTrainAttenuation(attenuation);
   }
 
+  function savePersistentFeelingSmallProps(matchState, fs) {
+    if (!matchState || !fs) return;
+    matchState.persistentEventProps = matchState.persistentEventProps || {};
+    const remainingShapes = (fs.shapes || [])
+      .filter((s) => !s.delivered && !s.collected)
+      .map((s) => ({ roomKey: s.roomKey, x: s.x, y: s.y, shapeId: s.shapeId }));
+    if (fs.heldShape && matchState.currentRoomCoord) {
+      remainingShapes.push({
+        roomKey: `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`,
+        x: 104,
+        y: 132,
+        shapeId: fs.heldShape.shapeId
+      });
+    }
+    matchState.persistentEventProps.feelingSmall = {
+      train: fs.train
+        ? {
+            spawned: Boolean(fs.train.spawned),
+            roomKey: fs.train.roomKey || "0,0",
+            x: fs.train.x,
+            y: fs.train.y,
+            facing: fs.train.facing || 1
+          }
+        : null,
+      placedShapes: (fs.placedShapes || []).slice(),
+      shapes: remainingShapes
+    };
+  }
+
   function triggerFeelingSmallDeath(matchState) {
     const fs = matchState && matchState.feelingSmallEvent;
     if (!fs) return;
 
     if (App.Audio && App.Audio.stopToyTrainLoop) App.Audio.stopToyTrainLoop();
+
+    // Keep the Toy Train (with stacked shapes) & remaining wooden shape blocks in the cabin!
+    savePersistentFeelingSmallProps(matchState, fs);
 
     restoreRoomLights(matchState, fs.savedLights);
     fs.active = false;
@@ -1318,8 +1387,9 @@ window.Duskwood = window.Duskwood || {};
       if (App.Audio && App.Audio.shapeInsert) App.Audio.shapeInsert(won);
 
       if (won) {
-        // PLAYER WINS FEELING SMALL?!
+        // PLAYER WINS FEELING SMALL?! — Keep parked Toy Train (full 4 stacked shapes!) & leftover blocks!
         if (App.Audio && App.Audio.stopToyTrainLoop) App.Audio.stopToyTrainLoop();
+        savePersistentFeelingSmallProps(matchState, fs);
         restoreRoomLights(matchState, fs.savedLights);
         fs.active = false;
         matchState.feelingSmallEvent = null;
@@ -1529,6 +1599,28 @@ window.Duskwood = window.Duskwood || {};
           }
         });
       });
+    } else {
+      // Persistent Toy Train & scattered wooden shape blocks left behind after Feeling Small? ends!
+      const pfs = matchState && matchState.persistentEventProps && matchState.persistentEventProps.feelingSmall;
+      if (pfs) {
+        if (pfs.train && pfs.train.spawned && pfs.train.roomKey === roomKey) {
+          list.push({
+            y: pfs.train.y,
+            draw: () => drawToyTrainSprite(ctx, pfs.train, null, pfs.placedShapes, timeSec, true)
+          });
+        }
+        (pfs.shapes || []).forEach((sh) => {
+          if (sh.roomKey !== roomKey) return;
+          list.push({
+            y: sh.y,
+            draw: () => {
+              ctx.fillStyle = "rgba(0,0,0,0.40)";
+              ctx.fillRect(Math.round(sh.x - 4), Math.round(sh.y + 2), 8, 3);
+              drawShapeBlock(ctx, sh.x, sh.y - 1, sh.shapeId, 1);
+            }
+          });
+        });
+      }
     }
 
     return list;
@@ -1745,6 +1837,7 @@ window.Duskwood = window.Duskwood || {};
 
   function cleanup(matchState) {
     if (App.Audio && App.Audio.stopClownLaughLoop) App.Audio.stopClownLaughLoop();
+    if (App.Audio && App.Audio.stopBalloonsSfxLoop) App.Audio.stopBalloonsSfxLoop();
     if (App.Audio && App.Audio.stopToyTrainLoop) App.Audio.stopToyTrainLoop();
     if (matchState) {
       matchState.tallManEvent = null;

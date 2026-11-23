@@ -156,7 +156,7 @@ window.Duskwood = window.Duskwood || {};
   }
 
   // ==================== 1. PIXEL-ART SPRITES (DEMON STATUE, ARMOR KNIGHT, DESTINATION) ====================
-  function drawDemonStatueSprite(ctx, x, y, facingDir, timeSec, canAdvance, activated) {
+  function drawDemonStatueSprite(ctx, x, y, facingDir, timeSec, canAdvance, activated, isDormantProp) {
     const pulse = 0.65 + Math.sin(timeSec * 5.0) * 0.35;
     sctx.clearRect(0, 0, 24, 32);
 
@@ -204,30 +204,32 @@ window.Duskwood = window.Duskwood || {};
     }
 
     ctx.save();
-    // Glowing directional floor arrow pointing strictly along `facingDir`!
-    const arrowCol = !activated ? `rgba(180, 190, 205, ${(0.45 * pulse).toFixed(2)})` : canAdvance ? `rgba(82, 245, 134, ${(0.75 * pulse).toFixed(2)})` : `rgba(255, 140, 82, ${(0.68 * pulse).toFixed(2)})`;
-    const vx = facingDir === "E" ? 1 : facingDir === "W" ? -1 : 0;
-    const vy = facingDir === "S" ? 1 : facingDir === "N" ? -1 : 0;
-    const ax0 = Math.round(x + vx * 11);
-    const ay0 = Math.round(y - 2 + vy * 10);
-    const ax1 = Math.round(x + vx * 23);
-    const ay1 = Math.round(y - 2 + vy * 22);
+    // Glowing directional floor arrow pointing strictly along `facingDir` (hidden once statue is a dormant prop!)
+    if (!isDormantProp) {
+      const arrowCol = !activated ? `rgba(180, 190, 205, ${(0.45 * pulse).toFixed(2)})` : canAdvance ? `rgba(82, 245, 134, ${(0.75 * pulse).toFixed(2)})` : `rgba(255, 140, 82, ${(0.68 * pulse).toFixed(2)})`;
+      const vx = facingDir === "E" ? 1 : facingDir === "W" ? -1 : 0;
+      const vy = facingDir === "S" ? 1 : facingDir === "N" ? -1 : 0;
+      const ax0 = Math.round(x + vx * 11);
+      const ay0 = Math.round(y - 2 + vy * 10);
+      const ax1 = Math.round(x + vx * 23);
+      const ay1 = Math.round(y - 2 + vy * 22);
 
-    ctx.strokeStyle = arrowCol;
-    ctx.lineWidth = 2.2;
-    ctx.beginPath();
-    ctx.moveTo(ax0, ay0);
-    ctx.lineTo(ax1, ay1);
-    ctx.stroke();
+      ctx.strokeStyle = arrowCol;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(ax0, ay0);
+      ctx.lineTo(ax1, ay1);
+      ctx.stroke();
 
-    // Arrowhead triangle
-    ctx.fillStyle = arrowCol;
-    ctx.beginPath();
-    ctx.moveTo(ax1 + vx * 4, ay1 + vy * 4);
-    ctx.lineTo(ax1 - vx * 2 - vy * 4, ay1 - vy * 2 + vx * 4);
-    ctx.lineTo(ax1 - vx * 2 + vy * 4, ay1 - vy * 2 - vx * 4);
-    ctx.closePath();
-    ctx.fill();
+      // Arrowhead triangle
+      ctx.fillStyle = arrowCol;
+      ctx.beginPath();
+      ctx.moveTo(ax1 + vx * 4, ay1 + vy * 4);
+      ctx.lineTo(ax1 - vx * 2 - vy * 4, ay1 - vy * 2 + vx * 4);
+      ctx.lineTo(ax1 - vx * 2 + vy * 4, ay1 - vy * 2 - vx * 4);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     // Floor contact shadow
     ctx.fillStyle = "rgba(0, 0, 0, 0.52)";
@@ -496,6 +498,23 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
+  function savePersistentKnightStatue(matchState, kn, reachedDest) {
+    if (!matchState || !kn || !kn.statue) return;
+    matchState.persistentEventProps = matchState.persistentEventProps || {};
+    const finalRoomKey = reachedDest ? kn.destRoomKey : kn.statue.roomKey;
+    const finalX = reachedDest && kn.destPos ? kn.destPos.x : kn.statue.x;
+    const finalY = reachedDest && kn.destPos ? kn.destPos.y : kn.statue.y;
+    matchState.persistentEventProps.knightStatue = {
+      roomKey: finalRoomKey,
+      x: finalX,
+      y: finalY,
+      facingDir: kn.statue.facingDir || "S",
+      destRoomKey: kn.destRoomKey,
+      destPos: kn.destPos ? { x: kn.destPos.x, y: kn.destPos.y } : { x: finalX, y: finalY },
+      won: Boolean(reachedDest)
+    };
+  }
+
   function triggerKnightWin(matchState) {
     const kn = matchState && matchState.knightEvent;
     if (!kn) return;
@@ -503,6 +522,9 @@ window.Duskwood = window.Duskwood || {};
     closeTableGlanceModal(true);
     if (App.Audio && App.Audio.stopKnightFootstep) App.Audio.stopKnightFootstep();
     if (App.Audio && App.Audio.stopPawnMove) App.Audio.stopPawnMove();
+
+    // Preserve the Demon Statue standing permanently at the Destination!
+    savePersistentKnightStatue(matchState, kn, true);
 
     restoreRoomLights(matchState, kn.savedLights);
     kn.active = false;
@@ -527,6 +549,9 @@ window.Duskwood = window.Duskwood || {};
     closeTableGlanceModal(true);
     if (App.Audio && App.Audio.stopKnightFootstep) App.Audio.stopKnightFootstep();
     if (App.Audio && App.Audio.stopPawnMove) App.Audio.stopPawnMove();
+
+    // Preserve the Demon Statue where it stood when the event ended!
+    savePersistentKnightStatue(matchState, kn, false);
 
     restoreRoomLights(matchState, kn.savedLights);
     kn.active = false;
@@ -711,8 +736,26 @@ window.Duskwood = window.Duskwood || {};
   // ==================== 4. ROOM RENDERABLES, HIGHLIGHTS & PROMPTS ====================
   function getRoomRenderables(ctx, roomKey, timeSec, matchState) {
     const kn = matchState && matchState.knightEvent;
-    if (!kn || !kn.active) return [];
     const list = [];
+
+    // Render persistent Demon Statue & Destination rune even after The Knight event ends!
+    if (!kn || !kn.active) {
+      const ps = matchState && matchState.persistentEventProps && matchState.persistentEventProps.knightStatue;
+      if (!ps) return list;
+      if (ps.destRoomKey === roomKey && ps.destPos) {
+        list.push({
+          y: ps.destPos.y - 30,
+          draw: () => drawDestinationMarker(ctx, ps.destPos.x, ps.destPos.y, timeSec)
+        });
+      }
+      if (ps.roomKey === roomKey) {
+        list.push({
+          y: ps.y,
+          draw: () => drawDemonStatueSprite(ctx, ps.x, ps.y, ps.facingDir, timeSec, false, false, true)
+        });
+      }
+      return list;
+    }
 
     if (kn.destRoomKey === roomKey) {
       list.push({
