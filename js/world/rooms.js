@@ -1923,8 +1923,47 @@ window.Duskwood = window.Duskwood || {};
   function renderRoom(ctx, room, timeSec, lightLevel, player, charConfig, matchState) {
     const data = getRoomData(room, matchState ? matchState.roomMap : null);
 
-    // 1. Static bespoke room layout & furniture
-    ctx.drawImage(data.canvas, 0, 0);
+    // 1. Static bespoke room layout & furniture (with Paranormal Warped Hallway S-Curve Distortion for Hall I / II!)
+    const isWarpedHall = Boolean(App.Clues && App.Clues.isHallwayWarped && App.Clues.isHallwayWarped(room, matchState));
+    if (isWarpedHall) {
+      px(ctx, 0, 0, ROOM_W, ROOM_H, "#050508");
+      const isVertHall = Boolean(room.doors && room.doors.N && room.doors.S);
+      if (isVertHall) {
+        for (let y = 0; y < ROOM_H; y += 2) {
+          let taper = 0;
+          if (y > 46 && y < 196) taper = Math.sin(((y - 46) / 150) * Math.PI);
+          const wave = (Math.sin((y - 52) * 0.052) * 9.5 + Math.sin(timeSec * 1.15 + y * 0.03) * 1.2) * taper;
+          const dx = Math.round(wave);
+          ctx.drawImage(data.canvas, 0, y, ROOM_W, 2, dx, y, ROOM_W, 2);
+          if (taper > 0.12 && y >= 52 && y <= 192) {
+            ctx.fillStyle = "rgba(224, 216, 198, 0.30)";
+            ctx.fillRect(76 + dx, y, 2, 2);
+            ctx.fillRect(130 + dx, y, 2, 2);
+            ctx.fillStyle = "rgba(0, 0, 0, 0.24)";
+            ctx.fillRect(78 + dx, y, 4, 2);
+            ctx.fillRect(126 + dx, y, 4, 2);
+          }
+        }
+      } else {
+        for (let x = 0; x < ROOM_W; x += 2) {
+          let taper = 0;
+          if (x > 16 && x < 192) taper = Math.sin(((x - 16) / 176) * Math.PI);
+          const wave = (Math.sin((x - 16) * 0.046) * 8.5 + Math.sin(timeSec * 1.15 + x * 0.028) * 1.1) * taper;
+          const dy = Math.round(wave);
+          ctx.drawImage(data.canvas, x, 0, 2, ROOM_H, x, dy, 2, ROOM_H);
+          if (taper > 0.12 && x >= 18 && x <= 190) {
+            ctx.fillStyle = "rgba(224, 216, 198, 0.30)";
+            ctx.fillRect(x, 62 + dy, 2, 2);
+            ctx.fillRect(x, 152 + dy, 2, 2);
+            ctx.fillStyle = "rgba(0, 0, 0, 0.22)";
+            ctx.fillRect(x, 100 + dy, 2, 4);
+            ctx.fillRect(x, 148 + dy, 2, 4);
+          }
+        }
+      }
+    } else {
+      ctx.drawImage(data.canvas, 0, 0);
+    }
 
     // Animated Furnace Firebox Embers
     if (data.emberPos) {

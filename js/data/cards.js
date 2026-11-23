@@ -851,22 +851,22 @@ window.Duskwood = window.Duskwood || {};
     {
       id: "ch_the_thief",
       type: "CHIME",
-      glyph: "TH",
+      glyph: "+30",
       name: "THE THIEF",
-      shortEffect: "Spin the Thief's Wheel",
-      effect: "Spins a cursed wheel that alters one of four cabin systems: Clues, Rooms, Time, or the Graveyard.",
-      lore: "A shadowed gambler spins the brass wheel — sometimes generous, sometimes cruel.",
-      meta: { action: "the_thief", deltaMinutes: 0, specialProgress: true }
+      shortEffect: "+30m • 4-Color Roulette",
+      effect: "Advances ONLY the player piece by +30 minutes, then transforms The Dining Room table into a 4-color Roulette Wheel with 4 Gacha stands (60% penalty / 40% boon). Each player picks 1 card, places it on an empty color slot, and pulls the Human-Hands Lever [E]. Empty slots do nothing!",
+      lore: "A masked gambler with poker chips pinned over his eyes dares you to pull the lever.",
+      meta: { action: "the_thief", deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, specialProgress: true }
     },
     {
       id: "ch_the_neighbor",
       type: "CHIME",
-      glyph: "NB",
+      glyph: "+30",
       name: "THE NEIGHBOR",
-      shortEffect: "Knocks on door • 3 offers",
-      effect: "A heavy knock echoes at the cabin's entrance door. Walk over and press [E] to open the door for The Neighbor, listen to his words, and pick 1 of 3 flipped bargain cards.",
-      lore: "Three heavy knocks echo from the porch. Only the one who played me gets to pick.",
-      meta: { action: "the_neighbor", deltaMinutes: 0, specialProgress: true }
+      shortEffect: "+30m • Knocks on Cellar door",
+      effect: "Advances ONLY the player piece by +30 minutes. Three heavy knocks echo at the door connected to The Cellar — walk over and press [E] to open it for The Neighbor and pick 1 of 3 offers.",
+      lore: "Three heavy knocks echo behind the Cellar door. Only the one who played me gets to pick.",
+      meta: { action: "the_neighbor", deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, specialProgress: true }
     },
 
     // =========================================================================

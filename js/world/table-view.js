@@ -1137,6 +1137,8 @@ window.Duskwood = window.Duskwood || {};
     matchStateRef.harvesterFrozenTurns = 0;
     matchStateRef.bannedGraveyardWipe = false;
     matchStateRef.neighborEncounter = null;
+    matchStateRef.thiefEvent = null;
+    if (App.Thief && App.Thief.cleanup) App.Thief.cleanup(matchStateRef);
     matchStateRef.uniqueDrawnCardIds = [];
     matchStateRef.eventCooldownTurns = 0;
     matchStateRef.drawnEventCardIds = [];
@@ -2913,15 +2915,15 @@ window.Duskwood = window.Duskwood || {};
     },
     ch_the_thief: {
       paragraphs: [
-        "SPIN THE CURSED WHEEL OF THE THIEF.",
-        "ITS NEEDLE ALTERS ONE OF FOUR CABIN SYSTEMS: CLUES, ROOMS, TIME, OR THE GRAVEYARD."
+        "PROGRESS +30 MINUTES. THE DINING TABLE TRANSFORMS INTO A 4-COLOR ROULETTE WHEEL.",
+        "EACH PLAYER PICKS 1 OF 4 GACHA CARDS, PLACES IT ON AN EMPTY COLOR, AND PULLS THE HUMAN-HANDS LEVER [E]."
       ],
-      warning: "FORTUNE FAVORS THE BOLD."
+      warning: "EMPTY SLOT = SAFE. PLACED CARD = EFFECT TRIGGERS."
     },
     ch_the_neighbor: {
       paragraphs: [
-        "THREE HEAVY KNOCKS ECHO AT THE FRONT CABIN DOOR.",
-        "WALK TO THE DOOR AND PRESS [E] TO OPEN IT FOR THE NEIGHBOR."
+        "PROGRESS +30 MINUTES. THREE HEAVY KNOCKS ECHO AT THE CELLAR DOOR.",
+        "WALK TO THE CELLAR DOOR AND PRESS [E] TO OPEN IT FOR THE NEIGHBOR."
       ],
       warning: "ONLY THE PERSON WHO PLAYED ME GETS TO PICK."
     }
@@ -3727,203 +3729,163 @@ window.Duskwood = window.Duskwood || {};
     dealTimeouts.push(t1, t2, t3, t4);
   }
 
-  // ==================== THE THIEF: SPIN THE CURSED WHEEL (4 CABIN SYSTEMS) ====================
-  const THIEF_WEDGES = [
-    { id: "clue_reveal",   sys: "CLUES",     label: "REVEAL CLUE",   color: "#225c54", desc: "Manifests 1 hidden clue in an existing room (or deals a Clue card)." },
-    { id: "time_lose",     sys: "TIME",      label: "-30 MINUTES",   color: "#6b262a", desc: "The Thief steals 30 minutes from the night clock." },
-    { id: "room_free",     sys: "ROOMS",     label: "FREE ROOM",     color: "#2b4d70", desc: "Slips 1 unbuilt Room card directly into your hand." },
-    { id: "gy_wipe",       sys: "GRAVEYARD", label: "WIPE GRAVEYARD",color: "#572230", desc: "Sweeps every Clue card off the Graveyard pedestal." },
-    { id: "time_gain",     sys: "TIME",      label: "+30 MINUTES",   color: "#7a5b24", desc: "Pushes your piece +30 minutes closer to Midnight!" },
-    { id: "room_blackout", sys: "ROOMS",     label: "LIGHTS OUT",    color: "#343045", desc: "Snaps off every room light switch across the cabin." },
-    { id: "gy_reclaim",    sys: "GRAVEYARD", label: "PUSH HARVESTER",color: "#245c38", desc: "Drives The Hollow Harvester back 30 minutes (or +1 turn delay)." },
-    { id: "clue_gain",     sys: "CLUES",     label: "RECEIVE CLUE",  color: "#1e5261", desc: "Deals 1 unowned Clue card straight into your hand." }
-  ];
-
-  function buildThiefWheelSVG() {
-    const n = THIEF_WEDGES.length;
-    const step = (Math.PI * 2) / n;
-    let slices = "";
-    for (let i = 0; i < n; i++) {
-      const a0 = -Math.PI / 2 + i * step;
-      const a1 = a0 + step;
-      const x0 = 150 + Math.cos(a0) * 138;
-      const y0 = 150 + Math.sin(a0) * 138;
-      const x1 = 150 + Math.cos(a1) * 138;
-      const y1 = 150 + Math.sin(a1) * 138;
-      const midDeg = ((i + 0.5) * 360) / n;
-      const w = THIEF_WEDGES[i];
-      slices += `
-        <path d="M150,150 L${x0.toFixed(1)},${y0.toFixed(1)} A138,138 0 0,1 ${x1.toFixed(1)},${y1.toFixed(1)} Z"
-              fill="${w.color}" stroke="#1a120c" stroke-width="2.4"/>
-        <g transform="rotate(${midDeg.toFixed(1)} 150 150)">
-          <text x="150" y="42" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-size="10.5" font-weight="700" fill="#f7eed8">${w.sys}</text>
-          <text x="150" y="58" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-size="8.5" font-weight="700" fill="#e8cfa0">${w.label}</text>
-        </g>`;
-    }
-    return `
-      <svg viewBox="0 0 300 300" class="thief-wheel-svg" aria-hidden="true">
-        <circle cx="150" cy="150" r="144" fill="#2b1b10" stroke="#c9a452" stroke-width="4"/>
-        ${slices}
-        <circle cx="150" cy="150" r="24" fill="#1e130c" stroke="#e3c068" stroke-width="3"/>
-        <text x="150" y="154" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-size="11" font-weight="700" fill="#f7e3b2">THIEF</text>
-      </svg>`;
+  // ==================== THE THIEF: IN-ROOM 4-COLOR ROULETTE HELPERS ====================
+  function getLocalHandCategoryFlags() {
+    return {
+      hasClue: hand.some((c) => c && c.type === "OMEN"),
+      hasRoom: hand.some((c) => c && c.type === "BLUEPRINT")
+    };
   }
 
-  function applyThiefOutcome(wedge) {
-    let escaped = false;
-    if (wedge.id === "clue_reveal") {
-      const rev = App.Clues && App.Clues.forceRevealOneClue ? App.Clues.forceRevealOneClue(matchStateRef) : null;
-      if (!rev) {
+  function applyThiefGachaEffect(effectId, ctx) {
+    if (!matchStateRef) return "";
+    const info = ctx || {};
+    const localPid = (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : "local";
+
+    if (effectId === "graveyard_wipe") {
+      if (matchStateRef.bannedGraveyardWipe) {
+        return "Graveyard Wipe was banished by The Neighbor — nothing happened!";
+      }
+      candleTray = [];
+      matchStateRef.activeOmen = null;
+      matchStateRef.activeOmenId = null;
+      return "All Clue cards were wiped from the Graveyard!";
+    }
+
+    if (effectId === "harvester_plus_30") {
+      if (matchStateRef.harvesterSpawned) {
+        matchStateRef.harvesterMinutes = Math.min(
+          matchStateRef.clockMinutes,
+          (matchStateRef.harvesterMinutes || 0) + 30
+        );
+        anim.visualHarvesterMinutes = matchStateRef.harvesterMinutes;
+        if (matchStateRef.harvesterMinutes >= matchStateRef.clockMinutes) {
+          matchStateRef.setupPhase = "LAST_CHANCE";
+        }
+        return "The Hollow Harvester surged +30 minutes closer!";
+      }
+      if (matchStateRef.harvesterCardPlayed) {
+        matchStateRef.harvesterDelayTurns = Math.max(0, (matchStateRef.harvesterDelayTurns || 1) - 1);
+        return "The Hollow Harvester's emergence moved 1 turn closer!";
+      }
+      return "The Hollow Harvester stirs beneath the table (+30m)!";
+    }
+
+    if (effectId === "steal_time") {
+      matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, (matchStateRef.clockMinutes || 0) + 60);
+      anim.visualPlayerMinutes = matchStateRef.clockMinutes;
+      return "Lost 1 hour of game time (+60 minutes toward Midnight)!";
+    }
+
+    if (effectId === "return_clue" || effectId === "return_room") {
+      const wantType = effectId === "return_clue" ? "OMEN" : "BLUEPRINT";
+      const label = effectId === "return_clue" ? "Clue" : "Room";
+      const targetPid = info.targetReturnPid || (isMultiplayerNet() ? null : localPid);
+
+      if (!targetPid) {
+        return `No player held a ${label} card in hand — effect fizzled!`;
+      }
+      if (targetPid === localPid) {
+        const matchingIndices = [];
+        hand.forEach((c, i) => {
+          if (c && c.type === wantType) matchingIndices.push(i);
+        });
+        if (!matchingIndices.length) {
+          return `No ${label} card was in hand — effect fizzled!`;
+        }
+        const remIdx = matchingIndices[Math.floor(Math.random() * matchingIndices.length)];
+        const removed = hand.splice(remIdx, 1)[0];
+        deck.push(null);
+        syncLocalHeldRoles();
+        return `Removed "${removed.name}" from your hand and shuffled it back into the Deck!`;
+      }
+      deck.push(null);
+      return `A random player's ${label} card was returned from hand back into the Deck!`;
+    }
+
+    if (effectId === "gain_clue") {
+      const isRecipient = !isMultiplayerNet() || !info.placedBy || info.placedBy === localPid;
+      if (isRecipient) {
         const owned = [...hand.filter((c) => c.type === "OMEN").map((c) => c.id), ...candleTray.map((c) => c.id)];
         const pool = App.CardsDB.getByType("OMEN").filter((c) => !owned.includes(c.id));
         const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : App.CardsDB.getByType("OMEN")[0];
-        if (pick) { hand.push(pick); if (App.GuideUI) App.GuideUI.discoverCard(pick.id); }
-      }
-    } else if (wedge.id === "time_lose") {
-      matchStateRef.clockMinutes = Math.max(0, matchStateRef.clockMinutes - 30);
-    } else if (wedge.id === "time_gain") {
-      matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, matchStateRef.clockMinutes + 30);
-      escaped = true;
-    } else if (wedge.id === "room_free") {
-      const taken = new Set([
-        "bp_cellar",
-        ...Object.values(matchStateRef.roomMap || {}).map((r) => r.id),
-        ...hand.filter((c) => c.type === "BLUEPRINT").map((c) => c.id)
-      ]);
-      const avail = App.CardsDB.getByType("BLUEPRINT").filter((c) => !taken.has(c.id));
-      if (avail.length) {
-        const roomCard = avail[Math.floor(Math.random() * avail.length)];
-        hand.push(roomCard);
-        if (App.GuideUI) App.GuideUI.discoverCard(roomCard.id);
-      }
-    } else if (wedge.id === "gy_wipe") {
-      if (!matchStateRef.bannedGraveyardWipe) {
-        candleTray = [];
-        matchStateRef.activeOmen = null;
-        matchStateRef.activeOmenId = null;
-      }
-    } else if (wedge.id === "room_blackout") {
-      matchStateRef.roomLightStates = { "0,0": true };
-    matchStateRef.tallManEvent = null;
-    matchStateRef.redBalloonsEvent = null;
-    if (App.Stalkers && App.Stalkers.cleanup) App.Stalkers.cleanup(matchStateRef);
-      Object.keys(matchStateRef.roomMap || {}).forEach((k) => { matchStateRef.roomLightStates[k] = false; });
-    } else if (wedge.id === "gy_reclaim") {
-      if (matchStateRef.harvesterSpawned) {
-        matchStateRef.harvesterMinutes = Math.max(0, matchStateRef.harvesterMinutes - 30);
-        escaped = true;
-      } else if (matchStateRef.harvesterCardPlayed) {
-        matchStateRef.harvesterDelayTurns += 1;
-      }
-    } else if (wedge.id === "clue_gain") {
-      const owned = [...hand.filter((c) => c.type === "OMEN").map((c) => c.id), ...candleTray.map((c) => c.id)];
-      const pool = App.CardsDB.getByType("OMEN").filter((c) => !owned.includes(c.id));
-      const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : App.CardsDB.getByType("OMEN")[0];
-      if (pick) {
-        hand.push(pick);
-        if (App.GuideUI) App.GuideUI.discoverCard(pick.id);
-      }
-    }
-    return escaped;
-  }
-
-  function openThiefWheelModal() {
-    const modal = document.getElementById("fp-thief-modal");
-    const wheelWrap = document.getElementById("fp-thief-wheel-rotor");
-    const resultEl = document.getElementById("fp-thief-result");
-    const spinBtn = document.getElementById("fp-thief-spin-btn");
-    if (!modal || !wheelWrap) {
-      const w = THIEF_WEDGES[Math.floor(Math.random() * THIEF_WEDGES.length)];
-      const esc = applyThiefOutcome(w);
-      resolveEndOfTurn(false, esc);
-      return;
-    }
-
-    thiefWheelActive = true;
-    thiefWheelSpinning = false;
-    wheelWrap.innerHTML = buildThiefWheelSVG();
-    wheelWrap.style.transition = "none";
-    wheelWrap.style.transform = `rotate(${thiefCurrentAngle}deg)`;
-    if (resultEl) resultEl.textContent = "CLUES • ROOMS • TIME • GRAVEYARD";
-    if (spinBtn) {
-      spinBtn.disabled = false;
-      spinBtn.textContent = "[ SPIN THE WHEEL ]";
-    }
-
-    modal.classList.remove("hidden");
-    App.Audio.open();
-    syncUI();
-  }
-
-  function spinThiefWheel() {
-    if (!thiefWheelActive || thiefWheelSpinning) return;
-    thiefWheelSpinning = true;
-
-    const wheelWrap = document.getElementById("fp-thief-wheel-rotor");
-    const resultEl = document.getElementById("fp-thief-result");
-    const spinBtn = document.getElementById("fp-thief-spin-btn");
-    if (spinBtn) {
-      spinBtn.disabled = true;
-      spinBtn.textContent = "SPINNING...";
-    }
-
-    // Pick outcome (respect bannedGraveyardWipe if The Neighbor removed it!)
-    const validIndices = THIEF_WEDGES.map((w, i) => ({ w, i }))
-      .filter((x) => !(matchStateRef.bannedGraveyardWipe && x.w.id === "gy_wipe"))
-      .map((x) => x.i);
-    const chosenIdx = validIndices[Math.floor(Math.random() * validIndices.length)];
-    const wedge = THIEF_WEDGES[chosenIdx];
-
-    const sliceDeg = 360 / THIEF_WEDGES.length;
-    const centerDeg = (chosenIdx + 0.5) * sliceDeg;
-    const jitter = (Math.random() - 0.5) * (sliceDeg * 0.55);
-    const targetMod = (360 - centerDeg + jitter + 360) % 360;
-    const baseTurns = 5 * 360;
-    const curMod = ((thiefCurrentAngle % 360) + 360) % 360;
-    const delta = baseTurns + ((targetMod - curMod + 360) % 360);
-    thiefCurrentAngle += delta;
-
-    // Rhythmic wheel peg ticks while decelerating
-    [0, 120, 250, 400, 580, 780, 1020, 1300, 1620, 2000, 2450, 2950].forEach((ms) => {
-      const tid = setTimeout(() => {
-        if (thiefWheelActive) App.Audio.grooveTick();
-      }, ms);
-      dealTimeouts.push(tid);
-    });
-
-    if (wheelWrap) {
-      void wheelWrap.offsetWidth;
-      wheelWrap.style.transition = "transform 3.3s cubic-bezier(0.14, 0.85, 0.22, 1)";
-      wheelWrap.style.transform = `rotate(${thiefCurrentAngle.toFixed(1)}deg)`;
-    }
-
-    const doneId = setTimeout(() => {
-      App.Audio.clockChime();
-      if (resultEl) {
-        resultEl.innerHTML = `<strong>${wedge.sys}: ${wedge.label}</strong><br>${wedge.desc}`;
-      }
-      const escaped = applyThiefOutcome(wedge);
-
-      const closeId = setTimeout(() => {
-        document.getElementById("fp-thief-modal")?.classList.add("hidden");
-        thiefWheelActive = false;
-        thiefWheelSpinning = false;
-        const nextOrderIdx = computeNextSeatOrderIdx(false);
-        if (isMultiplayerNet()) {
-          App.Network.sendGameAction("MP_THIEF_OUTCOME", {
-            wedgeId: wedge.id,
-            nextOrderIdx
-          });
+        if (pick) {
+          hand.push(pick);
+          if (App.GuideUI) App.GuideUI.discoverCard(pick.id);
+          return `Gained "${pick.name}" directly into your hand!`;
         }
-        resolveEndOfTurn(false, escaped, {
-          targetOrderIdx: nextOrderIdx,
-          freezeHarvester: wedge.id === "time_gain",
-          skipPassiveStep: wedge.id === "time_gain"
+      }
+      return "A Clue card was granted to the player who placed it!";
+    }
+
+    if (effectId === "delay_harvester") {
+      if (matchStateRef.harvesterSpawned) {
+        matchStateRef.harvesterMinutes = Math.max(0, (matchStateRef.harvesterMinutes || 0) - 30);
+        anim.visualHarvesterMinutes = matchStateRef.harvesterMinutes;
+        if (matchStateRef.setupPhase === "LAST_CHANCE" && matchStateRef.clockMinutes > matchStateRef.harvesterMinutes) {
+          matchStateRef.setupPhase = "PLAYING";
+        }
+        return "The Hollow Harvester was pushed back -30 minutes!";
+      }
+      if (matchStateRef.harvesterCardPlayed) {
+        matchStateRef.harvesterDelayTurns += 1;
+        return "The Hollow Harvester's emergence was delayed by +1 turn!";
+      }
+      matchStateRef.harvesterFrozenTurns = (matchStateRef.harvesterFrozenTurns || 0) + 1;
+      return "The Hollow Harvester will stay frozen for +1 turn!";
+    }
+
+    if (effectId === "time_rewind") {
+      matchStateRef.clockMinutes = Math.max(0, (matchStateRef.clockMinutes || 0) - 30);
+      anim.visualPlayerMinutes = matchStateRef.clockMinutes;
+      return "The night clock rewound by -30 minutes!";
+    }
+
+    if (effectId === "graveyard_salvage") {
+      if (candleTray.length > 0) {
+        const salvaged = candleTray.pop();
+        const newTop = candleTray.length ? candleTray[candleTray.length - 1] : null;
+        matchStateRef.activeOmen = newTop ? newTop.name : null;
+        matchStateRef.activeOmenId = newTop ? newTop.id : null;
+        deck.push(null);
+        return `Returned "${salvaged.name}" from the Graveyard back into the Deck!`;
+      }
+      const isRecipient = !isMultiplayerNet() || !info.placedBy || info.placedBy === localPid;
+      if (isRecipient) {
+        const bonus = App.CardsDB.drawWeightedCard({
+          allowHex: false,
+          isMultiplayer: matchStateRef.mode === "MULTIPLAYER",
+          excludeCardIds: uniqueDrawnCardIds
         });
-      }, 1750);
-      dealTimeouts.push(closeId);
-    }, 3400);
-    dealTimeouts.push(doneId);
+        if (bonus) {
+          recordUniqueCardIfNeeded(bonus);
+          hand.push(bonus);
+          if (App.GuideUI) App.GuideUI.discoverCard(bonus.id);
+          return `Graveyard was empty — salvaged "${bonus.name}" into your hand!`;
+        }
+      }
+      return "Graveyard was empty — salvaged a spare card from the deck!";
+    }
+
+    return "";
+  }
+
+  function finishThiefTurn(nextOrderIdx) {
+    if (!matchStateRef) return;
+    matchStateRef.turnCount += 1;
+    if (isMultiplayerCoop() && typeof nextOrderIdx === "number") {
+      matchStateRef.activeSeatIdx = nextOrderIdx;
+      anim.worldRimAngle = getWorldAngleForSeatId(getActiveSeats()[nextOrderIdx] || 0);
+      syncDisplayRimAngleFromWorld();
+    }
+    if ((matchStateRef.eventCooldownTurns || 0) > 0) {
+      matchStateRef.eventCooldownTurns = Math.max(0, matchStateRef.eventCooldownTurns - 1);
+    }
+    turnStep = 1;
+    if (App.Clues && matchStateRef.activeOmenId) {
+      App.Clues.evaluateTopGraveyardClue(matchStateRef);
+    }
+    if (onStateChangeCallback) onStateChangeCallback();
   }
 
   // ==================== THE NEIGHBOR: OPEN FRONT DOOR -> 1ST-PERSON GRIM REAPER ====================
@@ -3981,20 +3943,30 @@ window.Duskwood = window.Duskwood || {};
 
   function pickNeighborDoorDir() {
     const map = matchStateRef.roomMap || {};
-    // Prefer South front entrance door of Main Parlor first!
-    const pref = [
-      ["S", 0, 1],
+    // ALWAYS use the Dining Room door connected to The Cellar (1-way non-enterable room -> zero accidental room transition!)
+    const dirs = [
       ["N", 0, -1],
-      ["W", -1, 0],
-      ["E", 1, 0]
+      ["E", 1, 0],
+      ["S", 0, 1],
+      ["W", -1, 0]
     ];
-    for (const [dir, dx, dy] of pref) {
+    for (const [dir, dx, dy] of dirs) {
+      const nb = map[`${dx},${dy}`];
+      if (nb && nb.id === "bp_cellar") return dir;
+    }
+    for (const [dir, dx, dy] of dirs) {
       if (!map[`${dx},${dy}`]) return dir;
     }
     return "S";
   }
 
   function triggerNeighborCard(fromNetwork, netPayload) {
+    // Progress card property: advance ONLY the Player Pawn by +30 minutes!
+    matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, (matchStateRef.clockMinutes || 0) + 30);
+    anim.visualPlayerMinutes = matchStateRef.clockMinutes;
+    if (matchStateRef.setupPhase === "LAST_CHANCE" && matchStateRef.clockMinutes > (matchStateRef.harvesterMinutes || 0)) {
+      matchStateRef.setupPhase = "PLAYING";
+    }
     const doorDir = (fromNetwork && netPayload && netPayload.doorDir) || pickNeighborDoorDir();
     const options = (fromNetwork && netPayload && netPayload.options) || pickNeighborThreeOptions();
     const ownerSeatId = (fromNetwork && netPayload && typeof netPayload.ownerSeatId === "number")
@@ -4180,9 +4152,21 @@ window.Duskwood = window.Duskwood || {};
       if (meta.skipPassiveStep) skipPassiveStep = true;
 
       if (meta.action === "the_thief") {
-        App.Audio.cardPlay();
+        // Progress card property: advance ONLY the Player Pawn by +30 minutes!
+        matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, (matchStateRef.clockMinutes || 0) + 30);
+        anim.visualPlayerMinutes = matchStateRef.clockMinutes;
+        if (matchStateRef.setupPhase === "LAST_CHANCE" && matchStateRef.clockMinutes > (matchStateRef.harvesterMinutes || 0)) {
+          matchStateRef.setupPhase = "PLAYING";
+        }
+        const nextOrderIdx = computeNextSeatOrderIdx(false);
         selectedHandIdx = -1;
-        openThiefWheelModal();
+        turnStep = 1;
+        App.Audio.cardPlay();
+        close(true);
+        if (App.Thief && App.Thief.startThiefEvent) {
+          App.Thief.startThiefEvent(matchStateRef, { nextOrderIdx });
+        }
+        if (onStateChangeCallback) onStateChangeCallback();
         return;
       }
 
@@ -4518,39 +4502,19 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
 
-    if (action === "MP_THIEF_OUTCOME") {
-      const wedge = THIEF_WEDGES.find((w) => w.id === p.wedgeId);
-      let escaped = false;
-      if (wedge) {
-        // Apply only shared board effects on non-active clients (hand gifts belong only to active player!)
-        if (wedge.id === "time_lose") {
-          matchStateRef.clockMinutes = Math.max(0, matchStateRef.clockMinutes - 30);
-        } else if (wedge.id === "time_gain") {
-          matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, matchStateRef.clockMinutes + 30);
-          escaped = true;
-        } else if (wedge.id === "gy_wipe" && !matchStateRef.bannedGraveyardWipe) {
-          candleTray = [];
-          matchStateRef.activeOmen = null;
-          matchStateRef.activeOmenId = null;
-        } else if (wedge.id === "room_blackout") {
-          matchStateRef.roomLightStates = { "0,0": false };
-          Object.keys(matchStateRef.roomMap || {}).forEach((k) => { matchStateRef.roomLightStates[k] = false; });
-        } else if (wedge.id === "gy_reclaim") {
-          if (matchStateRef.harvesterSpawned) {
-            matchStateRef.harvesterMinutes = Math.max(0, matchStateRef.harvesterMinutes - 30);
-            escaped = true;
-          } else if (matchStateRef.harvesterCardPlayed) {
-            matchStateRef.harvesterDelayTurns += 1;
-          }
-        } else if (wedge.id === "clue_reveal" && App.Clues && App.Clues.forceRevealOneClue) {
-          App.Clues.forceRevealOneClue(matchStateRef);
-        }
+    if (action === "MP_THIEF_START") {
+      matchStateRef.clockMinutes = Math.min(CLOCK_TOTAL_MINUTES, (matchStateRef.clockMinutes || 0) + 30);
+      anim.visualPlayerMinutes = matchStateRef.clockMinutes;
+      if (matchStateRef.setupPhase === "LAST_CHANCE" && matchStateRef.clockMinutes > (matchStateRef.harvesterMinutes || 0)) {
+        matchStateRef.setupPhase = "PLAYING";
       }
-      resolveEndOfTurn(false, escaped, {
-        targetOrderIdx: p.nextOrderIdx,
-        freezeHarvester: wedge && wedge.id === "time_gain",
-        skipPassiveStep: wedge && wedge.id === "time_gain"
-      });
+      selectedHandIdx = -1;
+      turnStep = 1;
+      close(true);
+      if (App.Thief && App.Thief.handleNetworkMessage) {
+        App.Thief.handleNetworkMessage(action, p, matchStateRef);
+      }
+      if (onStateChangeCallback) onStateChangeCallback();
       return;
     }
 
@@ -4754,8 +4718,7 @@ window.Duskwood = window.Duskwood || {};
         resetTableMatch(matchStateRef);
         beginTableIntro();
         if (onStateChangeCallback) onStateChangeCallback();
-      } else if (act === "spin-thief-wheel") {
-        spinThiefWheel();
+
       } else if (act === "exit-lobby") {
         App.GameWorld.exitToLobby();
       }
@@ -4776,6 +4739,9 @@ window.Duskwood = window.Duskwood || {};
     updateBackground,
     handleNetworkMessage,
     resolveNeighborBargain,
+    getLocalHandCategoryFlags,
+    applyThiefGachaEffect,
+    finishThiefTurn,
     getLocalHeldRoleState,
     isOpen: () => isOpen,
     isBusy: () => anim.introStage !== "DONE" || anim.dealingCards || anim.harvesterRisingNow || anim.rimRotating || anim.drawAnimating || anim.shuffleAnimating || anim.penaltyPlaying || Boolean(pendingDrawnCard) || Boolean(previewingHandCard) || thiefWheelActive || Boolean(anim.activeStep) || anim.stepQueue.length > 0

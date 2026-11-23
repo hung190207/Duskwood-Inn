@@ -3901,3 +3901,108 @@
   letter-spacing: 1.4px;
   color: #2b2118;
 }
+
+
+/* ==================== v0.52 THE THIEF: IN-ROOM GACHA STAND CARD MODAL ==================== */
+.th-stand-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  animation: popModal 0.16s ease-out;
+}
+
+.th-stand-card {
+  position: relative;
+  width: min(350px, 86vw);
+  min-height: 360px;
+  padding: 34px 32px 30px;
+  background-color: #f3ece0;
+  background-image:
+    radial-gradient(circle at 20% 24%, rgba(140, 108, 72, 0.11) 1px, transparent 1.8px),
+    radial-gradient(ellipse at 50% 48%, rgba(255, 253, 248, 0.65) 45%, rgba(186, 158, 120, 0.36) 88%, rgba(118, 86, 54, 0.52) 100%);
+  background-size: 60px 60px, 100% 100%;
+  border-radius: 5px;
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.92), 0 0 26px rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.th-stand-frame-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.th-stand-inner {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  color: #1b130c;
+}
+
+.th-stand-kicker {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  color: #544434;
+}
+
+.th-stand-header {
+  font-family: var(--font-title);
+  font-size: 14px;
+  letter-spacing: 1.4px;
+  color: #21160d;
+  padding-bottom: 6px;
+  border-bottom: 2px solid #3a2a1d;
+}
+
+.th-stand-title {
+  font-family: var(--font-ui);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  line-height: 1.08;
+  color: #1e140c;
+}
+
+.th-card-polarity {
+  font-family: var(--font-title);
+  font-size: 8px;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  border: 1.5px solid #24180f;
+}
+
+.th-card-polarity.is-neg {
+  background: #7d1920;
+  color: #ffe8e6;
+}
+
+.th-card-polarity.is-pos {
+  background: #1f5e31;
+  color: #e6ffec;
+}
+
+.th-stand-desc {
+  margin-top: 6px;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.42;
+  color: #2b2016;
+}
+
+.th-stand-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}

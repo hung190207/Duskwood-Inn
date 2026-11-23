@@ -832,6 +832,7 @@ window.Duskwood = window.Duskwood || {};
       Boolean(App.Basement && App.Basement.isActive && App.Basement.isActive(matchState)) ||
       Boolean(App.StayLit && App.StayLit.isActive && App.StayLit.isActive(matchState)) ||
       Boolean(App.Knight && App.Knight.isActive && App.Knight.isActive(matchState)) ||
+      Boolean(App.Thief && App.Thief.isActive && App.Thief.isActive(matchState)) ||
       Boolean(App.Endgame && App.Endgame.isEndgameActive && App.Endgame.isEndgameActive(matchState))
     );
   }

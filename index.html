@@ -437,6 +437,31 @@
       </div>
     </div>
 
+    <!-- THE THIEF: In-Room Gacha Card Stand Inspection & Pick Modal -->
+    <div id="thief-stand-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="The Thief Gacha Card">
+      <div class="th-stand-shell">
+        <div class="th-stand-card">
+          <svg viewBox="0 0 320 340" preserveAspectRatio="none" class="th-stand-frame-svg" aria-hidden="true">
+            <path d="M40,10 L280,10 Q284,24 298,24 L310,24 L310,44 Q296,50 296,64 L296,276 Q296,290 310,296 L310,316 L298,316 Q284,316 280,330 L40,330 Q36,316 22,316 L10,316 L10,296 Q24,290 24,276 L24,64 Q24,50 10,44 L10,24 L22,24 Q36,24 40,10 Z"
+                  fill="none" stroke="#140e0a" stroke-width="5.5" stroke-linejoin="round"/>
+            <path d="M46,18 L274,18 Q280,32 292,32 L302,32 L302,42 Q288,48 288,64 L288,276 Q288,292 302,298 L302,308 L292,308 Q280,308 274,322 L46,322 Q40,308 28,308 L18,308 L18,298 Q32,292 32,276 L32,64 Q32,48 18,42 L18,32 L28,32 Q40,32 46,18 Z"
+                  fill="none" stroke="#241911" stroke-width="1.8"/>
+          </svg>
+          <div class="th-stand-inner">
+            <div class="th-stand-kicker">THE THIEF WILL ALTER</div>
+            <div id="thief-stand-header" class="th-stand-header">THE GRAVEYARD</div>
+            <div id="thief-stand-title" class="th-stand-title">GRAVEYARD WIPE</div>
+            <div id="thief-stand-tag" class="th-card-polarity is-neg">PENALTY EFFECT</div>
+            <p id="thief-stand-desc" class="th-stand-desc"></p>
+          </div>
+        </div>
+        <div class="th-stand-actions">
+          <button type="button" class="silver-btn mini-btn subtle-btn" data-game-action="thief-stand-close">[ESC] STEP BACK</button>
+          <button type="button" id="thief-stand-take-btn" class="silver-btn mini-btn primary-btn" data-game-action="thief-stand-take">[E] PICK THIS CARD</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Focused Close-Up Clue Inspection Modal (Study Canvas O/X, Grandfather Clock, Remains, Chair, Chicken) -->
     <div id="clue-inspect-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="clue-modal-title">
       <div class="silver-panel clue-inspect-shell">
@@ -972,6 +997,7 @@
   <script defer src="js/world/basement.js"></script>
   <script defer src="js/world/staylit.js"></script>
   <script defer src="js/world/knight.js"></script>
+  <script defer src="js/world/thief.js"></script>
   <script defer src="js/world/endgame.js"></script>
   <script defer src="js/world/jumpscare.js"></script>
   <script defer src="js/world/events.js"></script>

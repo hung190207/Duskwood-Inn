@@ -56,6 +56,9 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function enterMatchedRoom(dir) {
+    if (App.Thief && App.Thief.isActive(gameState)) {
+      return false;
+    }
     if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState)) {
       App.Audio.close();
       return false;
@@ -301,6 +304,24 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
 
+    const thiefHud = App.Thief && App.Thief.getHudSummary
+      ? App.Thief.getHudSummary(gameState)
+      : null;
+
+    if (thiefHud) {
+      bar.classList.remove("hidden");
+      const progEl = document.getElementById("attic-hud-progress");
+      const heldEl = document.getElementById("attic-hud-held");
+      const msgEl = document.getElementById("attic-hud-notice");
+      if (progEl) progEl.textContent = thiefHud.title;
+      if (heldEl) heldEl.textContent = thiefHud.sub;
+      if (msgEl) {
+        msgEl.textContent = thiefHud.notice || "";
+        msgEl.classList.toggle("hidden", !thiefHud.notice);
+      }
+      return;
+    }
+
     const knightHud = App.Knight && App.Knight.getHudSummary
       ? App.Knight.getHudSummary(gameState)
       : null;
@@ -524,9 +545,9 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function onNeighborDoorOpened(doorDir) {
-    const dirNames = { S: "front (South)", N: "North", W: "West", E: "East" };
+    const dirNames = { S: "South", N: "North", W: "West", E: "East" };
     showDialogue(
-      `Knock, knock, knock... Someone is knocking at the ${dirNames[doorDir] || "front"} cabin door! Walk over and press [E] to open it.`
+      `Knock, knock, knock... (+30 min) Someone is knocking at the Cellar door (${dirNames[doorDir] || "South"})! Walk over and press [E] to open it.`
     );
   }
 
@@ -709,8 +730,12 @@ window.Duskwood = window.Duskwood || {};
     if (App.Events && App.Events.isCuttingCornersActive(gameState)) {
       return;
     }
+    if (App.Thief && App.Thief.isActive(gameState)) {
+      showDialogue("The Thief's 4-color roulette is active! Pick 1 card, place it on a color, and pull the Human-Hands Lever [E].");
+      return;
+    }
     if (gameState.neighborEncounter && gameState.neighborEncounter.active) {
-      showDialogue("The front door is wide open. Stand up [E] and inspect The Neighbor outside first.");
+      showDialogue("Someone is at the Cellar door. Stand up [E] and open it for The Neighbor first.");
       return;
     }
     if (App.Attic && App.Attic.isAtticActive(gameState)) {
@@ -874,6 +899,9 @@ window.Duskwood = window.Duskwood || {};
     }
     if (App.Basement && App.Basement.isActive(gameState)) {
       return App.Basement.getPrompt(gameState, player);
+    }
+    if (App.Thief && App.Thief.isActive(gameState)) {
+      return isInDiningRoom() ? App.Thief.getParlorInteractable(gameState, player) : null;
     }
 
     const cc = gameState.events && gameState.events.cuttingCorners;
@@ -1091,6 +1119,16 @@ window.Duskwood = window.Duskwood || {};
       } else {
         openNeighborModal();
       }
+    } else if (target.type === "thief_inspect_stand") {
+      if (App.Thief) App.Thief.openStandModal(gameState, target.standIdx);
+    } else if (target.type === "thief_place_slot") {
+      if (App.Thief) App.Thief.placeCardOnSlot(gameState, target.slotIdx, false);
+      syncHud();
+    } else if (target.type === "thief_pull_lever") {
+      if (App.Thief) App.Thief.pullLeverToSpin(gameState, false);
+      syncHud();
+    } else if (target.type === "thief_lever_locked" || target.type === "thief_slot_full") {
+      App.Audio.close();
     } else if (target.type === "attic_ladder_up") {
       if (App.Attic && App.Attic.enterAttic(gameState, player)) {
         roomTransitionAlpha = 0.94;
@@ -1239,6 +1277,7 @@ window.Duskwood = window.Duskwood || {};
       (App.FieldBook && App.FieldBook.isOpen()) ||
       (App.Clues && App.Clues.isInspectOpen()) ||
       (App.Knight && App.Knight.isTableGlanceOpen()) ||
+      (App.Thief && App.Thief.isStandModalOpen()) ||
       App.TableView.isOpen() ||
       App.GameIntro.isBlockingInput() ||
       (App.Jumpscare && App.Jumpscare.isActive()) ||
@@ -1327,7 +1366,7 @@ window.Duskwood = window.Duskwood || {};
     const promptText = document.getElementById("hud-prompt-text");
     if (!promptEl || !promptText) return;
 
-    if (dialogueOpen || paintingOpen || neighborModalOpen || (App.Events && App.Events.isSpectatingActive && App.Events.isSpectatingActive(gameState)) || (App.FieldBook && App.FieldBook.isOpen()) || (App.Clues && App.Clues.isInspectOpen()) || (App.Knight && App.Knight.isTableGlanceOpen()) || App.TableView.isOpen() || paused || App.GameIntro.isBlockingInput()) {
+    if (dialogueOpen || paintingOpen || neighborModalOpen || (App.Events && App.Events.isSpectatingActive && App.Events.isSpectatingActive(gameState)) || (App.FieldBook && App.FieldBook.isOpen()) || (App.Clues && App.Clues.isInspectOpen()) || (App.Knight && App.Knight.isTableGlanceOpen()) || (App.Thief && App.Thief.isStandModalOpen()) || App.TableView.isOpen() || paused || App.GameIntro.isBlockingInput()) {
       promptEl.classList.add("hidden");
       return;
     }
@@ -1448,6 +1487,9 @@ window.Duskwood = window.Duskwood || {};
     }
     if (App.Knight && App.Knight.update && !paused) {
       App.Knight.update(dt, gameState);
+    }
+    if (App.Thief && App.Thief.update && !paused) {
+      App.Thief.update(dt, gameState);
     }
     if (App.Endgame && App.Endgame.update && !paused) {
       App.Endgame.update(dt, gameState, player);
@@ -1727,6 +1769,7 @@ window.Duskwood = window.Duskwood || {};
     if (App.Basement && App.Basement.cleanup) App.Basement.cleanup(gameState);
     if (App.StayLit && App.StayLit.cleanup) App.StayLit.cleanup(gameState);
     if (App.Knight && App.Knight.cleanup) App.Knight.cleanup(gameState);
+    if (App.Thief && App.Thief.cleanup) App.Thief.cleanup(gameState);
     if (App.Audio.stopDoorKnock) App.Audio.stopDoorKnock();
     if (App.Audio.stopDoorOpen) App.Audio.stopDoorOpen();
     clearNeighborSeqTimers();
@@ -1759,6 +1802,7 @@ window.Duskwood = window.Duskwood || {};
           syncHud();
         } else if (App.Basement && App.Basement.isRepairModalOpen(gameState)) App.Basement.closeBreakerModal(gameState, false);
         else if (App.Knight && App.Knight.isTableGlanceOpen()) App.Knight.closeTableGlanceModal(false);
+        else if (App.Thief && App.Thief.isStandModalOpen()) App.Thief.closeStandModal(false);
         else if (App.FieldBook && App.FieldBook.isOpen()) App.FieldBook.close(false);
         else if (App.Clues && App.Clues.isInspectOpen()) App.Clues.closeInspectModal(false);
         else if (neighborModalOpen) closeNeighborModal(false);
@@ -1803,6 +1847,17 @@ window.Duskwood = window.Duskwood || {};
       if (App.Knight && App.Knight.isTableGlanceOpen() && (e.code === "Space" || e.code === "KeyE" || e.code === "Enter")) {
         e.preventDefault();
         App.Knight.closeTableGlanceModal(false);
+        return;
+      }
+
+      if (App.Thief && App.Thief.isStandModalOpen()) {
+        if (e.code === "KeyE" || e.code === "Enter" || e.code === "Space") {
+          e.preventDefault();
+          if (!App.Thief.confirmTakeInspectedStand(gameState)) {
+            App.Thief.closeStandModal(false);
+          }
+          syncHud();
+        }
         return;
       }
 
@@ -2010,6 +2065,11 @@ window.Duskwood = window.Duskwood || {};
         syncHud();
       } else if (act === "close-knight-map") {
         if (App.Knight) App.Knight.closeTableGlanceModal(false);
+      } else if (act === "thief-stand-take") {
+        if (App.Thief) App.Thief.confirmTakeInspectedStand(gameState);
+        syncHud();
+      } else if (act === "thief-stand-close") {
+        if (App.Thief) App.Thief.closeStandModal(false);
       } else if (act === "exit-to-lobby") {
         exitToLobby();
       }
@@ -2054,6 +2114,13 @@ window.Duskwood = window.Duskwood || {};
         if (msg.action.startsWith("MP_ATTIC_")) {
           if (App.Attic && App.Attic.handleNetworkMessage) {
             App.Attic.handleNetworkMessage(msg.action, p, gameState);
+            syncHud();
+          }
+          return;
+        }
+        if (msg.action.startsWith("MP_THIEF_") && msg.action !== "MP_THIEF_START") {
+          if (App.Thief && App.Thief.handleNetworkMessage) {
+            App.Thief.handleNetworkMessage(msg.action, p, gameState);
             syncHud();
           }
           return;

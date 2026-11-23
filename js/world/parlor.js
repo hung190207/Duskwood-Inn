@@ -781,21 +781,31 @@ window.Duskwood = window.Duskwood || {};
       App.Attic.renderRoomLadder(ctx, diningObj, timeSec, matchState);
     }
 
-    const renderables = [
-      { y: CHAIRS[2].y, draw: () => drawChair(ctx, CHAIRS[2]) },
-      { y: CHAIRS[0].y, draw: () => drawChair(ctx, CHAIRS[0]) },
-      { y: CHAIRS[1].y, draw: () => drawChair(ctx, CHAIRS[1]) },
-      {
-        y: TABLE.cy + 14,
-        draw: () => {
-          if (App.Musical && App.Musical.isBoxMode && App.Musical.isBoxMode(matchState)) {
-            App.Musical.drawCardboardBox(ctx, timeSec, matchState);
-          } else {
-            drawRoundTable(ctx, timeSec, matchState);
-          }
+    const thiefActive = Boolean(App.Thief && App.Thief.isActive && App.Thief.isActive(matchState));
+    const renderables = [];
+    if (!thiefActive) {
+      renderables.push(
+        { y: CHAIRS[2].y, draw: () => drawChair(ctx, CHAIRS[2]) },
+        { y: CHAIRS[0].y, draw: () => drawChair(ctx, CHAIRS[0]) },
+        { y: CHAIRS[1].y, draw: () => drawChair(ctx, CHAIRS[1]) }
+      );
+    }
+    renderables.push({
+      y: TABLE.cy + 14,
+      draw: () => {
+        if (thiefActive && App.Thief.drawThiefRouletteTable) {
+          App.Thief.drawThiefRouletteTable(ctx, timeSec, matchState);
+        } else if (App.Musical && App.Musical.isBoxMode && App.Musical.isBoxMode(matchState)) {
+          App.Musical.drawCardboardBox(ctx, timeSec, matchState);
+        } else {
+          drawRoundTable(ctx, timeSec, matchState);
         }
-      },
-      { y: CHAIRS[3].y, draw: () => drawChair(ctx, CHAIRS[3]) },
+      }
+    });
+    if (!thiefActive) {
+      renderables.push({ y: CHAIRS[3].y, draw: () => drawChair(ctx, CHAIRS[3]) });
+    }
+    renderables.push(
       {
         y: CHAIRS[3].y + 1,
         draw: () => {
@@ -827,8 +837,11 @@ window.Duskwood = window.Duskwood || {};
           }
         }
       }
-    ];
+    );
 
+    if (thiefActive && App.Thief.getParlorRenderables) {
+      App.Thief.getParlorRenderables(ctx, timeSec, matchState).forEach((thR) => renderables.push(thR));
+    }
     if (App.Events && App.Events.getParlorRenderables) {
       App.Events.getParlorRenderables(ctx, timeSec, matchState).forEach((evR) => renderables.push(evR));
     }
@@ -879,7 +892,7 @@ window.Duskwood = window.Duskwood || {};
     const globalBlackout = App.Events && App.Events.isGlobalLightsOut && App.Events.isGlobalLightsOut(matchState);
     const diningShattered = App.Endgame && App.Endgame.isRoomShattered && App.Endgame.isRoomShattered("0,0", matchState);
     const isDawn = App.Endgame && App.Endgame.isDaylightWinMode && App.Endgame.isDaylightWinMode(matchState);
-    const diningSwitchOn = isDawn || (!globalBlackout && !diningShattered && !(matchState && matchState.roomLightStates && matchState.roomLightStates["0,0"] === false));
+    const diningSwitchOn = isDawn || (!thiefActive && !globalBlackout && !diningShattered && !(matchState && matchState.roomLightStates && matchState.roomLightStates["0,0"] === false));
 
     // Draw live Dining Room wall light switch next to fireplace (48, 36)
     drawDiningLightSwitch(ctx, 48, 36, diningSwitchOn);
@@ -902,6 +915,18 @@ window.Duskwood = window.Duskwood || {};
       pmctx.fillRect(0, 0, ROOM_W, ROOM_H);
 
       pmctx.globalCompositeOperation = "destination-out";
+
+      // The Thief: Dramatic spotlight pools illuminating the 4-Color Roulette Wheel, 4 Gacha Stands & Human-Hands Lever!
+      if (thiefActive && App.Thief.getDarknessLightCutouts) {
+        App.Thief.getDarknessLightCutouts(matchState).forEach((cut) => {
+          const cg = pmctx.createRadialGradient(cut.x, cut.y, 4, cut.x, cut.y, cut.r);
+          cg.addColorStop(0, `rgba(0,0,0,${(cut.strength || 0.90).toFixed(2)})`);
+          cg.addColorStop(0.62, `rgba(0,0,0,${((cut.strength || 0.90) * 0.55).toFixed(2)})`);
+          cg.addColorStop(1, "rgba(0,0,0,0)");
+          pmctx.fillStyle = cg;
+          pmctx.fillRect(cut.x - cut.r - 2, cut.y - cut.r - 2, cut.r * 2 + 4, cut.r * 2 + 4);
+        });
+      }
 
       // Musical Rooms 10s Intro: Dim circular table visibility just enough to see Giant Monkey beside player!
       if (App.Musical && App.Musical.isIntroDarkStage && App.Musical.isIntroDarkStage(matchState)) {
@@ -1006,6 +1031,9 @@ window.Duskwood = window.Duskwood || {};
     }
     if (App.Knight && App.Knight.renderRoomHighlights) {
       App.Knight.renderRoomHighlights(ctx, "0,0", timeSec, matchState);
+    }
+    if (thiefActive && App.Thief.renderParlorHighlights) {
+      App.Thief.renderParlorHighlights(ctx, timeSec, matchState, player);
     }
     if (App.Endgame && App.Endgame.renderGlassShardsOverlay) {
       App.Endgame.renderGlassShardsOverlay(ctx, matchState);

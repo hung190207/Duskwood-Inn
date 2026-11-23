@@ -253,6 +253,7 @@ window.Duskwood = window.Duskwood || {};
     if (App.Basement && App.Basement.cleanup) App.Basement.cleanup(matchState);
     if (App.StayLit && App.StayLit.cleanup) App.StayLit.cleanup(matchState);
     if (App.Knight && App.Knight.cleanup) App.Knight.cleanup(matchState);
+    if (App.Thief && App.Thief.cleanup) App.Thief.cleanup(matchState);
     if (matchState.atticEvent) {
       matchState.atticEvent.active = false;
       matchState.atticEvent.inAttic = false;

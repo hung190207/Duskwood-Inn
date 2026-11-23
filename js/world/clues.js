@@ -52,6 +52,9 @@ window.Duskwood = window.Duskwood || {};
   // Grandfather Clock Clue NEVER spawns in The Dining Room!
   const GRANDFATHER_CLOCK_ROOMS = ALL_CANDIDATE_ROOMS.filter((r) => r !== "dining_room");
 
+  // Paranormal Alteration in Hall I or Hall II warps & curves the entire corridor (image_433f9a.jpg)!
+  const WARP_HALLWAY_IDS = new Set(["bp_hallway_1", "bp_hallway_2"]);
+
   // Rooms containing a dedicated wooden table/desk -> Past Player spawns as glowing Severed Hand + Hammer on Table!
   // Rooms NOT in this set -> Past Player spawns as Red Handwritten Wall Text ("Everyone is Dead" / "Help us")!
   const TABLE_ROOMS = new Set([
@@ -163,11 +166,16 @@ window.Duskwood = window.Duskwood || {};
           revealed: false
         });
       } else if (clueKey === "paranormal_alt") {
+        // Give Hall I / Hall II a healthy chance to showcase the Warped Hallway anomaly alongside floating objects!
+        const paraRoom = Math.random() < 0.34
+          ? pickSpawnRoom(["bp_hallway_1", "bp_hallway_2"])
+          : pickSpawnRoom(ALL_CANDIDATE_ROOMS);
         entries.push({
           id: "clue_paranormal_alt",
           clueKey: "paranormal_alt",
           omenId: "om_paranormal_alt",
-          roomId: pickSpawnRoom(ALL_CANDIDATE_ROOMS),
+          roomId: paraRoom,
+          paranormalVariant: WARP_HALLWAY_IDS.has(paraRoom) ? "warped_hallway" : "floating_chair",
           isTrueClue: true,
           revealed: false
         });
@@ -349,6 +357,9 @@ window.Duskwood = window.Duskwood || {};
           const unoccupied = pool.filter((rid) => !occupiedClueRooms.has(rid));
           const pickPool = unoccupied.length ? unoccupied : pool;
           entry.roomId = pickPool[Math.floor(Math.random() * pickPool.length)];
+          if (entry.omenId === "om_paranormal_alt") {
+            entry.paranormalVariant = WARP_HALLWAY_IDS.has(entry.roomId) ? "warped_hallway" : "floating_chair";
+          }
           occupiedClueRooms.add(entry.roomId);
         });
       }
@@ -403,6 +414,13 @@ window.Duskwood = window.Duskwood || {};
       return entry.corruptVariantIdx;
     }
     return 0;
+  }
+
+  function isHallwayWarped(room, matchState) {
+    if (!room || !WARP_HALLWAY_IDS.has(room.id)) return false;
+    return getRevealedEntriesForRoom(room.id, matchState).some(
+      (e) => e.omenId === "om_paranormal_alt"
+    );
   }
 
   // ==================== 3. VERIFIED, ZERO-OVERLAP ROOM CLUE PLACEMENT ANCHORS ====================
@@ -983,7 +1001,16 @@ window.Duskwood = window.Duskwood || {};
           drawPastPlayerRedWallText(ctx, pt.x, pt.y, entry.wallPhrase, Boolean(pt.compactWall));
         }
       } else if (entry.omenId === "om_paranormal_alt") {
-        drawUpsideDownFloatingChair(ctx, pt.x, pt.y, timeSec);
+        if (WARP_HALLWAY_IDS.has(room.id)) {
+          for (let i = 0; i < 6; i++) {
+            const mx = 84 + ((i * 19 + Math.floor(timeSec * 8)) % 40);
+            const my = 72 + ((i * 23 + Math.floor(Math.sin(timeSec * 2 + i) * 6)) % 92);
+            ctx.fillStyle = "rgba(235, 224, 200, 0.42)";
+            ctx.fillRect(mx, my, 1, 1);
+          }
+        } else {
+          drawUpsideDownFloatingChair(ctx, pt.x, pt.y, timeSec);
+        }
       } else if (entry.omenId === "om_rooster_decor") {
         drawChickenDecorModel(ctx, pt.x, pt.y, Boolean(entry.isFakeChicken && headless));
       }
@@ -1063,12 +1090,21 @@ window.Duskwood = window.Duskwood || {};
           clueInspect: { entry, room, isBodyPart: Boolean(pt.onTable) }
         });
       } else if (entry.omenId === "om_paranormal_alt") {
-        list.push({
-          id: "clue_inspect_para",
-          x: ix, y: iy, r: 20,
-          prompt: "[E] INSPECT CHAIR",
-          clueInspect: { entry, room }
-        });
+        if (WARP_HALLWAY_IDS.has(room.id)) {
+          list.push({
+            id: "clue_inspect_para",
+            x: 104, y: 126, r: 34,
+            prompt: "[E] INSPECT WARPED HALLWAY",
+            clueInspect: { entry, room, isWarpedHallway: true }
+          });
+        } else {
+          list.push({
+            id: "clue_inspect_para",
+            x: ix, y: iy, r: 20,
+            prompt: "[E] INSPECT CHAIR",
+            clueInspect: { entry, room }
+          });
+        }
       } else if (entry.omenId === "om_rooster_decor") {
         list.push({
           id: "clue_inspect_chicken",
@@ -1247,6 +1283,45 @@ window.Duskwood = window.Duskwood || {};
     }
 
     if (entry.omenId === "om_paranormal_alt") {
+      if (room && WARP_HALLWAY_IDS.has(room.id)) {
+        return `
+          <svg viewBox="0 0 320 260" class="ci-focus-svg">
+            <defs>
+              <radialGradient id="sconceL" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="rgba(255,244,212,0.88)"/>
+                <stop offset="55%" stop-color="rgba(240,222,184,0.28)"/>
+                <stop offset="100%" stop-color="rgba(240,222,184,0)"/>
+              </radialGradient>
+              <radialGradient id="sconceR" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="rgba(255,246,216,0.92)"/>
+                <stop offset="55%" stop-color="rgba(240,222,184,0.32)"/>
+                <stop offset="100%" stop-color="rgba(240,222,184,0)"/>
+              </radialGradient>
+            </defs>
+            <rect width="320" height="260" fill="#5e5548"/>
+            <polygon points="0,0 320,0 245,76 80,76" fill="#786e60"/>
+            <path d="M52,260 C72,218 118,202 128,176 L196,176 C206,204 238,224 256,260 Z" fill="#544232"/>
+            <rect x="134" y="88" width="32" height="62" fill="#c9c2b2" stroke="#453d34" stroke-width="3"/>
+            <g stroke="#6b6257" stroke-width="1.5">
+              <line x1="136" y1="96" x2="164" y2="96"/><line x1="136" y1="104" x2="164" y2="104"/>
+              <line x1="136" y1="112" x2="164" y2="112"/><line x1="136" y1="120" x2="164" y2="120"/>
+              <line x1="136" y1="128" x2="164" y2="128"/><line x1="136" y1="136" x2="164" y2="136"/>
+              <line x1="136" y1="144" x2="164" y2="144"/>
+            </g>
+            <path d="M0,0 L48,0 C74,48 96,52 126,64 L126,184 C96,196 68,218 52,260 L0,260 Z" fill="#706657"/>
+            <path d="M48,0 C74,48 96,52 126,64 L126,74 C94,62 70,56 44,6 Z" fill="#cfc7b8" stroke="#4a4238" stroke-width="1.5"/>
+            <path d="M52,260 C68,218 96,196 126,184 L126,193 C98,204 72,226 58,260 Z" fill="#c7bfb0" stroke="#4a4238" stroke-width="1.4"/>
+            <path d="M320,0 L248,0 C226,46 210,60 184,72 L184,178 C210,192 232,216 254,260 L320,260 Z" fill="#635a4c"/>
+            <path d="M248,0 C226,46 210,60 184,72 L184,81 C212,68 230,52 254,6 Z" fill="#c9c0b0" stroke="#453d34" stroke-width="1.5"/>
+            <path d="M254,260 C232,216 210,192 184,178 L184,187 C208,200 228,224 248,260 Z" fill="#bfb7a8" stroke="#453d34" stroke-width="1.4"/>
+            <ellipse cx="104" cy="118" rx="34" ry="40" fill="url(#sconceL)"/>
+            <path d="M100,114 L108,114 L110,126 L98,126 Z" fill="#fff7dc" stroke="#85755e" stroke-width="1"/>
+            <path d="M104,126 L104,136 C104,140 97,140 97,134" fill="none" stroke="#4f4335" stroke-width="2"/>
+            <ellipse cx="268" cy="126" rx="46" ry="52" fill="url(#sconceR)"/>
+            <path d="M260,112 L276,112 L280,132 L256,132 Z" fill="#fff9e2" stroke="#8c7b62" stroke-width="1.2"/>
+            <path d="M268,132 L268,148 C268,154 256,154 256,144" fill="none" stroke="#4f4335" stroke-width="2.5"/>
+          </svg>`;
+      }
       return `
         <svg viewBox="0 0 320 260" class="ci-focus-svg">
           <rect width="320" height="260" fill="#211b19"/>
@@ -1339,9 +1414,15 @@ window.Duskwood = window.Duskwood || {};
         if (noteEl) noteEl.textContent = `Scrawled across the cabin wall in dark red: "${phraseStr}". Someone who stayed here before left a final warning behind.`;
       }
     } else if (entry.omenId === "om_paranormal_alt") {
-      if (titleEl) titleEl.textContent = "PARANORMAL ALTERATION";
-      if (subEl) subEl.textContent = `CLUE MANIFESTATION (${roomLabel})`;
-      if (noteEl) noteEl.textContent = "An antique wooden chair hovers upside-down quietly in the corner while the wallpaper behind it bends unnaturally.";
+      if (room && WARP_HALLWAY_IDS.has(room.id)) {
+        if (titleEl) titleEl.textContent = "PARANORMAL ALTERATION — WARPED HALLWAY";
+        if (subEl) subEl.textContent = `SPATIAL DISTORTION (${roomLabel})`;
+        if (noteEl) noteEl.textContent = "The hallway walls, crown molding, and baseboards bulge and curve unnaturally into a wavy, non-Euclidean corridor while the sconces stay lit.";
+      } else {
+        if (titleEl) titleEl.textContent = "PARANORMAL ALTERATION";
+        if (subEl) subEl.textContent = `CLUE MANIFESTATION (${roomLabel})`;
+        if (noteEl) noteEl.textContent = "An antique wooden chair hovers upside-down quietly in the corner while the wallpaper behind it bends unnaturally.";
+      }
     } else if (entry.omenId === "om_rooster_decor") {
       if (titleEl) titleEl.textContent = headless ? "HEADLESS CHICKEN DECOR (FAKE!)" : "BLACK CHICKEN DECOR";
       if (subEl) subEl.textContent = `WALL DECORATION (${roomLabel})`;
@@ -1408,6 +1489,7 @@ window.Duskwood = window.Duskwood || {};
     getRevealedEntriesForRoom,
     isRoomPaintingCorrupted,
     getCorruptPaintingVariant,
+    isHallwayWarped,
     getClueLightPoints,
     renderRoomClues,
     renderRoomClueHighlights,
