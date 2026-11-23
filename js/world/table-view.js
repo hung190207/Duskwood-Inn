@@ -663,6 +663,7 @@ window.Duskwood = window.Duskwood || {};
   let selectedHandIdx = -1;
   let selectedRotation = 0; // 0=0°, 1=90°, 2=180°, 3=270° clockwise for selected Room Card
   let pendingDrawnCard = null;
+  let previewingHandCard = null;
   let hexInterrupted = false;
   let dealTimeouts = [];
   let dealAnimIndices = new Set(); // Only animate newly dealt/drawn cards once
@@ -1095,6 +1096,7 @@ window.Duskwood = window.Duskwood || {};
     selectedHandIdx = -1;
     selectedRotation = 0;
     pendingDrawnCard = null;
+    previewingHandCard = null;
     hexInterrupted = false;
     turnStep = 1;
     drawPity = { sinceRoom: 0, sinceClue: 0, sinceEvent: 0 };
@@ -1767,12 +1769,12 @@ window.Duskwood = window.Duskwood || {};
     stageEl.style.transform =
       `translate(calc(-50% + ${mapPanX}px), calc(-50% + ${mapPanY}px)) scale(${finalScale})`;
 
-    // 1. Render placed parchment Room Cards with real doorway openings on their 4 sides
+    // 1. Render placed vintage Room Cards with hatched walls, icon, name & real open doorways
     rooms.forEach((r) => {
       const doors = r.doors || { N: true, E: true, S: true, W: true };
       const tile = document.createElement("div");
       tile.className =
-        "fp-wood-room-card" +
+        "fp-wood-room-card is-blueprint-tile" +
         (r.isParlor ? " is-parlor" : "") +
         (r.id === "bp_cellar" ? " is-cellar" : "") +
         (doors.N ? " door-n" : "") +
@@ -1783,18 +1785,10 @@ window.Duskwood = window.Duskwood || {};
       tile.style.top = `${r.y * stepY - centerOffsetY}px`;
       tile.title = `${r.fullName || r.name} (${r.x}, ${r.y})${r.id === "bp_cellar" ? " — Event Respawn Room" : ""}`;
 
-      // Visual doorway cutouts + directional notch bars on each open side
-      const doorMarks =
-        (doors.N ? `<span class="tile-door-gap gap-n"></span>` : "") +
-        (doors.E ? `<span class="tile-door-gap gap-e"></span>` : "") +
-        (doors.S ? `<span class="tile-door-gap gap-s"></span>` : "") +
-        (doors.W ? `<span class="tile-door-gap gap-w"></span>` : "");
-
-      tile.innerHTML = `
-        ${doorMarks}
-        <span class="fp-parch-glyph">${r.glyph}</span>
-        <span class="fp-parch-name">${r.name}</span>
-      `;
+      tile.innerHTML = App.CardsDB.buildRoomCardSVG(r.id, doors, {
+        tile: true,
+        name: r.name
+      });
       stageEl.appendChild(tile);
     });
 
@@ -1881,9 +1875,10 @@ window.Duskwood = window.Duskwood || {};
 
       el.addEventListener("pointerenter", () => {
         if (!tooltip) return;
+        const desc = card.flavorBody || card.subtitle || card.effect || "";
         tooltip.innerHTML = `
-          <strong>${card.name}</strong> <span class="fp-tt-tag">${typeInfo.label}</span>
-          <p>${card.effect}</p>
+          <strong>${card.name}</strong> <span class="fp-tt-tag">${card.meta && card.meta.flavorProgress ? card.glyph : typeInfo.label}</span>
+          ${desc ? `<p>${desc}</p>` : ""}
         `;
         tooltip.classList.remove("hidden");
       });
@@ -1953,9 +1948,13 @@ window.Duskwood = window.Duskwood || {};
       const topOmen = candleTray.length ? candleTray[candleTray.length - 1] : null;
       trayPrev.classList.toggle("has-active-clue", Boolean(topOmen));
       if (topOmen) {
+        const bKey = getOmenBookKey(topOmen.id);
+        const clueArt = bKey && App.FieldBook && App.FieldBook.getClueArtSVG
+          ? `<div class="fp-ped-clue-art">${App.FieldBook.getClueArtSVG(bKey)}</div>`
+          : `<span class="fp-ped-card-glyph">${topOmen.glyph}</span>`;
         trayPrev.innerHTML = `
           <span class="fp-ped-card-title">${topOmen.name}</span>
-          <span class="fp-ped-card-glyph">${topOmen.glyph}</span>
+          ${clueArt}
           <span class="fp-ped-card-sub">ACTIVE CLUE (${candleTray.length})</span>
         `;
       } else {
@@ -2057,9 +2056,9 @@ window.Duskwood = window.Duskwood || {};
       btn.style.setProperty("--fan-rot", `${fanRot}deg`);
       btn.style.setProperty("--fan-y", `${fanY}px`);
 
-      if (isImmediatePlayable) {
-        btn.title = "Click twice (double-click) to play";
-      }
+      btn.title = isImmediatePlayable
+        ? "Double-click to play • Right-click to zoom"
+        : "Click to select • Right-click to zoom";
 
       const topBanner = isForcedCellar
         ? `<span class="fp-parch-forced">TURN 1</span>`
@@ -2067,24 +2066,50 @@ window.Duskwood = window.Duskwood || {};
           ? `<span class="fp-parch-forced">TURN 2</span>`
           : `<span class="fp-parch-type">${typeInfo.label}</span>`;
 
+      const zoomHintDot = `<span class="fp-hand-zoom-btn" data-hand-zoom="${idx}" title="Zoom Card">🔍</span>`;
+
       if (card.type === "BLUEPRINT" && card.meta && card.meta.shape) {
         const cardRot = isSelected ? selectedRotation : 0;
         const cardDoors = App.CardsDB.getRotatedDoors(card.meta.shape, cardRot);
-        const shapeInfo = App.CardsDB.ROOM_SHAPES[card.meta.shape];
-        const shapeLbl = shapeInfo ? `${shapeInfo.label} • ${shapeInfo.doorsCount}D` : "";
         btn.classList.add("is-room-hand-card");
         btn.innerHTML = `
+          ${zoomHintDot}
+          ${isForcedCellar ? `<span class="fp-room-forced-pill">TURN 1</span>` : ""}
+          ${isSelected && cardRot > 0 ? `<span class="fp-room-rot-pill">${cardRot * 90}°</span>` : ""}
+          <div class="fp-room-full-art">
+            ${App.CardsDB.buildRoomCardSVG(card.id, cardDoors, { name: card.shortName || card.name })}
+          </div>
+        `;
+      } else if (card.type === "OMEN") {
+        const bKey = getOmenBookKey(card.id);
+        const clueArt = bKey && App.FieldBook && App.FieldBook.getClueArtSVG
+          ? `<div class="fp-hand-clue-art">${App.FieldBook.getClueArtSVG(bKey)}</div>`
+          : `<span class="fp-parch-emblem">${card.glyph}</span>`;
+        btn.classList.add("is-clue-hand-card");
+        btn.innerHTML = `
+          ${zoomHintDot}
+          <div class="fp-parch-inner">
+            <span class="fp-parch-clue-q" aria-hidden="true">?</span>
+            <span class="fp-parch-title">${card.name}</span>
+            ${clueArt}
+            <span class="fp-parch-desc">${card.shortEffect || ""}</span>
+          </div>
+        `;
+      } else if (card.type === "CHIME" && card.meta && card.meta.flavorProgress) {
+        // Keep +30 / +60 / +15 icon clearly visible when unzoomed, while title shows the roleplay name!
+        btn.classList.add("is-flavor-progress-card");
+        btn.innerHTML = `
+          ${zoomHintDot}
           <div class="fp-parch-inner">
             ${topBanner}
             <span class="fp-parch-title">${card.name}</span>
-            <div class="fp-room-dir-wrap">
-              ${App.CardsDB.buildRoomDirectionSVG(cardDoors, card.glyph, { compact: true })}
-            </div>
-            <span class="fp-parch-shape-tag">${shapeLbl}${isSelected && cardRot > 0 ? ` (${cardRot * 90}°)` : ""}</span>
+            <span class="fp-parch-emblem is-progress-num">${card.glyph}</span>
+            <span class="fp-parch-desc fp-parch-rp-hint">Right-click: View</span>
           </div>
         `;
       } else {
         btn.innerHTML = `
+          ${zoomHintDot}
           <div class="fp-parch-inner">
             ${topBanner}
             <span class="fp-parch-title">${card.name}</span>
@@ -2094,7 +2119,22 @@ window.Duskwood = window.Duskwood || {};
         `;
       }
 
-      btn.addEventListener("click", () => {
+      btn.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (pendingDrawnCard || anim.drawAnimating) return;
+        const rotForZoom = card.type === "BLUEPRINT" && isSelected ? selectedRotation : 0;
+        openHandCardZoom(card, rotForZoom);
+      });
+
+      btn.addEventListener("click", (ev) => {
+        if (ev.target && ev.target.closest && ev.target.closest(".fp-hand-zoom-btn")) {
+          ev.stopPropagation();
+          if (pendingDrawnCard || anim.drawAnimating) return;
+          const rotForZoom = card.type === "BLUEPRINT" && isSelected ? selectedRotation : 0;
+          openHandCardZoom(card, rotForZoom);
+          return;
+        }
         if (locked) return;
         if (isForcedCellar) return;
         if (isTurn2OtherLocked) {
@@ -2614,16 +2654,13 @@ window.Duskwood = window.Duskwood || {};
   const VINTAGE_TOP_ORNAMENT_SVG = `
     <svg viewBox="0 0 260 44" class="vc-top-orn-svg" aria-hidden="true">
       <g fill="none" stroke="#1b140f" stroke-linecap="round">
-        <!-- Left swirling filigree -->
         <path d="M112,24 C92,10 74,10 60,22 C48,32 34,28 24,20" stroke-width="2.0"/>
         <path d="M108,30 C92,36 78,34 68,24 C62,18 52,18 48,25 C45,30 51,34 55,31" stroke-width="1.5"/>
         <path d="M98,16 C86,8 72,8 62,13" stroke-width="1.2"/>
-        <!-- Right swirling filigree -->
         <path d="M148,24 C168,10 186,10 200,22 C212,32 226,28 236,20" stroke-width="2.0"/>
         <path d="M152,30 C168,36 182,34 192,24 C198,18 208,18 212,25 C215,30 209,34 205,31" stroke-width="1.5"/>
         <path d="M162,16 C174,8 188,8 198,13" stroke-width="1.2"/>
       </g>
-      <!-- Center antique hourglass -->
       <g transform="translate(119,3)">
         <rect x="2" y="1" width="18" height="3" rx="1" fill="#1b140f"/>
         <rect x="2" y="34" width="18" height="3" rx="1" fill="#1b140f"/>
@@ -2631,13 +2668,100 @@ window.Duskwood = window.Duskwood || {};
         <line x1="18" y1="4" x2="18" y2="34" stroke="#1b140f" stroke-width="1.6"/>
         <path d="M5,4 C5,14 11,17 11,19 C11,21 5,24 5,34 L17,34 C17,24 11,21 11,19 C11,17 17,14 17,4 Z"
               fill="#e8dfc9" stroke="#1b140f" stroke-width="1.4"/>
-        <!-- Falling sand -->
         <path d="M7,9 L15,9 L11,17 Z" fill="#3a2f27"/>
         <path d="M6,34 L16,34 L11,26 Z" fill="#1b140f"/>
         <line x1="11" y1="18" x2="11" y2="27" stroke="#1b140f" stroke-width="1" stroke-dasharray="1.5,1.5"/>
       </g>
     </svg>
   `;
+
+  // CLUE CARD TOP ORNAMENT: Circle "?" flanked by gothic dragon/scroll flourishes (Matches image_41cf5b & image_41da81!)
+  const VINTAGE_CLUE_TOP_ORNAMENT_SVG = `
+    <svg viewBox="0 0 260 44" class="vc-top-orn-svg" aria-hidden="true">
+      <g fill="none" stroke="#1b140f" stroke-linecap="round">
+        <path d="M111,22 C92,8 70,12 52,26 C40,34 28,32 22,24" stroke-width="1.9"/>
+        <path d="M113,26 C95,38 74,36 58,22 C48,14 36,14 30,22" stroke-width="1.35"/>
+        <path d="M149,22 C168,8 190,12 208,26 C220,34 232,32 238,24" stroke-width="1.9"/>
+        <path d="M147,26 C165,38 186,36 202,22 C212,14 224,14 230,22" stroke-width="1.35"/>
+      </g>
+      <!-- Gothic dragon/leaf terminals on left & right -->
+      <path d="M26,26 C18,22 18,14 25,12 C23,17 28,18 32,16 C35,21 31,27 26,26 Z" fill="#1b140f"/>
+      <path d="M234,26 C242,22 242,14 235,12 C237,17 232,18 228,16 C225,21 229,27 234,26 Z" fill="#1b140f"/>
+      <!-- Center antique circular "?" emblem -->
+      <circle cx="130" cy="22" r="16" fill="none" stroke="#241c16" stroke-width="2.2" stroke-dasharray="42,7"/>
+      <path d="M124,15 C124,9.5 136,9.5 136,16 C136,20.5 130.5,21.5 130.5,26.5" fill="none" stroke="#1b140f" stroke-width="3.2" stroke-linecap="round"/>
+      <circle cx="130.5" cy="32.5" r="2.3" fill="#1b140f"/>
+    </svg>
+  `;
+
+  // CLUE CARD BOTTOM ORNAMENT: Gothic bat-crest flanked by curling leaves (Matches image_41cf5b & image_41da81!)
+  const VINTAGE_CLUE_BOT_ORNAMENT_SVG = `
+    <svg viewBox="0 0 240 36" class="vc-bot-orn-svg" aria-hidden="true">
+      <g fill="none" stroke="#1b140f" stroke-linecap="round">
+        <path d="M108,20 C92,8 72,8 56,22 C44,32 32,28 28,20" stroke-width="1.9"/>
+        <path d="M132,20 C148,8 168,8 184,22 C196,32 208,28 212,20" stroke-width="1.9"/>
+        <path d="M104,24 C88,32 72,28 62,18" stroke-width="1.3"/>
+        <path d="M136,24 C152,32 168,28 178,18" stroke-width="1.3"/>
+      </g>
+      <path d="M36,22 C28,18 28,11 36,11 C38,16 44,17 44,23 C40,25 38,24 36,22 Z" fill="#1b140f"/>
+      <path d="M204,22 C212,18 212,11 204,11 C202,16 196,17 196,23 C200,25 202,24 204,22 Z" fill="#1b140f"/>
+      <!-- Center bat emblem -->
+      <path d="M120,14 L117,11 L116,15 C112,14 108,16 106,20 C110,19 113,20 115,23 C117,21 118,22 120,25 C122,22 123,21 125,23 C127,20 130,19 134,20 C132,16 128,14 124,15 L123,11 Z" fill="#1b140f"/>
+    </svg>
+  `;
+
+  // PROGRESS CARD TOP ORNAMENT: Running figure silhouette + swirling filigree (Matches image_41d39e!)
+  const VINTAGE_PROGRESS_TOP_ORNAMENT_SVG = `
+    <svg viewBox="0 0 260 44" class="vc-top-orn-svg" aria-hidden="true">
+      <g fill="none" stroke="#1b140f" stroke-linecap="round">
+        <path d="M108,24 C88,12 68,12 52,24 C40,34 26,30 20,22" stroke-width="1.9"/>
+        <path d="M104,29 C88,36 72,33 62,24 C56,18 46,19 44,26 C42,31 48,34 52,30" stroke-width="1.4"/>
+        <path d="M152,24 C172,12 192,12 208,24 C220,34 234,30 240,22" stroke-width="1.9"/>
+        <path d="M156,29 C172,36 188,33 198,24 C204,18 214,19 216,26 C218,31 212,34 208,30" stroke-width="1.4"/>
+      </g>
+      <!-- Little running survivor icon matching image_41d39e.png -->
+      <g fill="#2b231d" stroke="#140f0b" stroke-width="0.6" transform="translate(116,4)">
+        <circle cx="14" cy="6" r="4.2"/>
+        <path d="M11,11 L17,11 L18,22 L10,22 Z"/>
+        <path d="M11,12 L4,15 L6,19 L11,16 Z"/>
+        <path d="M17,12 L25,9 L26,14 L18,16 Z"/>
+        <path d="M11,21 L5,29 L9,32 L14,24 Z"/>
+        <path d="M16,21 L24,25 L21,34 L17,33 L19,27 L14,24 Z"/>
+      </g>
+    </svg>
+  `;
+
+  // Antique Roman-Numeral Clock Emblem for Progress Cards (Matches "30 MINUTES" in image_41d39e!)
+  function buildProgressMinutesClockSVG(minutes) {
+    const num = Math.abs(Number(minutes) || 30);
+    return `
+      <div class="vc-clock-minutes-row">
+        <svg viewBox="0 0 64 64" class="vc-roman-clock-svg" aria-hidden="true">
+          <circle cx="32" cy="32" r="29" fill="#efe6d0" stroke="#241a12" stroke-width="2.2"/>
+          <circle cx="32" cy="32" r="25" fill="none" stroke="#3d2f23" stroke-width="1.1"/>
+          <circle cx="32" cy="32" r="18" fill="#f5efe0" stroke="#4f3e2e" stroke-width="1.0" stroke-dasharray="2.2,1.6"/>
+          <g font-family="Georgia, serif" font-size="6.2" font-weight="700" fill="#2b2016" text-anchor="middle">
+            <text x="32" y="13">XII</text>
+            <text x="51" y="34">III</text>
+            <text x="32" y="55">VI</text>
+            <text x="13" y="34">IX</text>
+          </g>
+          <g stroke="#36281c" stroke-width="1.3">
+            <line x1="43" y1="13" x2="41" y2="16"/>
+            <line x1="51" y1="21" x2="48" y2="23"/>
+            <line x1="51" y1="43" x2="48" y2="41"/>
+            <line x1="43" y1="51" x2="41" y2="48"/>
+            <line x1="21" y1="51" x2="23" y2="48"/>
+            <line x1="13" y1="43" x2="16" y2="41"/>
+            <line x1="13" y1="21" x2="16" y2="23"/>
+            <line x1="21" y1="13" x2="23" y2="16"/>
+          </g>
+          <text x="32" y="38.5" text-anchor="middle" font-family="'Pixelify Sans', Georgia, serif" font-size="19" font-weight="700" fill="#1c140e">${num}</text>
+        </svg>
+        <span class="vc-minutes-word">MINUTES</span>
+      </div>
+    `;
+  }
 
   const VINTAGE_BOTTOM_ORNAMENT_SVG = `
     <svg viewBox="0 0 240 34" class="vc-bot-orn-svg" aria-hidden="true">
@@ -2663,7 +2787,6 @@ window.Duskwood = window.Duskwood || {};
 
   function buildCornerBadgeSVG(card) {
     if (card.id === "hx_attic" || card.id === "hx_tall_stalker") {
-      // Exact crossed-out golden lantern icon from image_71b117.jpg!
       return `
         <div class="vc-corner-badge" title="${card.id === "hx_attic" ? "No Lanterns Allowed" : "Turn Off All Lights"}">
           <svg viewBox="0 0 40 44" aria-hidden="true">
@@ -2673,11 +2796,14 @@ window.Duskwood = window.Duskwood || {};
             <rect x="14" y="15" width="12" height="13" rx="1.5" fill="#fff4b8" stroke="#7d5d1a" stroke-width="1"/>
             <ellipse cx="20" cy="22" rx="2.5" ry="4" fill="#f09c2b"/>
             <rect x="10" y="31" width="20" height="5" rx="1.5" fill="#b8902a" stroke="#3b280d" stroke-width="1.4"/>
-            <!-- Bold diagonal crimson-brown slash -->
             <line x1="6" y1="9" x2="34" y2="36" stroke="#5c1714" stroke-width="4.2" stroke-linecap="round"/>
             <line x1="6" y1="9" x2="34" y2="36" stroke="#8f241f" stroke-width="2.0" stroke-linecap="round"/>
           </svg>
         </div>`;
+    }
+    // Roleplay flavor Progress cards (+15/+30/+60) display their antique Roman clock emblem instead of a corner pill!
+    if (card.type === "CHIME" && card.meta && card.meta.flavorProgress) {
+      return "";
     }
     if (card.type === "CHIME" && card.meta && card.meta.deltaMinutes) {
       const dm = card.meta.deltaMinutes;
@@ -2686,13 +2812,11 @@ window.Duskwood = window.Duskwood || {};
     if (card.type === "WARD" && card.meta && card.meta.harvesterBackSteps) {
       return `<div class="vc-corner-pill is-ward">-${card.meta.harvesterBackSteps * 30}M</div>`;
     }
-    if (card.type === "BLUEPRINT" && card.meta && card.meta.exits) {
-      return `<div class="vc-corner-pill is-room">${card.meta.exits} DOOR${card.meta.exits > 1 ? "S" : ""}</div>`;
-    }
+    // Room cards have ZERO extra pills or details (matches image_41d75b!)
     return "";
   }
 
-  // Authentic multi-paragraph vintage card copy matching image_71b117.jpg!
+  // Authentic multi-paragraph vintage card copy for Events & Special Progress cards
   const VINTAGE_CARD_COPY = {
     hx_harvester: {
       paragraphs: [
@@ -2766,13 +2890,6 @@ window.Duskwood = window.Duskwood || {};
       ],
       warning: "SURVIVE FOR 90 SECONDS."
     },
-    ch_plus_15: {
-      paragraphs: [
-        "ADVANCES ONLY YOUR PIECE FORWARD BY 15 MINUTES TOWARD 12:00 AM MIDNIGHT.",
-        "THE HOLLOW HARVESTER REMAINS FROZEN IN PLACE THIS TURN."
-      ],
-      warning: "STEADY PACE — HARVESTER STAYS STILL."
-    },
     ch_rewind_30: {
       paragraphs: [
         "REWINDS YOUR PIECE BACK BY 30 MINUTES AWAY FROM 12:00 AM MIDNIGHT.",
@@ -2824,33 +2941,69 @@ window.Duskwood = window.Duskwood || {};
 
   function buildVintageCardMarkup(card, opts) {
     const isFlyer = Boolean(opts && opts.isFlyer);
+    const rotSteps = (opts && typeof opts.rotationSteps === "number") ? opts.rotationSteps : 0;
     const isHex = card.type === "HEX";
     const typeInfo = App.CardsDB.CARD_TYPES[card.type] || { label: card.type };
     const badgeHtml = buildCornerBadgeSVG(card);
 
-    let centerContent = "";
-
+    // 1. ROOM CARDS (BLUEPRINT): Full vintage hatched floorplan + icon + name + direction ONLY (zero details!)
     if (card.type === "BLUEPRINT" && card.meta && card.meta.shape) {
-      const d = App.CardsDB.getRotatedDoors(card.meta.shape, 0);
-      const shapeInfo = App.CardsDB.ROOM_SHAPES[card.meta.shape];
-      centerContent = `
-        <div class="vc-visual-box is-room">
-          ${App.CardsDB.buildRoomDirectionSVG(d, card.glyph)}
+      const d = App.CardsDB.getRotatedDoors(card.meta.shape, rotSteps);
+      return `
+        <div class="vc-room-full-wrap">
+          ${App.CardsDB.buildRoomCardSVG(card.id, d, { zoom: true, name: card.name })}
         </div>
-        <p class="vc-body-p">${(card.effect || "").toUpperCase()}</p>
-        <p class="vc-warn-line">${shapeInfo ? `${shapeInfo.label} ROOM — PRESS [R] TO ROTATE.` : "PLACE ON AN OPEN DOORWAY."}</p>
       `;
-    } else if (card.type === "OMEN") {
+    }
+
+    // 2. CLUE CARDS (OMEN): Matches image_41cf5b.png & image_41da81.png 1:1!
+    if (card.type === "OMEN") {
       const bookKey = getOmenBookKey(card.id);
       const artSvg = bookKey && App.FieldBook && App.FieldBook.getClueArtSVG
         ? App.FieldBook.getClueArtSVG(bookKey)
         : `<span class="vc-big-glyph">${card.glyph}</span>`;
-      centerContent = `
-        <div class="vc-visual-box is-clue">${artSvg}</div>
-        <p class="vc-body-p">${(card.effect || "").toUpperCase()}</p>
-        <p class="vc-warn-line">PLACE IN GRAVEYARD TO CHECK EVERY TURN.</p>
+      const subtitle = (card.subtitle || card.shortEffect || "").toUpperCase();
+      return `
+        ${VINTAGE_BORDER_SVG}
+        <div class="vc-inner vc-clue-layout">
+          ${VINTAGE_CLUE_TOP_ORNAMENT_SVG}
+          <h2 class="vc-title vc-clue-title">${card.name}</h2>
+          ${VINTAGE_TITLE_DIVIDER_SVG}
+          <div class="vc-content vc-clue-content">
+            <div class="vc-visual-box is-clue-zoom">${artSvg}</div>
+            <p class="vc-clue-subtitle">${subtitle}</p>
+          </div>
+          ${VINTAGE_CLUE_BOT_ORNAMENT_SVG}
+        </div>
       `;
-    } else if (VINTAGE_CARD_COPY[card.id]) {
+    }
+
+    // 3. ROLEPLAY PROGRESS CARDS (+15 / +30 / +60): Matches image_41d39e.png ("JUNK REMOVAL" + "30 MINUTES"!)
+    if (card.type === "CHIME" && card.meta && card.meta.flavorProgress) {
+      const dm = card.meta.deltaMinutes || 30;
+      const bodyText = (card.flavorBody || card.effect || "").toUpperCase();
+      return `
+        ${VINTAGE_BORDER_SVG}
+        <div class="vc-inner vc-progress-layout">
+          ${VINTAGE_PROGRESS_TOP_ORNAMENT_SVG}
+          <h2 class="vc-title vc-progress-title">${card.name}</h2>
+          ${VINTAGE_TITLE_DIVIDER_SVG}
+          <div class="vc-content vc-progress-content">
+            <p class="vc-body-p vc-progress-flavor">${bodyText}</p>
+            ${buildProgressMinutesClockSVG(dm)}
+          </div>
+          ${VINTAGE_BOTTOM_ORNAMENT_SVG}
+        </div>
+      `;
+    }
+
+    // 4. EVENT CARDS (HEX), SPECIAL PROGRESS & WARD CARDS
+    let centerContent = "";
+    const topOrn = card.type === "CHIME" || card.type === "WARD"
+      ? VINTAGE_PROGRESS_TOP_ORNAMENT_SVG
+      : VINTAGE_TOP_ORNAMENT_SVG;
+
+    if (VINTAGE_CARD_COPY[card.id]) {
       const copy = VINTAGE_CARD_COPY[card.id];
       const mon = App.Events && App.Events.getMonsterForCard(card);
       centerContent = `
@@ -2861,7 +3014,6 @@ window.Duskwood = window.Duskwood || {};
         ${mon && !isFlyer ? `<div class="vc-monster-foot">ENTITY: ${mon.name}</div>` : ""}
       `;
     } else {
-      // CHIME (Progress) or WARD (Lifesaver)
       centerContent = `
         <div class="vc-medallion">${card.glyph}</div>
         <p class="vc-body-p">${(card.effect || "").toUpperCase()}</p>
@@ -2879,13 +3031,35 @@ window.Duskwood = window.Duskwood || {};
       ${VINTAGE_BORDER_SVG}
       ${badgeHtml}
       <div class="vc-inner">
-        ${VINTAGE_TOP_ORNAMENT_SVG}
+        ${topOrn}
         <h2 class="vc-title${isHex ? " is-crimson" : ""}">${card.name}</h2>
         ${VINTAGE_TITLE_DIVIDER_SVG}
         <div class="vc-content">${centerContent}</div>
         ${VINTAGE_BOTTOM_ORNAMENT_SVG}
       </div>
     `;
+  }
+
+  function openHandCardZoom(card, rotationSteps) {
+    if (!card || pendingDrawnCard || anim.drawAnimating) return;
+    previewingHandCard = card;
+    const spot = document.getElementById("fp-drawn-spotlight");
+    const cardEl = document.getElementById("fp-drawn-card");
+    const btn = spot ? spot.querySelector("button[data-table-action='dismiss-drawn']") : null;
+    if (!spot || !cardEl) return;
+
+    cardEl.className = `fp-vintage-card type-${card.type}${card.type === "BLUEPRINT" ? " is-room-card-zoom" : ""}`;
+    cardEl.innerHTML = buildVintageCardMarkup(card, { isFlyer: false, rotationSteps: rotationSteps || 0 });
+    if (btn) btn.textContent = "[ CLOSE ]";
+    spot.classList.remove("hidden");
+    App.Audio.open();
+  }
+
+  function closeHandCardZoom() {
+    if (!previewingHandCard) return;
+    previewingHandCard = null;
+    document.getElementById("fp-drawn-spotlight")?.classList.add("hidden");
+    App.Audio.close();
   }
 
   // Smooth physical animation: Pedestal Draw Slot -> Center of Screen (flip & scale up!)
@@ -2904,7 +3078,7 @@ window.Duskwood = window.Duskwood || {};
     const targetX = window.innerWidth / 2;
     const targetY = window.innerHeight * 0.47;
 
-    flyer.className = `fp-draw-flyer fp-vintage-card type-${card.type}`;
+    flyer.className = `fp-draw-flyer fp-vintage-card type-${card.type}${card.type === "BLUEPRINT" ? " is-room-card-zoom" : ""}`;
     flyer.innerHTML = buildVintageCardMarkup(card, { isFlyer: true });
     flyer.style.transition = "none";
     flyer.style.left = `${startX}px`;
@@ -2968,7 +3142,7 @@ window.Duskwood = window.Duskwood || {};
       endRot = 6;
     }
 
-    flyer.className = `fp-draw-flyer fp-vintage-card type-${card.type}`;
+    flyer.className = `fp-draw-flyer fp-vintage-card type-${card.type}${card.type === "BLUEPRINT" ? " is-room-card-zoom" : ""}`;
     flyer.innerHTML = buildVintageCardMarkup(card, { isFlyer: true });
     flyer.style.transition = "none";
     flyer.style.left = `${startX}px`;
@@ -3005,7 +3179,7 @@ window.Duskwood = window.Duskwood || {};
     const btn = spot ? spot.querySelector("button[data-table-action='dismiss-drawn']") : null;
     if (!spot || !cardEl) return;
 
-    cardEl.className = `fp-vintage-card type-${card.type}`;
+    cardEl.className = `fp-vintage-card type-${card.type}${card.type === "BLUEPRINT" ? " is-room-card-zoom" : ""}`;
     cardEl.innerHTML = buildVintageCardMarkup(card, { isFlyer: false });
 
     if (btn) {
@@ -3234,6 +3408,10 @@ window.Duskwood = window.Duskwood || {};
 
   function dismissDrawn() {
     if (anim.drawAnimating) return;
+    if (previewingHandCard && !pendingDrawnCard) {
+      closeHandCardZoom();
+      return;
+    }
     if (!pendingDrawnCard) {
       document.getElementById("fp-drawn-spotlight")?.classList.add("hidden");
       return;
@@ -3289,12 +3467,17 @@ window.Duskwood = window.Duskwood || {};
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "fp-parchment-hand-card type-OMEN modal-card-flat";
+        const bKey = getOmenBookKey(card.id);
+        const clueArt = bKey && App.FieldBook && App.FieldBook.getClueArtSVG
+          ? `<div class="fp-hand-clue-art">${App.FieldBook.getClueArtSVG(bKey)}</div>`
+          : `<span class="fp-parch-emblem">${card.glyph}</span>`;
+        btn.classList.add("is-clue-hand-card");
         btn.innerHTML = `
           <div class="fp-parch-inner">
             <span class="fp-parch-type">${isTop ? "ACTIVE CLUE" : "CLUE"}</span>
             <span class="fp-parch-title">${card.name}</span>
-            <span class="fp-parch-emblem">${card.glyph}</span>
-            <span class="fp-parch-desc">${canReclaim ? "Click to Reclaim" : "Preview Only"}</span>
+            ${clueArt}
+            <span class="fp-parch-desc">${canReclaim ? "Click to Reclaim" : (card.shortEffect || "Preview Only")}</span>
           </div>
         `;
         btn.addEventListener("click", () => {
@@ -4174,6 +4357,7 @@ window.Duskwood = window.Duskwood || {};
     selectedHandIdx = -1;
     document.getElementById("table-fp-stage")?.classList.add("hidden");
     document.getElementById("fp-tray-modal")?.classList.add("hidden");
+    previewingHandCard = null;
     document.getElementById("fp-drawn-spotlight")?.classList.add("hidden");
     document.getElementById("fp-gameover-modal")?.classList.add("hidden");
     document.getElementById("fp-rim-tooltip")?.classList.add("hidden");
@@ -4490,6 +4674,13 @@ window.Duskwood = window.Duskwood || {};
     document.addEventListener("keydown", (e) => {
       if (!isOpen) return;
       if (App.FieldBook && App.FieldBook.isOpen()) return;
+      if (previewingHandCard && !pendingDrawnCard) {
+        if (e.code === "Space" || e.code === "Enter" || e.code === "Escape") {
+          e.preventDefault();
+          closeHandCardZoom();
+        }
+        return;
+      }
       if (pendingDrawnCard) {
         if (e.code === "Space" || e.code === "Enter") {
           e.preventDefault();
@@ -4516,7 +4707,7 @@ window.Duskwood = window.Duskwood || {};
 
     document.addEventListener("click", (e) => {
       if (!isOpen) return;
-      if (e.target && e.target.id === "fp-drawn-spotlight" && pendingDrawnCard) {
+      if (e.target && e.target.id === "fp-drawn-spotlight" && (pendingDrawnCard || previewingHandCard)) {
         dismissDrawn();
         return;
       }
@@ -4587,6 +4778,6 @@ window.Duskwood = window.Duskwood || {};
     resolveNeighborBargain,
     getLocalHeldRoleState,
     isOpen: () => isOpen,
-    isBusy: () => anim.introStage !== "DONE" || anim.dealingCards || anim.harvesterRisingNow || anim.rimRotating || anim.drawAnimating || anim.shuffleAnimating || anim.penaltyPlaying || Boolean(pendingDrawnCard) || thiefWheelActive || Boolean(anim.activeStep) || anim.stepQueue.length > 0
+    isBusy: () => anim.introStage !== "DONE" || anim.dealingCards || anim.harvesterRisingNow || anim.rimRotating || anim.drawAnimating || anim.shuffleAnimating || anim.penaltyPlaying || Boolean(pendingDrawnCard) || Boolean(previewingHandCard) || thiefWheelActive || Boolean(anim.activeStep) || anim.stepQueue.length > 0
   };
 })(window.Duskwood);

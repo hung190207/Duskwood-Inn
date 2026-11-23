@@ -1,9 +1,9 @@
 /* ==========================================================================
-   DUSKWOOD INN - Complete Cards Database (5 Categories, 37 Cards)
-   100% faithful mechanics mapped to copyright-safe Duskwood Inn lore:
-   1. BLUEPRINT  (Room Cards)            — 12 rooms & hallways
-   2. OMEN       (Investigation / Clues) — 6 clue families (Chalk Grid has X/O)
-   3. CHIME      (Progress Cards)        — 7 clock & special table cards
+   DUSKWOOD INN - Complete Cards Database (5 Categories)
+   v0.50 Card Visual & Content Update:
+   1. BLUEPRINT  (Room Cards)            — Vintage hatched floorplan + icon + name + direction ONLY (no details)
+   2. OMEN       (Clue Cards)            — Authentic vintage clue art + evocative subtitle
+   3. CHIME      (Progress Cards)        — Roleplay flavor +30/+60/+15 cards (keeps +30/+60 icon when unzoomed)
    4. WARD       (Lifesaver Cards)       — 2 anti-Harvester safety cards
    5. HEX        (Event Cards)           — 10 event cards (Harvester + 9 monster trials)
    ========================================================================== */
@@ -83,6 +83,7 @@ window.Duskwood = window.Duskwood || {};
   };
 
   const DIR_RING = ["N", "E", "S", "W"];
+  let roomSvgSeq = 0;
 
   function getRotatedDoors(shapeOrList, rotationSteps) {
     const base = Array.isArray(shapeOrList)
@@ -97,7 +98,316 @@ window.Duskwood = window.Duskwood || {};
     return doors;
   }
 
-  // Builds a crisp top-down Room Direction diagram SVG (walls + door openings + directional arrows)
+  // ==================== VINTAGE ROOM ICON & FLOORPLAN SVG (Matches image_41d75b & image_41d77c) ====================
+  const HALLWAY_ROOM_IDS = new Set([
+    "bp_l_hallway",
+    "bp_hallway_1",
+    "bp_hallway_2",
+    "bp_t_hallway_1",
+    "bp_t_hallway_2"
+  ]);
+
+  function getRoomCenterIconSVG(roomId) {
+    // 1. The Furnace Room — Crossed Wrench & Screwdriver
+    if (roomId === "bp_furnace") {
+      return `
+        <g stroke="#2a2119" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">
+          <g transform="rotate(42 50 50)">
+            <rect x="46.5" y="27" width="7" height="16" rx="2.5" fill="#c9bfa9"/>
+            <line x1="48.5" y1="29" x2="48.5" y2="41" stroke="#473b2f" stroke-width="1"/>
+            <line x1="51.5" y1="29" x2="51.5" y2="41" stroke="#473b2f" stroke-width="1"/>
+            <rect x="48.6" y="43" width="2.8" height="23" fill="#dfd7c3"/>
+            <polygon points="47.5,66 52.5,66 51.5,73 48.5,73" fill="#b8ae99"/>
+          </g>
+          <g transform="rotate(-42 50 50)">
+            <rect x="47.4" y="34" width="5.2" height="32" rx="1.2" fill="#d9d0bb"/>
+            <path d="M43.5,33 C42.5,27 46,24 48,26 L48,30.5 L52,30.5 L52,26 C54,24 57.5,27 56.5,33 C55.8,36.2 53,37.2 50,37.2 C47,37.2 44.2,36.2 43.5,33 Z" fill="#cfc5ae"/>
+            <circle cx="50" cy="67.5" r="4.5" fill="#cfc5ae"/>
+            <circle cx="50" cy="67.5" r="1.9" fill="#f3ebd6"/>
+          </g>
+        </g>`;
+    }
+
+    // 2. The Bedroom — Top-down wooden bed with pillows & blanket
+    if (roomId === "bp_bedroom") {
+      return `
+        <g stroke="#2a2119" stroke-width="1.6" stroke-linejoin="round">
+          <g transform="rotate(-14 50 50)">
+            <rect x="33" y="31" width="34" height="39" rx="1.5" fill="#cbbda2"/>
+            <rect x="31" y="29" width="38" height="6" rx="1" fill="#8b7d68"/>
+            <rect x="36" y="37" width="12.5" height="8" rx="2" fill="#f5efe0"/>
+            <rect x="51.5" y="37" width="12.5" height="8" rx="2" fill="#f5efe0"/>
+            <path d="M34,47 L66,47 L66,68 L34,68 Z" fill="#ded5c0"/>
+            <path d="M34,47 L49,54 L66,47" fill="none" stroke="#473b2f" stroke-width="1.3"/>
+            <line x1="36" y1="59" x2="64" y2="59" stroke="#5c4e3e" stroke-width="1.1"/>
+            <line x1="36" y1="64" x2="64" y2="64" stroke="#5c4e3e" stroke-width="1.1"/>
+          </g>
+        </g>`;
+    }
+
+    // 3. The Kitchen — Top-down vintage refrigerator
+    if (roomId === "bp_kitchen") {
+      return `
+        <g stroke="#2a2119" stroke-width="1.6" stroke-linejoin="round">
+          <rect x="36" y="28" width="28" height="44" rx="3" fill="#cfc6b2"/>
+          <line x1="36" y1="45" x2="64" y2="45" stroke="#2a2119" stroke-width="1.8"/>
+          <rect x="39" y="31" width="22" height="11" rx="1" fill="#e5decb" stroke="#615445" stroke-width="1"/>
+          <rect x="39" y="48" width="22" height="21" rx="1" fill="#ddd5c2" stroke="#615445" stroke-width="1"/>
+          <rect x="57.5" y="35" width="2.5" height="6" rx="1" fill="#2a2119"/>
+          <rect x="57.5" y="51" width="2.5" height="9" rx="1" fill="#2a2119"/>
+        </g>`;
+    }
+
+    // 4. The Study — Top-down writing desk, chair & inkwell
+    if (roomId === "bp_study") {
+      return `
+        <g stroke="#2a2119" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round">
+          <rect x="33" y="32" width="34" height="20" rx="1.2" fill="#d3c8b2"/>
+          <rect x="42" y="36" width="14" height="11" fill="#f5efe0" stroke="#473b2f" stroke-width="1.1"/>
+          <line x1="49" y1="36" x2="49" y2="47" stroke="#473b2f" stroke-width="1"/>
+          <circle cx="61" cy="40" r="2.3" fill="#2a2119"/>
+          <path d="M61,39 L66,31" stroke="#2a2119" stroke-width="1.4"/>
+          <rect x="40" y="55" width="20" height="13" rx="2" fill="#bfb39c"/>
+          <rect x="38" y="65" width="24" height="4.5" rx="1.5" fill="#9a8d77"/>
+        </g>`;
+    }
+
+    // 5. The Living Room — Top-down plush sofa
+    if (roomId === "bp_living_room") {
+      return `
+        <g stroke="#2a2119" stroke-width="1.6" stroke-linejoin="round">
+          <path d="M29,39 C29,34 33,31 38,31 L62,31 C67,31 71,34 71,39 L71,61 C71,65 67,68 63,68 L37,68 C33,68 29,65 29,61 Z" fill="#c9bfa9"/>
+          <path d="M35,38 L65,38 L65,61 L35,61 Z" fill="#e5decb"/>
+          <line x1="50" y1="39" x2="50" y2="61" stroke="#473b2f" stroke-width="1.3"/>
+          <rect x="29" y="39" width="7" height="25" rx="3" fill="#b7ab94"/>
+          <rect x="64" y="39" width="7" height="25" rx="3" fill="#b7ab94"/>
+          <rect x="34" y="31" width="32" height="8" rx="3" fill="#b7ab94"/>
+        </g>`;
+    }
+
+    // 6. The Cellar — Cluster of wooden wine barrels
+    if (roomId === "bp_cellar") {
+      return `
+        <g stroke="#2a2119" stroke-width="1.4" stroke-linejoin="round">
+          <ellipse cx="41" cy="36" rx="9" ry="5.5" fill="#d7ccb5"/>
+          <ellipse cx="41" cy="46" rx="9.5" ry="6" fill="#cfc3aa"/>
+          <ellipse cx="41" cy="57" rx="9.5" ry="6" fill="#d7ccb5"/>
+          <line x1="33" y1="36" x2="49" y2="36" stroke="#594b3b" stroke-width="0.9"/>
+          <line x1="32.5" y1="46" x2="49.5" y2="46" stroke="#594b3b" stroke-width="0.9"/>
+          <line x1="32.5" y1="57" x2="49.5" y2="57" stroke="#594b3b" stroke-width="0.9"/>
+          <ellipse cx="59" cy="41" rx="9" ry="5.5" fill="#cfc3aa"/>
+          <ellipse cx="59" cy="52" rx="9.5" ry="6" fill="#d7ccb5"/>
+          <ellipse cx="59" cy="63" rx="9" ry="5.5" fill="#c7bba2"/>
+          <line x1="51" y1="41" x2="67" y2="41" stroke="#594b3b" stroke-width="0.9"/>
+          <line x1="50.5" y1="52" x2="67.5" y2="52" stroke="#594b3b" stroke-width="0.9"/>
+          <line x1="51" y1="63" x2="67" y2="63" stroke="#594b3b" stroke-width="0.9"/>
+        </g>`;
+    }
+
+    // 7. The Bathroom — Top-down clawfoot bathtub
+    if (roomId === "bp_bathroom") {
+      return `
+        <g stroke="#2a2119" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">
+          <path d="M35,32 C35,28 39,26 44,26 L56,26 C61,26 65,28 65,32 L65,64 C65,70 59,74 50,74 C41,74 35,70 35,64 Z" fill="#d5cbb6"/>
+          <path d="M39,34 C39,31 42,30 45,30 L55,30 C58,30 61,31 61,34 L61,62 C61,66 57,69 50,69 C43,69 39,66 39,62 Z" fill="#f5efe0"/>
+          <rect x="47" y="25" width="6" height="5" rx="1" fill="#7a6d5c"/>
+          <line x1="50" y1="30" x2="50" y2="35" stroke="#2a2119" stroke-width="2"/>
+          <circle cx="50" cy="62" r="2.2" fill="#473b2f"/>
+        </g>`;
+    }
+
+    // 8. The Dining Room — Round table + 4 chairs
+    if (roomId === "dining_room") {
+      return `
+        <g stroke="#2a2119" stroke-width="1.5" stroke-linejoin="round">
+          <rect x="44" y="25" width="12" height="7" rx="1.5" fill="#c7bba2"/>
+          <rect x="44" y="68" width="12" height="7" rx="1.5" fill="#c7bba2"/>
+          <rect x="25" y="44" width="7" height="12" rx="1.5" fill="#c7bba2"/>
+          <rect x="68" y="44" width="7" height="12" rx="1.5" fill="#c7bba2"/>
+          <circle cx="50" cy="50" r="14.5" fill="#d8cdb6"/>
+          <circle cx="50" cy="50" r="10.5" fill="none" stroke="#5a4c3b" stroke-width="1" stroke-dasharray="2.5,2"/>
+          <circle cx="50" cy="50" r="2.5" fill="#473b2f"/>
+        </g>`;
+    }
+
+    return "";
+  }
+
+  // Ornate black Victorian corner flourishes for Room cards (matches image_41d75b & image_41d77c)
+  const ROOM_CORNER_FLOURISHES = `
+    <g fill="#140f0b" stroke="#140f0b" stroke-width="0.6">
+      <path d="M1,1 L15,1 C11,3 9,6 10,9 C11,11 8,12 6,10 C4,8 3,11 1,15 Z"/>
+      <path d="M99,1 L85,1 C89,3 91,6 90,9 C89,11 92,12 94,10 C96,8 97,11 99,15 Z"/>
+      <path d="M1,99 L15,99 C11,97 9,94 10,91 C11,89 8,88 6,90 C4,92 3,89 1,85 Z"/>
+      <path d="M99,99 L85,99 C89,97 91,94 90,91 C89,89 92,88 94,90 C96,92 97,89 99,85 Z"/>
+    </g>
+  `;
+
+  // Vintage Room Card SVG: diagonal hatched walls, open doorways/corridors, center icon, & name ribbon
+  // Strictly NO details text — ONLY icon + name + direction!
+  function buildRoomCardSVG(roomId, doors, opts) {
+    const o = opts || {};
+    const d = doors || { N: true, E: true, S: true, W: true };
+    const isHallway = HALLWAY_ROOM_IDS.has(roomId);
+    const showName = o.showName !== false && Boolean(o.name);
+    const isTile = Boolean(o.tile);
+    const isZoom = Boolean(o.zoom);
+    const patId = `rm_hatch_${++roomSvgSeq}`;
+    const strokeW = isTile ? 2.4 : 2.1;
+
+    // Corridor / doorway opening spans [33..67] (34 units wide, perfectly symmetric across tiles!)
+    const c0 = 33;
+    const c1 = 67;
+    const cw = 34;
+
+    let openFloor = "";
+    let wallEdges = "";
+
+    if (isHallway) {
+      openFloor += `<rect x="${c0}" y="${c0}" width="${cw}" height="${cw}" fill="#f4eee0"/>`;
+      if (d.N) openFloor += `<rect x="${c0}" y="0" width="${cw}" height="${c0 + 2}" fill="#f4eee0"/>`;
+      if (d.S) openFloor += `<rect x="${c0}" y="${c1 - 2}" width="${cw}" height="${100 - c1 + 2}" fill="#f4eee0"/>`;
+      if (d.W) openFloor += `<rect x="0" y="${c0}" width="${c0 + 2}" height="${cw}" fill="#f4eee0"/>`;
+      if (d.E) openFloor += `<rect x="${c1 - 2}" y="${c0}" width="${100 - c1 + 2}" height="${cw}" fill="#f4eee0"/>`;
+
+      if (!d.N) wallEdges += `<line x1="${c0}" y1="${c0}" x2="${c1}" y2="${c0}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      else {
+        wallEdges += `<line x1="${c0}" y1="0" x2="${c0}" y2="${c0}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+        wallEdges += `<line x1="${c1}" y1="0" x2="${c1}" y2="${c0}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      }
+      if (!d.S) wallEdges += `<line x1="${c0}" y1="${c1}" x2="${c1}" y2="${c1}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      else {
+        wallEdges += `<line x1="${c0}" y1="${c1}" x2="${c0}" y2="100" stroke="#16100b" stroke-width="${strokeW}"/>`;
+        wallEdges += `<line x1="${c1}" y1="${c1}" x2="${c1}" y2="100" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      }
+      if (!d.W) wallEdges += `<line x1="${c0}" y1="${c0}" x2="${c0}" y2="${c1}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      else {
+        wallEdges += `<line x1="0" y1="${c0}" x2="${c0}" y2="${c0}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+        wallEdges += `<line x1="0" y1="${c1}" x2="${c0}" y2="${c1}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      }
+      if (!d.E) wallEdges += `<line x1="${c1}" y1="${c0}" x2="${c1}" y2="${c1}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      else {
+        wallEdges += `<line x1="${c1}" y1="${c0}" x2="100" y2="${c0}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+        wallEdges += `<line x1="${c1}" y1="${c1}" x2="100" y2="${c1}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      }
+    } else {
+      const m = 10;
+      openFloor += `<rect x="${m}" y="${m}" width="${100 - m * 2}" height="${100 - m * 2}" fill="#f4eee0"/>`;
+      if (d.N) openFloor += `<rect x="${c0}" y="0" width="${cw}" height="${m + 2}" fill="#f4eee0"/>`;
+      if (d.S) openFloor += `<rect x="${c0}" y="${100 - m - 2}" width="${cw}" height="${m + 2}" fill="#f4eee0"/>`;
+      if (d.W) openFloor += `<rect x="0" y="${c0}" width="${m + 2}" height="${cw}" fill="#f4eee0"/>`;
+      if (d.E) openFloor += `<rect x="${100 - m - 2}" y="${c0}" width="${m + 2}" height="${cw}" fill="#f4eee0"/>`;
+
+      if (d.N) {
+        wallEdges += `<polyline points="${c0},0 ${c0},${m} ${m},${m}" fill="none" stroke="#16100b" stroke-width="${strokeW}"/>`;
+        wallEdges += `<polyline points="${c1},0 ${c1},${m} ${100 - m},${m}" fill="none" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      } else {
+        wallEdges += `<line x1="${m}" y1="${m}" x2="${100 - m}" y2="${m}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      }
+      if (d.S) {
+        wallEdges += `<polyline points="${c0},100 ${c0},${100 - m} ${m},${100 - m}" fill="none" stroke="#16100b" stroke-width="${strokeW}"/>`;
+        wallEdges += `<polyline points="${c1},100 ${c1},${100 - m} ${100 - m},${100 - m}" fill="none" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      } else {
+        wallEdges += `<line x1="${m}" y1="${100 - m}" x2="${100 - m}" y2="${100 - m}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      }
+      if (d.W) {
+        wallEdges += `<polyline points="0,${c0} ${m},${c0} ${m},${m}" fill="none" stroke="#16100b" stroke-width="${strokeW}"/>`;
+        wallEdges += `<polyline points="0,${c1} ${m},${c1} ${m},${100 - m}" fill="none" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      } else {
+        wallEdges += `<line x1="${m}" y1="${m}" x2="${m}" y2="${100 - m}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      }
+      if (d.E) {
+        wallEdges += `<polyline points="100,${c0} ${100 - m},${c0} ${100 - m},${m}" fill="none" stroke="#16100b" stroke-width="${strokeW}"/>`;
+        wallEdges += `<polyline points="100,${c1} ${100 - m},${c1} ${100 - m},${100 - m}" fill="none" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      } else {
+        wallEdges += `<line x1="${100 - m}" y1="${m}" x2="${100 - m}" y2="${100 - m}" stroke="#16100b" stroke-width="${strokeW}"/>`;
+      }
+    }
+
+    let outerEdge = "";
+    if (d.N) {
+      outerEdge += `<line x1="1" y1="1" x2="${c0}" y2="1" stroke="#16100b" stroke-width="2.2"/>`;
+      outerEdge += `<line x1="${c1}" y1="1" x2="99" y2="1" stroke="#16100b" stroke-width="2.2"/>`;
+    } else {
+      outerEdge += `<line x1="1" y1="1" x2="99" y2="1" stroke="#16100b" stroke-width="2.2"/>`;
+    }
+    if (d.S) {
+      outerEdge += `<line x1="1" y1="99" x2="${c0}" y2="99" stroke="#16100b" stroke-width="2.2"/>`;
+      outerEdge += `<line x1="${c1}" y1="99" x2="99" y2="99" stroke="#16100b" stroke-width="2.2"/>`;
+    } else {
+      outerEdge += `<line x1="1" y1="99" x2="99" y2="99" stroke="#16100b" stroke-width="2.2"/>`;
+    }
+    if (d.W) {
+      outerEdge += `<line x1="1" y1="1" x2="1" y2="${c0}" stroke="#16100b" stroke-width="2.2"/>`;
+      outerEdge += `<line x1="1" y1="${c1}" x2="1" y2="99" stroke="#16100b" stroke-width="2.2"/>`;
+    } else {
+      outerEdge += `<line x1="1" y1="1" x2="1" y2="99" stroke="#16100b" stroke-width="2.2"/>`;
+    }
+    if (d.E) {
+      outerEdge += `<line x1="99" y1="1" x2="99" y2="${c0}" stroke="#16100b" stroke-width="2.2"/>`;
+      outerEdge += `<line x1="99" y1="${c1}" x2="99" y2="99" stroke="#16100b" stroke-width="2.2"/>`;
+    } else {
+      outerEdge += `<line x1="99" y1="1" x2="99" y2="99" stroke="#16100b" stroke-width="2.2"/>`;
+    }
+
+    // Subtle directional chevrons right inside each open doorway when inspecting/holding
+    let dirChevrons = "";
+    if (!isTile) {
+      const chCol = "#4c3b2a";
+      if (d.N) dirChevrons += `<polyline points="46,7 50,3 54,7" fill="none" stroke="${chCol}" stroke-width="1.5" stroke-linecap="round"/>`;
+      if (d.S) dirChevrons += `<polyline points="46,93 50,97 54,93" fill="none" stroke="${chCol}" stroke-width="1.5" stroke-linecap="round"/>`;
+      if (d.W) dirChevrons += `<polyline points="7,46 3,50 7,54" fill="none" stroke="${chCol}" stroke-width="1.5" stroke-linecap="round"/>`;
+      if (d.E) dirChevrons += `<polyline points="93,46 97,50 93,54" fill="none" stroke="${chCol}" stroke-width="1.5" stroke-linecap="round"/>`;
+    }
+
+    // Vintage scroll ribbon banner with Room Name (matches image_41d75b & image_41d77c!)
+    let ribbonMarkup = "";
+    if (showName) {
+      const label = String(o.name);
+      const fontSize = isZoom ? (label.length > 14 ? 6.2 : 7.2) : isTile ? (label.length > 10 ? 7.0 : 8.2) : 6.8;
+      const bw = Math.min(82, Math.max(46, label.length * (fontSize * 0.66) + 12));
+      const bh = isZoom ? 13 : isTile ? 14 : 12.5;
+      const bx = 50 - bw / 2;
+      const by = isHallway ? (d.S && !d.N ? 15 : 74) : (isTile ? 75 : 76);
+
+      ribbonMarkup = `
+        <g class="rm-name-ribbon">
+          <polygon points="${bx - 4},${by + 2} ${bx + 2},${by + 2} ${bx + 2},${by + bh - 1} ${bx - 4},${by + bh - 1} ${bx - 1},${by + bh * 0.55}" fill="#e6dcbe" stroke="#36281c" stroke-width="0.9"/>
+          <polygon points="${bx + bw + 4},${by + 2} ${bx + bw - 2},${by + 2} ${bx + bw - 2},${by + bh - 1} ${bx + bw + 4},${by + bh - 1} ${bx + bw + 1},${by + bh * 0.55}" fill="#e6dcbe" stroke="#36281c" stroke-width="0.9"/>
+          <rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="1" fill="#f7f1e1" stroke="#36281c" stroke-width="1.1"/>
+          <text x="50" y="${by + bh * 0.70}" text-anchor="middle" font-family="'Pixelify Sans', Georgia, serif" font-weight="700" font-size="${fontSize}" fill="#23180f" letter-spacing="0.2">${label}</text>
+        </g>`;
+    }
+
+    const iconTransform = showName && !isHallway ? `transform="translate(0, -6) scale(0.94)" transform-origin="50 50"` : "";
+    const centerIcon = !isHallway
+      ? `<g ${iconTransform}>${getRoomCenterIconSVG(roomId)}</g>`
+      : "";
+
+    const bgTint = roomId === "bp_cellar" ? "#efe2d9" : roomId === "dining_room" ? "#f9f2df" : "#f3ebd7";
+    const hatchCol = roomId === "bp_cellar" ? "#5a312c" : "#2e241b";
+
+    return `
+      <svg class="room-blueprint-svg${isTile ? " is-tile" : ""}${isZoom ? " is-zoom" : ""}" viewBox="0 0 100 100" aria-hidden="true">
+        <defs>
+          <pattern id="${patId}" width="5.2" height="5.2" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="5.2" height="5.2" fill="${bgTint}"/>
+            <line x1="0" y1="0" x2="0" y2="5.2" stroke="${hatchCol}" stroke-width="1.35"/>
+          </pattern>
+        </defs>
+        <rect x="0.5" y="0.5" width="99" height="99" fill="url(#${patId})"/>
+        ${openFloor}
+        ${wallEdges}
+        ${outerEdge}
+        ${ROOM_CORNER_FLOURISHES}
+        ${dirChevrons}
+        ${centerIcon}
+        ${ribbonMarkup}
+      </svg>
+    `;
+  }
+
+  // Translucent top-down Room Direction preview SVG (used for green ghost placement slots!)
   function buildRoomDirectionSVG(doors, centerGlyph, opts) {
     const compact = Boolean(opts && opts.compact);
     const ghost = Boolean(opts && opts.ghost);
@@ -106,10 +416,7 @@ window.Duskwood = window.Duskwood || {};
     const wallInner = ghost ? "rgba(246, 232, 198, 0.16)" : "#d9c7a0";
     const frameStroke = ghost ? "rgba(246, 232, 198, 0.65)" : "#24170e";
 
-    // Room square sits inside [16..64] x [16..64] of an 80x80 viewBox so arrows extend cleanly outward
-    // Wall thickness = 6; doorway gap spans [33..47] (14 units centered at 40)
     const walls = [];
-    // Top wall (y = 16..22)
     if (doors.N) {
       walls.push(`<rect x="16" y="16" width="17" height="6" fill="${wallCol}"/>`);
       walls.push(`<rect x="47" y="16" width="17" height="6" fill="${wallCol}"/>`);
@@ -117,7 +424,6 @@ window.Duskwood = window.Duskwood || {};
     } else {
       walls.push(`<rect x="16" y="16" width="48" height="6" fill="${wallCol}"/>`);
     }
-    // Bottom wall (y = 58..64)
     if (doors.S) {
       walls.push(`<rect x="16" y="58" width="17" height="6" fill="${wallCol}"/>`);
       walls.push(`<rect x="47" y="58" width="17" height="6" fill="${wallCol}"/>`);
@@ -125,7 +431,6 @@ window.Duskwood = window.Duskwood || {};
     } else {
       walls.push(`<rect x="16" y="58" width="48" height="6" fill="${wallCol}"/>`);
     }
-    // Left wall (x = 16..22)
     if (doors.W) {
       walls.push(`<rect x="16" y="16" width="6" height="17" fill="${wallCol}"/>`);
       walls.push(`<rect x="16" y="47" width="6" height="17" fill="${wallCol}"/>`);
@@ -133,7 +438,6 @@ window.Duskwood = window.Duskwood || {};
     } else {
       walls.push(`<rect x="16" y="16" width="6" height="48" fill="${wallCol}"/>`);
     }
-    // Right wall (x = 58..64)
     if (doors.E) {
       walls.push(`<rect x="58" y="16" width="6" height="17" fill="${wallCol}"/>`);
       walls.push(`<rect x="58" y="47" width="6" height="17" fill="${wallCol}"/>`);
@@ -185,19 +489,17 @@ window.Duskwood = window.Duskwood || {};
 
   const CARD_CATALOG = [
     // =========================================================================
-    // 1. BLUEPRINT CARDS (12 Verified Room Cards — synced to The Cabin Game)
-    //    THE DINING ROOM (Cross-shaped, 4 doors) starts pre-placed at (0,0).
+    // 1. BLUEPRINT CARDS (12 Room Cards — Icon + Name + Direction ONLY, no details)
     // =========================================================================
-    // --- DEAD-END (1 Door — 3 Cards) ---
     {
       id: "bp_cellar",
       type: "BLUEPRINT",
       glyph: "CE",
       name: "THE CELLAR",
-      shortName: "CELLAR",
-      shortEffect: "1-way • Respawn Room (Turn 1)",
-      effect: "One-way dead-end room (enter ONLY by dying in an Event, then exit back out). Counts as a room ONLY for Cutting Corners — excluded from all other Events.",
-      lore: "Cold stone steps descend into damp earth where fallen guests await the dawn.",
+      shortName: "THE CELLAR",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 1, shape: "dead_end", baseDoors: ["N"], mandatoryFirst: true, holdsDowned: true, roomStyle: "cellar" }
     },
     {
@@ -206,9 +508,9 @@ window.Duskwood = window.Duskwood || {};
       glyph: "FR",
       name: "THE FURNACE ROOM",
       shortName: "FURNACE",
-      shortEffect: "1 door • Dead-end",
-      effect: "Dead-end boiler room (1 door) with iron pipes and coal grates. Can be rotated 90°, 180°, or 270° to match any open doorway.",
-      lore: "The cast-iron grate breathes warm soot even though the coals are black.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 1, shape: "dead_end", baseDoors: ["N"], roomStyle: "furnace" }
     },
     {
@@ -217,22 +519,20 @@ window.Duskwood = window.Duskwood || {};
       glyph: "BR",
       name: "THE BATHROOM",
       shortName: "BATHROOM",
-      shortEffect: "1 door • Dead-end",
-      effect: "Dead-end bathroom (1 door) with basin, mirror, and clawfoot tub. Certain Hex Events require fixtures inside this room.",
-      lore: "The faucet drips in steady beats, never quite matching the dining room clock.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 1, shape: "dead_end", baseDoors: ["N"], eventProps: true, roomStyle: "bathroom" }
     },
-
-    // --- L-SHAPED (2 Perpendicular Doors — 3 Cards) ---
     {
       id: "bp_kitchen",
       type: "BLUEPRINT",
       glyph: "KT",
       name: "THE KITCHEN",
       shortName: "KITCHEN",
-      shortEffect: "2 doors • L-shaped",
-      effect: "L-shaped cabin kitchen (2 perpendicular doors) stocked with interactive counters and utensils used during Hex Events.",
-      lore: "Iron skillets sway gently above a cold stove as though stirred by drafts.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 2, shape: "l_shape", baseDoors: ["N", "E"], eventProps: true, roomStyle: "kitchen" }
     },
     {
@@ -241,103 +541,100 @@ window.Duskwood = window.Duskwood || {};
       glyph: "BD",
       name: "THE BEDROOM",
       shortName: "BEDROOM",
-      shortEffect: "2 doors • L-shaped",
-      effect: "L-shaped timber bedroom (2 perpendicular doors) with a canopy bed, dresser, and wall portrait for clue checks.",
-      lore: "Fresh sheets remain neatly folded for travelers who never checked out.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 2, shape: "l_shape", baseDoors: ["N", "E"], roomStyle: "bedroom" }
     },
     {
       id: "bp_l_hallway",
       type: "BLUEPRINT",
       glyph: "LH",
-      name: "L-HALL",
+      name: "L-HALLWAY",
       shortName: "L-HALL",
-      shortEffect: "2 doors • L-shaped turn",
-      effect: "L-shaped wooden corner hallway (2 perpendicular doors) that turns the cabin layout around a 90° bend.",
-      lore: "Around the blind corner, the floorboards creak a step behind your boots.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 2, shape: "l_shape", baseDoors: ["N", "E"], isHallway: true }
     },
-
-    // --- I-SHAPED (2 Opposite Doors — 3 Cards) ---
     {
       id: "bp_study",
       type: "BLUEPRINT",
       glyph: "ST",
       name: "THE STUDY",
       shortName: "STUDY",
-      shortEffect: "2 doors • I-shaped",
-      effect: "I-shaped private study (2 opposite doors) lined with oak desks, ledgers, and oil lamps linking two wings straight through.",
-      lore: "Open journals sit beside dry inkwells, every margin covered in tallies.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 2, shape: "i_shape", baseDoors: ["N", "S"], roomStyle: "study" }
     },
     {
       id: "bp_hallway_1",
       type: "BLUEPRINT",
       glyph: "H1",
-      name: "HALL I",
+      name: "STRAIGHT HALLWAY I",
       shortName: "HALL I",
-      shortEffect: "2 doors • I-shaped",
-      effect: "I-shaped straight wooden hallway (2 opposite doors) extending escape corridors cleanly across the cabin.",
-      lore: "Every loose plank groans loudest when you try to run quietly.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 2, shape: "i_shape", baseDoors: ["N", "S"], isHallway: true }
     },
     {
       id: "bp_hallway_2",
       type: "BLUEPRINT",
       glyph: "H2",
-      name: "HALL II",
+      name: "STRAIGHT HALLWAY II",
       shortName: "HALL II",
-      shortEffect: "2 doors • I-shaped",
-      effect: "Second I-shaped straight wooden hallway (2 opposite doors) connecting distant wings back toward The Dining Room.",
-      lore: "Lantern light barely reaches the far frame at the end of the passage.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 2, shape: "i_shape", baseDoors: ["N", "S"], isHallway: true }
     },
-
-    // --- T-SHAPED (3 Doors — 3 Cards) ---
     {
       id: "bp_living_room",
       type: "BLUEPRINT",
       glyph: "LR",
       name: "THE LIVING ROOM",
       shortName: "LIVING",
-      shortEffect: "3 doors • T-shaped",
-      effect: "T-shaped living room (3 doors) furnished with a worn sofa, cabin decor, and an antique standing clock.",
-      lore: "The velvet cushions still hold the imprint of someone who stood up in a hurry.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 3, shape: "t_shape", baseDoors: ["N", "E", "S"], hasClock: true, roomStyle: "living_room" }
     },
     {
       id: "bp_t_hallway_1",
       type: "BLUEPRINT",
       glyph: "T1",
-      name: "T-HALL I",
+      name: "T-HALLWAY I",
       shortName: "T-HALL I",
-      shortEffect: "3 doors • T-shaped",
-      effect: "T-shaped three-way hallway (3 doors) branching the cabin into multiple routes to avoid lethal dead ends.",
-      lore: "Three shadowy doors wait at the fork; only one leads back to the table.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 3, shape: "t_shape", baseDoors: ["N", "E", "S"], isHallway: true }
     },
     {
       id: "bp_t_hallway_2",
       type: "BLUEPRINT",
       glyph: "T2",
-      name: "T-HALL II",
+      name: "T-HALLWAY II",
       shortName: "T-HALL II",
-      shortEffect: "3 doors • T-shaped",
-      effect: "Second T-shaped three-way hallway (3 doors) opening additional loops for evading threats during Hex Events.",
-      lore: "Drafts swirl from three directions at once beneath the hanging beams.",
+      shortEffect: "",
+      effect: "",
+      lore: "",
       meta: { exits: 3, shape: "t_shape", baseDoors: ["N", "E", "S"], isHallway: true }
     },
 
     // =========================================================================
-    // 2. CLUE CARDS (Exact Cabin Game Names — 6 clue families)
+    // 2. CLUE CARDS (Exact Cabin Game Visuals & Subtitles — 6 clue families)
     // =========================================================================
     {
       id: "om_grandfather_clock",
       type: "OMEN",
       glyph: "GC",
       name: "THE GRANDFATHER CLOCK",
-      shortEffect: "Clock & chime reveal",
-      effect: "While on top of the Graveyard, The Grandfather Clock manifests in its assigned room and strikes a deep resonant chime.",
+      subtitle: "WHEN THE CLOCK STRIKES",
+      shortEffect: "When the clock strikes",
+      effect: "When placed on top of the Graveyard, The Grandfather Clock manifests in its room and strikes a resonant chime.",
       lore: "You hear the brass toll before you ever see the tall mahogany cabinet.",
       meta: { clueGroup: "grandfather_clock" }
     },
@@ -346,8 +643,9 @@ window.Duskwood = window.Duskwood || {};
       type: "OMEN",
       glyph: "PP",
       name: "THE PAST PLAYER",
-      shortEffect: "Wall text or remains",
-      effect: "While on top of the Graveyard, Evidence of a Past Player appears in its assigned room as wall writing ('Help us') or skeletal remains.",
+      subtitle: "EVIDENCE OF A PAST PLAYER",
+      shortEffect: "Evidence of a past player",
+      effect: "When placed on top of the Graveyard, Evidence of a Past Player appears in its room as wall writing ('Help us') or skeletal remains.",
       lore: "Someone stayed in this cabin before you — and left a final plea behind.",
       meta: { clueGroup: "past_player" }
     },
@@ -356,8 +654,9 @@ window.Duskwood = window.Duskwood || {};
       type: "OMEN",
       glyph: "CP",
       name: "CORRUPT PAINTING",
-      shortEffect: "Uncanny wall portrait",
-      effect: "While on top of the Graveyard, a framed painting in its assigned room twists into an uncanny, unblinking portrait when inspected with [E].",
+      subtitle: "A PORTRAIT TURNED OMINOUS",
+      shortEffect: "A portrait turned ominous",
+      effect: "When placed on top of the Graveyard, a framed painting in its room twists into an uncanny portrait when inspected with [E].",
       lore: "The eyes stretch far too wide, staring directly back at your lantern.",
       meta: { clueGroup: "corrupt_painting" }
     },
@@ -366,8 +665,9 @@ window.Duskwood = window.Duskwood || {};
       type: "OMEN",
       glyph: "PA",
       name: "PARANORMAL ALTERATION",
-      shortEffect: "Warped room furniture",
-      effect: "While on top of the Graveyard, a room's furniture, fixtures, or wallpaper warps — leaving an antique chair hovering upside-down.",
+      subtitle: "SOMETHING IN THE ROOM HAS CHANGED",
+      shortEffect: "The room has shifted",
+      effect: "When placed on top of the Graveyard, a room's furniture, fixtures, or wallpaper shifts unnaturally — leaving chairs hovering upside-down.",
       lore: "Gravity seems to forget one corner of the cabin.",
       meta: { clueGroup: "paranormal_alteration" }
     },
@@ -376,8 +676,9 @@ window.Duskwood = window.Duskwood || {};
       type: "OMEN",
       glyph: "CD",
       name: "CHICKEN DECOR",
-      shortEffect: "Chicken decor (May be fake!)",
-      effect: "While on top of the Graveyard, a Chicken Decor plaque appears in a room. Beware: sometimes it is a fake clue that loses its head once the 3rd clue is revealed.",
+      subtitle: "A FAMILIAR ROOSTER ON THE WALL",
+      shortEffect: "A rooster upon the wall",
+      effect: "When placed on top of the Graveyard, a Chicken Decor appears in a room. Beware: a fake chicken loses its head once the 3rd clue is revealed.",
       lore: "A carved farmhouse rooster — check its head once three clues have surfaced.",
       meta: { clueGroup: "chicken_decor", canBeDecoy: true }
     },
@@ -386,44 +687,106 @@ window.Duskwood = window.Duskwood || {};
       type: "OMEN",
       glyph: "XO",
       name: "TIC-TAC-TOE",
-      shortEffect: "5 X/O marks across rooms",
-      effect: "While on top of the Graveyard, X or O marks appear across 5 different rooms (including the Study canvas). Whichever symbol appears 3 times is the winning clue.",
+      subtitle: "WINNING X OR O SYMBOL",
+      shortEffect: "Winning X or O symbol",
+      effect: "When placed on top of the Graveyard, X or O marks appear across 5 rooms. Whichever symbol appears 3 times is the winning clue.",
       lore: "An unfinished game etched across five rooms — count every X and O carefully.",
       meta: { clueGroup: "tic_tac_toe", outcomes: ["WINNING X", "WINNING O"] }
     },
 
     // =========================================================================
-    // 3. CHIME CARDS (Progress Cards — balanced SP & MP clock/table effects)
+    // 3. CHIME CARDS (Progress Cards — Roleplay Flavor +30/+60/+15 & Special Cards)
+    //    Unzoomed hand/rim keeps +30 / +60 / +15 icon; zoomed shows immersive flavor!
     // =========================================================================
     {
       id: "ch_plus_15",
       type: "CHIME",
       glyph: "+15",
-      name: "QUIET QUARTER",
-      shortEffect: "Player +15m (Harvester stays)",
-      effect: "Advances ONLY the player pawn forward by 15 minutes toward 12:00 AM Midnight while keeping the Hollow Harvester still this turn.",
-      lore: "A measured quarter-hour tick buys calm steps without rushing midnight.",
-      meta: { deltaMinutes: 15, freezeHarvester: true, skipPassiveStep: true }
+      name: "BRIEF RESPITE",
+      shortEffect: "Brief Respite",
+      flavorBody: "CATCHES YOUR BREATH BESIDE THE HEARTH WHILE THE CABIN HOLDS ITS SILENCE.",
+      effect: "Catches your breath beside the hearth while the cabin holds its silence. (Advances the player piece by 15 minutes.)",
+      lore: "A quiet quarter-hour around the warm embers before the next turn.",
+      meta: { deltaMinutes: 15, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
     },
+    // --- +30 MINUTES ROLEPLAY PROGRESS CARDS (4 immersive variants, identical +30m player-only mechanic) ---
     {
       id: "ch_plus_30",
       type: "CHIME",
       glyph: "+30",
-      name: "HALF-HOUR TOLL",
-      shortEffect: "Player +30m (Harvester stays)",
-      effect: "Advances ONLY the player pawn forward by 30 minutes toward 12:00 AM Midnight. The Hollow Harvester does not move this turn.",
-      lore: "A single brass bell rings from the beam overhead while shadows freeze in place.",
-      meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true }
+      name: "JUNK REMOVAL",
+      shortEffect: "Junk Removal",
+      flavorBody: "CLEARS A RANDOM CLOSET OF JUNK TO ALLOW THE PLAYER TO HIDE IN IT.",
+      effect: "Clears a random closet of junk to allow the player to hide in it. (Advances the player piece by 30 minutes.)",
+      lore: "Pushing aside dusty crates buys precious space — and half an hour closer to midnight.",
+      meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
     },
+    {
+      id: "ch_plus_30_matches",
+      type: "CHIME",
+      glyph: "+30",
+      name: "SPARE MATCHES",
+      shortEffect: "Spare Matches",
+      flavorBody: "TUCKS A DRY BOX OF MATCHES BY THE MANTEL FOR WHEN THE CABIN LIGHTS FAIL.",
+      effect: "Tucks a dry box of matches by the mantel for when the cabin lights fail. (Advances the player piece by 30 minutes.)",
+      lore: "A single sulfur flare steadies shaking fingers in the dark.",
+      meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
+    },
+    {
+      id: "ch_plus_30_hinges",
+      type: "CHIME",
+      glyph: "+30",
+      name: "OILED HINGES",
+      shortEffect: "Oiled Hinges",
+      flavorBody: "SILENCES A CREAKING DOORFRAME SO YOUR STEPS CARRY LESS THROUGH THE HALLS.",
+      effect: "Silences a creaking doorframe so your steps carry less through the halls. (Advances the player piece by 30 minutes.)",
+      lore: "A drop of lamp oil keeps old iron quiet when footsteps pass nearby.",
+      meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
+    },
+    {
+      id: "ch_plus_30_candle",
+      type: "CHIME",
+      glyph: "+30",
+      name: "FRESH TALLOW",
+      shortEffect: "Fresh Tallow",
+      flavorBody: "TRIMS THE WICK OF A BURNING CANDLE TO STEADY THE SHADOWS ACROSS THE ROOM.",
+      effect: "Trims the wick of a burning candle to steady the shadows across the room. (Advances the player piece by 30 minutes.)",
+      lore: "A cleaner flame keeps the corners of the room from creeping inward.",
+      meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
+    },
+    // --- +60 MINUTES ROLEPLAY PROGRESS CARDS (3 immersive variants, identical +60m player-only mechanic) ---
     {
       id: "ch_plus_60",
       type: "CHIME",
       glyph: "+60",
-      name: "FULL-HOUR STRIKE",
-      shortEffect: "Player +60m (Harvester stays)",
-      effect: "Advances ONLY the player pawn forward by 60 minutes toward 12:00 AM Midnight. The Hollow Harvester does not move this turn.",
-      lore: "The grandfather clock skips a whole heartbeat, leaving the hunter stranded behind.",
-      meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true }
+      name: "REINFORCED LATCH",
+      shortEffect: "Reinforced Latch",
+      flavorBody: "WEDGES AN IRON PIN INTO THE PORCH FRAME TO BUY A FULL HOUR OF STILLNESS.",
+      effect: "Wedges an iron pin into the porch frame to buy a full hour of stillness. (Advances the player piece by 60 minutes.)",
+      lore: "Heavy timber holds firm while the grandfather clock skips a whole hour.",
+      meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
+    },
+    {
+      id: "ch_plus_60_corridor",
+      type: "CHIME",
+      glyph: "+60",
+      name: "CLEARED CORRIDOR",
+      shortEffect: "Cleared Corridor",
+      flavorBody: "SHOVES TOPPLED CHAIRS BACK AGAINST THE WALL TO OPEN A CLEAN PATH TOWARD MIDNIGHT.",
+      effect: "Shoves toppled chairs back against the wall to open a clean path toward midnight. (Advances the player piece by 60 minutes.)",
+      lore: "An unobstructed hallway makes every sprint toward dawn feel shorter.",
+      meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
+    },
+    {
+      id: "ch_plus_60_shutters",
+      type: "CHIME",
+      glyph: "+60",
+      name: "BOLTED SHUTTERS",
+      shortEffect: "Bolted Shutters",
+      flavorBody: "LATCHES THE STORM SHUTTERS AGAINST THE PINE WIND AS THE CLOCK SKIPS A FULL HOUR.",
+      effect: "Latches the storm shutters against the pine wind as the clock skips a full hour. (Advances the player piece by 60 minutes.)",
+      lore: "With the gale shut outside, the cabin feels calm for an entire hour.",
+      meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
     },
     {
       id: "ch_rewind_30",
@@ -635,12 +998,15 @@ window.Duskwood = window.Duskwood || {};
     }
   ];
 
-  // Starter discovered set (1 per category so all 5 categories show both known & black "?" silhouettes)
   const DEFAULT_DISCOVERED_IDS = [
     "bp_cellar",
+    "bp_furnace",
+    "bp_t_hallway_1",
     "hx_harvester",
     "om_grandfather_clock",
+    "om_past_traveler",
     "ch_plus_30",
+    "ch_plus_60",
     "ch_the_thief",
     "ch_the_neighbor",
     "wd_salt_circle",
@@ -664,12 +1030,6 @@ window.Duskwood = window.Duskwood || {};
     return arr;
   }
 
-  // ==================== BALANCED DRAW PROBABILITIES + GUARANTEED PITY ENGINE ====================
-  // Tuned via 600-match Monte Carlo simulation so:
-  //   - Matches do NOT rush to 12:00 AM too fast (healthy ~24-34 turn arc)
-  //   - Players do NOT uncover all 3 True Clues too early (~18-26 turns to deduce the Exit Room)
-  //   - Singleplayer strictly excludes all Multiplayer-only / turn-shifting cards
-  //   - The Thief & The Neighbor remain strictly 1x per match in both SP & MP!
   const DRAW_WEIGHTS = {
     CHIME:     0.42,
     BLUEPRINT: 0.23,
@@ -686,22 +1046,24 @@ window.Duskwood = window.Duskwood || {};
     WARD:      0.10
   };
 
-  // Balanced internal Progress (CHIME) weights:
-  //   - Steady +15m & +30m dominate; +60m is rarer so clock doesn't rocket to Midnight!
-  //   - Borrowed Time (-30m) lets investigators slow down Midnight when needed.
-  //   - ch_random_turn, ch_traitor & ch_sacrifice are strictly Multiplayer-only!
+  // Preserves exact +15 (0.22), +30 (0.27 across 4 roleplay cards), +60 (0.10 across 3 roleplay cards) balance!
   const CHIME_CARD_WEIGHTS = {
-    ch_plus_15:      0.22,
-    ch_plus_30:      0.27,
-    ch_rewind_30:    0.08,
-    ch_plus_60:      0.10,
-    ch_shuffle:      0.12,
-    ch_random_board: 0.09,
-    ch_random_turn:  0.08,  // MP only (auto-filtered out in SP)
-    ch_traitor:      0.020, // Rare MP only (strictly 1x/match)
-    ch_sacrifice:    0.020, // Rare MP only (strictly 1x/match)
-    ch_the_thief:    0.06,  // Strictly 1x/match
-    ch_the_neighbor: 0.06   // Strictly 1x/match
+    ch_plus_15:          0.22,
+    ch_plus_30:          0.075,
+    ch_plus_30_matches:  0.065,
+    ch_plus_30_hinges:   0.065,
+    ch_plus_30_candle:   0.065,
+    ch_rewind_30:        0.08,
+    ch_plus_60:          0.036,
+    ch_plus_60_corridor: 0.032,
+    ch_plus_60_shutters: 0.032,
+    ch_shuffle:          0.12,
+    ch_random_board:     0.09,
+    ch_random_turn:      0.08,
+    ch_traitor:          0.020,
+    ch_sacrifice:        0.020,
+    ch_the_thief:        0.06,
+    ch_the_neighbor:     0.06
   };
 
   function pickWeightedFromList(entries) {
@@ -715,7 +1077,6 @@ window.Duskwood = window.Duskwood || {};
     return entries[entries.length - 1].item;
   }
 
-  // Special Progress cards that can appear AT MOST ONCE per entire match!
   const UNIQUE_ONCE_PER_MATCH_IDS = ["ch_the_thief", "ch_the_neighbor", "ch_traitor", "ch_sacrifice"];
 
   function pickProgressCard(isMultiplayer, excludeCardIds) {
@@ -732,10 +1093,6 @@ window.Duskwood = window.Duskwood || {};
     return pickWeightedFromList(weighted) || getById("ch_plus_15");
   }
 
-  // Draws 1 card obeying balanced SP/MP weights AND pity guarantees:
-  //   - At least 1 ROOM within every 4 draws (while unbuilt rooms remain)
-  //   - At least 1 CLUE within every 6 draws (SP) / 7 draws (MP) so answers aren't solved too fast!
-  //   - At least 1 EVENT within every 6 eligible draws (respecting cooldown)
   function drawWeightedCard(opts) {
     const options = opts || {};
     const allowHex = options.allowHex !== false;
@@ -775,9 +1132,9 @@ window.Duskwood = window.Duskwood || {};
     const canDrawRoom = availableRooms.length > 0;
     const canDrawClue = !forbidOmen && (!strictNoDupOmen || allOmens.some((c) => !ownedOmenCounts[c.id]));
 
-    const roomPityCap = 3; // Guarantee Room on 4th draw without one
-    const cluePityCap = isMultiplayer ? 6 : 5; // Guarantee Clue on 6th (SP) or 7th (MP) draw without one
-    const eventPityCap = 5; // Guarantee Event on 6th eligible draw without one
+    const roomPityCap = 3;
+    const cluePityCap = isMultiplayer ? 6 : 5;
+    const eventPityCap = 5;
 
     const pity = options.pityState || null;
     let chosenType = null;
@@ -805,7 +1162,6 @@ window.Duskwood = window.Duskwood || {};
       let wWard  = baseW.WARD;
 
       if (wRoom === 0) {
-        // Late-game once all 11 rooms are placed/held
         wChime = 0.56;
         wOmen  = canDrawClue ? (isMultiplayer ? 0.11 : 0.13) : 0;
         wHex   = canDrawHex ? 0.21 : 0;
@@ -864,9 +1220,6 @@ window.Duskwood = window.Duskwood || {};
     return pickWeightedFromList(weightedHex) || eligibleHexes[0];
   }
 
-  // Random N cards (used for 3-card starter hand & Shuffle Card!)
-  // Caps starter Clues at max 1 so players don't start with 3 clues and solve the game too early,
-  // enforces SP vs MP card filtering, and ensures at least 1 Room when rooms remain!
   function buildStartingHand(count, excludeRoomIds, existingOmenIds, pityState, excludeCardIds, isMultiplayer) {
     const n = count || 3;
     const pickedRooms = new Set(excludeRoomIds || []);
@@ -878,7 +1231,6 @@ window.Duskwood = window.Duskwood || {};
     let omensDealtHere = 0;
 
     for (let i = 0; i < n; i++) {
-      // If last card of a 3-card starter hand and still 0 rooms while rooms exist, gently bias a room
       const availRooms = getByType("BLUEPRINT").filter((c) => !pickedRooms.has(c.id));
       let card = null;
       if (i === n - 1 && n >= 3 && !result.some((c) => c.type === "BLUEPRINT") && availRooms.length > 0) {
@@ -910,7 +1262,6 @@ window.Duskwood = window.Duskwood || {};
     return result;
   }
 
-  // Legacy helper kept for compatibility (builds a 40-card weighted deck matching DRAW_WEIGHTS)
   function buildSingleplayerDeck() {
     const cards = [];
     const usedUnique = new Set();
@@ -933,6 +1284,8 @@ window.Duskwood = window.Duskwood || {};
     getById,
     getByType,
     getRotatedDoors,
+    getRoomCenterIconSVG,
+    buildRoomCardSVG,
     buildRoomDirectionSVG,
     drawWeightedCard,
     buildStartingHand,

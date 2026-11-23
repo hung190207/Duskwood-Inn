@@ -3637,3 +3637,267 @@
 .kn-leg-red   { color: #ff6b6b; }
 .kn-leg-blue  { color: #75c2ff; }
 .kn-leg-green { color: #78f59a; }
+
+
+/* ==================== v0.50 CARD VISUAL UPDATE (ROOMS, CLUES & ROLEPLAY PROGRESS) ==================== */
+/* 1. Placed Room Tiles on the Wooden Round Table (Hatched Vintage Blueprint Look matching image_41d77c) */
+.fp-wood-room-card.is-blueprint-tile {
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.62);
+}
+
+.fp-wood-room-card.is-blueprint-tile.is-parlor {
+  box-shadow: 0 0 11px rgba(255, 224, 145, 0.45), 0 3px 7px rgba(0, 0, 0, 0.65);
+}
+
+.fp-wood-room-card.is-blueprint-tile .room-blueprint-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 2. Hand Card Updates (Room Icon+Name+Direction Only, Clue Mini-Art, +30/+60 Unzoomed Icon, Zoom Badge) */
+.fp-hand-zoom-btn {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 5;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+  background: rgba(24, 17, 12, 0.78);
+  color: #f7eed6;
+  border: 1px solid rgba(235, 214, 172, 0.65);
+  opacity: 0;
+  transition: opacity 0.12s ease, transform 0.1s ease, background-color 0.12s ease;
+  pointer-events: auto;
+  cursor: zoom-in;
+}
+
+.fp-parchment-hand-card:hover .fp-hand-zoom-btn,
+.fp-parchment-hand-card.selected .fp-hand-zoom-btn {
+  opacity: 1;
+}
+
+.fp-hand-zoom-btn:hover {
+  background: #422b18;
+  transform: scale(1.12);
+}
+
+.fp-parchment-hand-card.is-room-hand-card {
+  padding: 4px;
+  background: #efe5cc;
+}
+
+.fp-room-full-art {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.fp-room-full-art .room-blueprint-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.fp-room-forced-pill,
+.fp-room-rot-pill {
+  position: absolute;
+  z-index: 4;
+  font-family: var(--font-title);
+  font-size: 6px;
+  padding: 2px 4px;
+  letter-spacing: 0.4px;
+  pointer-events: none;
+}
+
+.fp-room-forced-pill {
+  top: 5px;
+  left: 5px;
+  color: #fff6d4;
+  background: #8f221e;
+  border: 1px solid #f7c36a;
+}
+
+.fp-room-rot-pill {
+  bottom: 5px;
+  right: 5px;
+  color: #f7eed6;
+  background: rgba(28, 54, 42, 0.90);
+  border: 1px solid #7be89b;
+}
+
+/* Clue Card in Hand & Pedestal */
+.fp-parch-clue-q {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid #241a12;
+  font-family: Georgia, serif;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #1c140e;
+  background: #f5eedb;
+}
+
+.fp-hand-clue-art {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fp-hand-clue-art .fb-ink-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.fp-ped-clue-art {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fp-ped-clue-art .fb-ink-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Unzoomed Roleplay Progress Card (+30 / +60 / +15 icon preserved boldly!) */
+.fp-parch-emblem.is-progress-num {
+  font-size: 20px;
+  color: #1f140c;
+  padding: 4px 8px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(43, 29, 18, 0.45);
+  background: radial-gradient(circle, rgba(255, 250, 236, 0.85) 0%, rgba(220, 200, 158, 0.45) 100%);
+}
+
+.fp-parch-rp-hint {
+  font-size: 7.5px;
+  opacity: 0.72;
+  letter-spacing: 0.3px;
+}
+
+/* 3. Zoomed Vintage Card Layouts (Matches image_41cf5b, image_41d39e, image_41d75b, image_41da81!) */
+.fp-vintage-card.is-room-card-zoom {
+  width: min(370px, 84vw);
+  min-height: min(370px, 84vw);
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  background: #f3ebd7;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.vc-room-full-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vc-room-full-wrap .room-blueprint-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Zoomed Clue Card (image_41cf5b & image_41da81) */
+.vc-clue-title {
+  font-size: clamp(22px, 3.0vw, 29px);
+  letter-spacing: 1.2px;
+  color: #2f251d;
+}
+
+.vc-clue-content {
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.vc-visual-box.is-clue-zoom {
+  width: 162px;
+  height: 162px;
+}
+
+.vc-visual-box.is-clue-zoom .fb-ink-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.vc-clue-subtitle {
+  font-family: var(--font-ui);
+  font-size: clamp(14px, 1.8vw, 17px);
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  color: #2b2017;
+  margin-top: 2px;
+}
+
+/* Zoomed Roleplay Progress Card (image_41d39e: "JUNK REMOVAL" + "30 MINUTES") */
+.vc-progress-title {
+  font-size: clamp(24px, 3.1vw, 31px);
+  letter-spacing: 1.3px;
+  color: #3a322b;
+}
+
+.vc-progress-content {
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 10px 6px;
+}
+
+.vc-progress-flavor {
+  font-size: clamp(16px, 2.0vw, 19px);
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: 0.7px;
+  color: #211a14;
+  max-width: 94%;
+}
+
+.vc-clock-minutes-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.vc-roman-clock-svg {
+  width: 52px;
+  height: 52px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.vc-minutes-word {
+  font-family: var(--font-ui);
+  font-size: clamp(22px, 2.8vw, 28px);
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  color: #2b2118;
+}

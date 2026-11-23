@@ -131,96 +131,122 @@ window.Duskwood = window.Duskwood || {};
   function getClueArtSVG(id) {
     if (id === "clock") {
       return `
-        <svg viewBox="0 0 64 82" class="fb-ink-svg" aria-hidden="true">
-          <path d="M20,10 Q32,1 44,10 L47,16 L17,16 Z" fill="#2b241e" stroke="#140f0b" stroke-width="1.6"/>
-          <rect x="20" y="16" width="24" height="20" fill="#3a3129" stroke="#140f0b" stroke-width="1.6"/>
-          <circle cx="32" cy="26" r="7.5" fill="#ede4ce" stroke="#140f0b" stroke-width="1.5"/>
-          <line x1="32" y1="26" x2="32" y2="20.5" stroke="#140f0b" stroke-width="1.6"/>
-          <line x1="32" y1="26" x2="36.5" y2="26" stroke="#140f0b" stroke-width="1.3"/>
-          <rect x="22" y="36" width="20" height="33" fill="#332a22" stroke="#140f0b" stroke-width="1.6"/>
-          <rect x="26" y="40" width="12" height="25" fill="#171310"/>
-          <line x1="32" y1="41" x2="33.5" y2="57" stroke="#d9c8a2" stroke-width="1.3"/>
-          <circle cx="33.5" cy="58.5" r="3" fill="#d9c8a2"/>
-          <rect x="17" y="69" width="30" height="9" fill="#29221b" stroke="#140f0b" stroke-width="1.6"/>
+        <svg viewBox="0 0 72 96" class="fb-ink-svg" aria-hidden="true">
+          <path d="M21,15 Q36,3 51,15 L54,21 L18,21 Z" fill="#3a322b" stroke="#140f0b" stroke-width="1.6"/>
+          <circle cx="36" cy="9" r="2.2" fill="#211b16"/>
+          <rect x="21" y="21" width="30" height="23" fill="#463d34" stroke="#140f0b" stroke-width="1.6"/>
+          <rect x="24" y="24" width="24" height="17" fill="#2c251f"/>
+          <circle cx="36" cy="32.5" r="8.2" fill="#ede4ce" stroke="#140f0b" stroke-width="1.4"/>
+          <circle cx="36" cy="32.5" r="6.6" fill="none" stroke="#5a4d3f" stroke-width="0.7" stroke-dasharray="1.1,2.3"/>
+          <line x1="36" y1="32.5" x2="36" y2="26.5" stroke="#140f0b" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="36" y1="32.5" x2="40.5" y2="33.5" stroke="#140f0b" stroke-width="1.2" stroke-linecap="round"/>
+          <circle cx="36" cy="32.5" r="1.2" fill="#140f0b"/>
+          <rect x="23" y="44" width="26" height="36" fill="#3b322a" stroke="#140f0b" stroke-width="1.6"/>
+          <rect x="27" y="47" width="18" height="30" fill="#1d1814" stroke="#140f0b" stroke-width="1.1"/>
+          <line x1="32" y1="48" x2="32" y2="62" stroke="#9e9178" stroke-width="0.8"/>
+          <rect x="30.5" y="55" width="3" height="8" rx="0.6" fill="#9c8d74"/>
+          <line x1="40" y1="48" x2="40" y2="60" stroke="#9e9178" stroke-width="0.8"/>
+          <rect x="38.5" y="53" width="3" height="7" rx="0.6" fill="#9c8d74"/>
+          <line x1="36" y1="48" x2="37.2" y2="68" stroke="#e2d4b5" stroke-width="1.2"/>
+          <circle cx="37.4" cy="70.2" r="3.6" fill="#dfd1b2" stroke="#140f0b" stroke-width="1.1"/>
+          <circle cx="37.4" cy="70.2" r="1.4" fill="#594b3b"/>
+          <rect x="19" y="80" width="34" height="5" fill="#332b23" stroke="#140f0b" stroke-width="1.5"/>
+          <rect x="16" y="85" width="40" height="7" rx="1" fill="#261f19" stroke="#140f0b" stroke-width="1.6"/>
         </svg>`;
     }
     if (id === "past_player") {
       return `
-        <svg viewBox="0 0 76 78" class="fb-ink-svg" aria-hidden="true">
-          <text x="38" y="23" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-style="italic" font-weight="700" font-size="16" fill="#18120d" transform="rotate(-6 38 23)">Help us</text>
-          <path d="M22,49 C20,35 28,28 38,28 C48,28 56,35 54,49 C53,55 49,58 47,63 L47,70 L29,70 L29,63 C27,58 23,55 22,49 Z" fill="#dfd5be" stroke="#18120d" stroke-width="2.1"/>
-          <ellipse cx="31" cy="46" rx="5" ry="5.8" fill="#18120d"/>
-          <ellipse cx="45" cy="46" rx="5" ry="5.8" fill="#18120d"/>
-          <path d="M38,51 L35,57 L41,57 Z" fill="#18120d"/>
-          <line x1="33" y1="63" x2="33" y2="70" stroke="#18120d" stroke-width="1.7"/>
-          <line x1="38" y1="63" x2="38" y2="70" stroke="#18120d" stroke-width="1.7"/>
-          <line x1="43" y1="63" x2="43" y2="70" stroke="#18120d" stroke-width="1.7"/>
+        <svg viewBox="0 0 92 92" class="fb-ink-svg" aria-hidden="true">
+          <text x="46" y="30" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-style="italic" font-weight="700" font-size="22" fill="#4f4840" opacity="0.88" transform="rotate(-11 46 30)">Help us</text>
+          <g transform="rotate(-9 48 60)">
+            <path d="M27,59 C25,43 34,35 48,35 C62,35 71,43 69,59 C68,66 63,70 60,76 L60,82 L36,82 L36,76 C33,70 28,66 27,59 Z" fill="#e5dcc7" stroke="#1b1510" stroke-width="2.2"/>
+            <path d="M31,48 C35,40 58,38 65,48 C62,42 36,42 31,48 Z" fill="#9e9381" opacity="0.55"/>
+            <path d="M62,53 C66,58 63,67 57,72 L59,76 L65,67 C68,61 67,55 62,53 Z" fill="#7a7062" opacity="0.5"/>
+            <ellipse cx="39" cy="57" rx="6.2" ry="6.6" fill="#17120e"/>
+            <ellipse cx="56" cy="57" rx="6.2" ry="6.6" fill="#17120e"/>
+            <path d="M47.5,62 L44,69.5 L51,69.5 Z" fill="#17120e"/>
+            <line x1="40" y1="75" x2="40" y2="82" stroke="#17120e" stroke-width="1.8"/>
+            <line x1="45" y1="75" x2="45" y2="82" stroke="#17120e" stroke-width="1.8"/>
+            <line x1="50" y1="75" x2="50" y2="82" stroke="#17120e" stroke-width="1.8"/>
+            <line x1="55" y1="75" x2="55" y2="82" stroke="#17120e" stroke-width="1.8"/>
+          </g>
         </svg>`;
     }
     if (id === "corrupt_painting") {
       return `
-        <svg viewBox="0 0 76 76" class="fb-ink-svg" aria-hidden="true">
-          <rect x="6" y="7" width="64" height="62" fill="#211a14" stroke="#120d09" stroke-width="2.6"/>
-          <rect x="12" y="13" width="52" height="50" fill="#eee5d0" stroke="#120d09" stroke-width="1.4"/>
-          <path d="M17,63 C20,48 28,43 38,43 C48,43 56,48 59,63 Z" fill="#161311"/>
-          <ellipse cx="38" cy="30" rx="9.5" ry="11.5" fill="#d9cdb3" stroke="#161311" stroke-width="1.6"/>
-          <path d="M29,26 C30,17 46,17 47,26 C43,22 33,22 29,26 Z" fill="#161311"/>
-          <path d="M32,37 Q38,46 44,37 L42,44 L34,44 Z" fill="#161311"/>
-          <circle cx="34.5" cy="29.5" r="1.5" fill="#161311"/>
-          <circle cx="41.5" cy="29.5" r="1.5" fill="#161311"/>
+        <svg viewBox="0 0 84 80" class="fb-ink-svg" aria-hidden="true">
+          <rect x="6" y="6" width="72" height="68" fill="#1d1712" stroke="#0d0907" stroke-width="2.4"/>
+          <rect x="10" y="10" width="64" height="60" fill="none" stroke="#857865" stroke-width="1.3" stroke-dasharray="3,1.5"/>
+          <rect x="13" y="13" width="58" height="54" fill="#efe6d3" stroke="#140f0b" stroke-width="1.6"/>
+          <path d="M18,67 C21,50 30,45 42,45 C54,45 63,50 66,67 Z" fill="#14100d"/>
+          <path d="M36,46 L42,54 L48,46" fill="none" stroke="#cfc3ab" stroke-width="1.5"/>
+          <ellipse cx="42" cy="31" rx="10.5" ry="12.5" fill="#dcd0b8" stroke="#14100d" stroke-width="1.6"/>
+          <path d="M30,29 C29,18 39,15 44,17 C51,16 55,21 53,29 C50,24 34,24 30,29 Z" fill="#14100d"/>
+          <path d="M32,35 C34,46 39,51 42,51 C45,51 50,46 52,35 C47,40 37,40 32,35 Z" fill="#14100d"/>
+          <ellipse cx="38" cy="30" rx="2.4" ry="1.8" fill="#14100d"/>
+          <ellipse cx="46" cy="30" rx="2.4" ry="1.8" fill="#14100d"/>
+          <circle cx="38" cy="30" r="0.6" fill="#f3ebd8"/>
+          <circle cx="46" cy="30" r="0.6" fill="#f3ebd8"/>
         </svg>`;
     }
     if (id === "paranormal_alt") {
       return `
-        <svg viewBox="0 0 80 76" class="fb-ink-svg" aria-hidden="true">
-          <g transform="translate(4,6) rotate(-14 22 28)">
-            <ellipse cx="18" cy="36" rx="9" ry="12" fill="#d9ceb6" stroke="#1c1510" stroke-width="2.3"/>
-            <line x1="15" y1="25" x2="15" y2="47" stroke="#1c1510" stroke-width="1.2"/>
-            <line x1="21" y1="25" x2="21" y2="47" stroke="#1c1510" stroke-width="1.2"/>
-            <rect x="14" y="21" width="22" height="5" fill="#2b221a"/>
-            <line x1="17" y1="21" x2="15" y2="4" stroke="#1c1510" stroke-width="2.3"/>
-            <line x1="33" y1="21" x2="31" y2="4" stroke="#1c1510" stroke-width="2.3"/>
+        <svg viewBox="0 0 84 80" class="fb-ink-svg" aria-hidden="true">
+          <g transform="translate(3,5) rotate(-14 23 30)">
+            <ellipse cx="19" cy="40" rx="10" ry="13" fill="#ded3bb" stroke="#1c1510" stroke-width="2.2"/>
+            <ellipse cx="19" cy="40" rx="7" ry="9.5" fill="none" stroke="#473b2f" stroke-width="0.9"/>
+            <line x1="15" y1="31" x2="15" y2="49" stroke="#473b2f" stroke-width="0.9"/>
+            <line x1="19" y1="30" x2="19" y2="50" stroke="#473b2f" stroke-width="0.9"/>
+            <line x1="23" y1="31" x2="23" y2="49" stroke="#473b2f" stroke-width="0.9"/>
+            <rect x="14" y="23" width="24" height="5.5" rx="1" fill="#2b221a"/>
+            <line x1="17" y1="23" x2="15" y2="5" stroke="#1c1510" stroke-width="2.3"/>
+            <line x1="35" y1="23" x2="33" y2="5" stroke="#1c1510" stroke-width="2.3"/>
+            <line x1="25" y1="23" x2="24" y2="8" stroke="#1c1510" stroke-width="1.8"/>
           </g>
-          <g transform="translate(42,10) rotate(8 18 30)">
-            <ellipse cx="18" cy="16" rx="9" ry="12" fill="#d9ceb6" stroke="#1c1510" stroke-width="2.3"/>
-            <line x1="15" y1="5" x2="15" y2="27" stroke="#1c1510" stroke-width="1.2"/>
-            <line x1="21" y1="5" x2="21" y2="27" stroke="#1c1510" stroke-width="1.2"/>
-            <rect x="4" y="28" width="24" height="5.5" fill="#2b221a"/>
-            <line x1="7" y1="33" x2="5" y2="54" stroke="#1c1510" stroke-width="2.3"/>
-            <line x1="25" y1="33" x2="27" y2="54" stroke="#1c1510" stroke-width="2.3"/>
-            <line x1="16" y1="33" x2="16" y2="50" stroke="#1c1510" stroke-width="1.8"/>
+          <g transform="translate(43,10) rotate(6 19 32)">
+            <ellipse cx="19" cy="17" rx="10" ry="13" fill="#ded3bb" stroke="#1c1510" stroke-width="2.2"/>
+            <ellipse cx="19" cy="17" rx="7" ry="9.5" fill="none" stroke="#473b2f" stroke-width="0.9"/>
+            <line x1="15" y1="8" x2="15" y2="26" stroke="#473b2f" stroke-width="0.9"/>
+            <line x1="19" y1="7" x2="19" y2="27" stroke="#473b2f" stroke-width="0.9"/>
+            <line x1="23" y1="8" x2="23" y2="26" stroke="#473b2f" stroke-width="0.9"/>
+            <rect x="4" y="30" width="26" height="5.5" rx="1" fill="#2b221a"/>
+            <line x1="7" y1="35" x2="5" y2="58" stroke="#1c1510" stroke-width="2.3"/>
+            <line x1="27" y1="35" x2="29" y2="58" stroke="#1c1510" stroke-width="2.3"/>
+            <line x1="17" y1="35" x2="17" y2="53" stroke="#1c1510" stroke-width="1.8"/>
           </g>
         </svg>`;
     }
     if (id === "chicken_decor") {
       return `
-        <svg viewBox="0 0 80 78" class="fb-ink-svg" aria-hidden="true">
-          <path d="M22,22 C19,14 26,11 29,15 C32,10 38,13 36,19 C34,25 36,31 43,33 C52,35 60,25 69,28 C64,35 69,40 61,45 C56,52 46,56 35,55 C24,54 17,45 19,35 C20,30 22,26 22,22 Z" fill="#261f19" stroke="#140f0b" stroke-width="1.7"/>
-          <path d="M20,24 L13,27.5 L20,30 Z" fill="#261f19"/>
-          <circle cx="25" cy="23" r="1.6" fill="#f3ead4"/>
-          <path d="M31,39 Q42,36 49,44 Q39,50 31,39 Z" fill="#52463a"/>
-          <line x1="34" y1="55" x2="32" y2="68" stroke="#18120d" stroke-width="2.4"/>
-          <line x1="43" y1="55" x2="45" y2="68" stroke="#18120d" stroke-width="2.4"/>
-          <path d="M26,68 L36,68 M40,68 L51,68" stroke="#18120d" stroke-width="2.1"/>
+        <svg viewBox="0 0 84 82" class="fb-ink-svg" aria-hidden="true">
+          <path d="M23,23 C19,14 27,10 30,15 C33,9 40,12 38,19 C36,26 38,32 46,34 C56,36 64,25 74,28 C68,36 74,42 65,48 C59,55 48,59 36,58 C24,57 17,47 19,36 C20,31 22,27 23,23 Z" fill="#29221b" stroke="#120d09" stroke-width="1.7"/>
+          <path d="M20,25 L12,28.5 L20,31 Z" fill="#211a14"/>
+          <path d="M20,30 C18,34 22,36 24,33 Z" fill="#42362b"/>
+          <circle cx="25.5" cy="24" r="1.7" fill="#f3ead4"/>
+          <path d="M32,41 Q44,37 52,46 Q41,53 32,41 Z" fill="#5e5143"/>
+          <path d="M48,36 Q58,31 66,35 M50,41 Q60,37 68,41" fill="none" stroke="#968975" stroke-width="1"/>
+          <line x1="36" y1="58" x2="34" y2="71" stroke="#18120d" stroke-width="2.4"/>
+          <line x1="45" y1="58" x2="47" y2="71" stroke="#18120d" stroke-width="2.4"/>
+          <path d="M27,71 L38,71 M42,71 L54,71" stroke="#18120d" stroke-width="2.1" stroke-linecap="round"/>
         </svg>`;
     }
     if (id === "winning_x") {
       return `
         <svg viewBox="0 0 76 76" class="fb-ink-svg" aria-hidden="true">
-          <line x1="27" y1="10" x2="27" y2="66" stroke="#1b140f" stroke-width="2.1"/>
-          <line x1="49" y1="10" x2="49" y2="66" stroke="#1b140f" stroke-width="2.1"/>
-          <line x1="10" y1="27" x2="66" y2="27" stroke="#1b140f" stroke-width="2.1"/>
-          <line x1="10" y1="49" x2="66" y2="49" stroke="#1b140f" stroke-width="2.1"/>
-          <path d="M13,13 L23,23 M23,13 L13,23" stroke="#1b140f" stroke-width="2.5"/>
-          <path d="M33,33 L43,43 M43,33 L33,43" stroke="#1b140f" stroke-width="2.5"/>
-          <path d="M53,53 L63,63 M63,53 L53,63" stroke="#1b140f" stroke-width="2.5"/>
-          <line x1="11" y1="11" x2="65" y2="65" stroke="#24180f" stroke-width="2.2" stroke-linecap="round"/>
+          <line x1="27" y1="10" x2="27" y2="66" stroke="#1b140f" stroke-width="2.2"/>
+          <line x1="49" y1="10" x2="49" y2="66" stroke="#1b140f" stroke-width="2.2"/>
+          <line x1="10" y1="27" x2="66" y2="27" stroke="#1b140f" stroke-width="2.2"/>
+          <line x1="10" y1="49" x2="66" y2="49" stroke="#1b140f" stroke-width="2.2"/>
+          <path d="M13,13 L23,23 M23,13 L13,23" stroke="#1b140f" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M33,33 L43,43 M43,33 L33,43" stroke="#1b140f" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M53,53 L63,63 M63,53 L53,63" stroke="#1b140f" stroke-width="2.6" stroke-linecap="round"/>
+          <line x1="10" y1="10" x2="66" y2="66" stroke="#24180f" stroke-width="2.4" stroke-linecap="round"/>
         </svg>`;
     }
     if (id === "ttt_demo") {
       return `
         <svg viewBox="0 0 84 78" class="fb-ink-svg" aria-hidden="true">
-          <g transform="rotate(-11 42 39)" stroke="#1b140f" stroke-linecap="round" fill="none">
+          <g transform="rotate(-8 42 39)" stroke="#1b140f" stroke-linecap="round" fill="none">
             <line x1="30" y1="10" x2="30" y2="68" stroke-width="2.4"/>
             <line x1="54" y1="10" x2="54" y2="68" stroke-width="2.4"/>
             <line x1="10" y1="29" x2="74" y2="29" stroke-width="2.4"/>
@@ -238,14 +264,14 @@ window.Duskwood = window.Duskwood || {};
     }
     return `
       <svg viewBox="0 0 76 76" class="fb-ink-svg" aria-hidden="true">
-        <line x1="27" y1="10" x2="27" y2="66" stroke="#1b140f" stroke-width="2.1"/>
-        <line x1="49" y1="10" x2="49" y2="66" stroke="#1b140f" stroke-width="2.1"/>
-        <line x1="10" y1="27" x2="66" y2="27" stroke="#1b140f" stroke-width="2.1"/>
-        <line x1="10" y1="49" x2="66" y2="49" stroke="#1b140f" stroke-width="2.1"/>
-        <circle cx="58" cy="18" r="5.8" fill="none" stroke="#1b140f" stroke-width="2.4"/>
-        <circle cx="38" cy="38" r="5.8" fill="none" stroke="#1b140f" stroke-width="2.4"/>
-        <circle cx="18" cy="58" r="5.8" fill="none" stroke="#1b140f" stroke-width="2.4"/>
-        <line x1="65" y1="11" x2="11" y2="65" stroke="#24180f" stroke-width="2.2" stroke-linecap="round"/>
+        <line x1="27" y1="10" x2="27" y2="66" stroke="#1b140f" stroke-width="2.2"/>
+        <line x1="49" y1="10" x2="49" y2="66" stroke="#1b140f" stroke-width="2.2"/>
+        <line x1="10" y1="27" x2="66" y2="27" stroke="#1b140f" stroke-width="2.2"/>
+        <line x1="10" y1="49" x2="66" y2="49" stroke="#1b140f" stroke-width="2.2"/>
+        <circle cx="58" cy="18" r="5.8" fill="none" stroke="#1b140f" stroke-width="2.5"/>
+        <circle cx="38" cy="38" r="5.8" fill="none" stroke="#1b140f" stroke-width="2.5"/>
+        <circle cx="18" cy="58" r="5.8" fill="none" stroke="#1b140f" stroke-width="2.5"/>
+        <line x1="66" y1="10" x2="10" y2="66" stroke="#24180f" stroke-width="2.4" stroke-linecap="round"/>
       </svg>`;
   }
 
@@ -438,8 +464,8 @@ window.Duskwood = window.Duskwood || {};
         <div class="fb-howto-card-col">
           <div class="fb-ornate-mini-card">
             ${CARD_CORNERS_SVG}
-            <span class="fb-omc-head">CATCHING UP</span>
-            <span class="fb-omc-body">ADVANCE +30<br>MINUTES</span>
+            <span class="fb-omc-head">JUNK REMOVAL</span>
+            <span class="fb-omc-body">CLEARS CLOSET<br>OF JUNK</span>
             <span class="fb-omc-badge">30m</span>
           </div>
           <span class="fb-howto-card-cap">progress<br>cards</span>

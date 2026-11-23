@@ -160,8 +160,8 @@ window.Duskwood = window.Duskwood || {};
         <div class="tome-howto-card-col">
           <div class="fb-ornate-mini-card tome-mini-card">
             ${corners}
-            <span class="fb-omc-head">CATCHING UP</span>
-            <span class="fb-omc-body">ADVANCE +30<br>MINUTES</span>
+            <span class="fb-omc-head">JUNK REMOVAL</span>
+            <span class="fb-omc-body">CLEARS CLOSET<br>OF JUNK</span>
             <span class="fb-omc-badge">30m</span>
           </div>
           <span class="tome-card-cap">progress<br>cards</span>
@@ -436,10 +436,36 @@ window.Duskwood = window.Duskwood || {};
         (card.id === selectedCardId ? " selected" : "");
 
       if (known) {
-        btn.innerHTML = `
-          <span class="codex-card-glyph">${card.glyph}</span>
-          <span class="codex-card-name">${card.name}</span>
-        `;
+        if (card.type === "BLUEPRINT" && card.meta && card.meta.shape && App.CardsDB.buildRoomCardSVG) {
+          const d0 = App.CardsDB.getRotatedDoors(card.meta.shape, 0);
+          btn.classList.add("is-codex-room");
+          btn.innerHTML = `
+            <div class="codex-mini-room-art">
+              ${App.CardsDB.buildRoomCardSVG(card.id, d0, { tile: true, showName: false })}
+            </div>
+            <span class="codex-card-name">${card.shortName || card.name}</span>
+          `;
+        } else if (card.type === "OMEN") {
+          const cMap = {
+            om_grandfather_clock: "clock",
+            om_past_traveler: "past_player",
+            om_corrupt_painting: "corrupt_painting",
+            om_paranormal_alt: "paranormal_alt",
+            om_rooster_decor: "chicken_decor",
+            om_chalk_grid: "ttt_demo"
+          };
+          const art = cMap[card.id] ? getClueArt(cMap[card.id]) : "";
+          btn.classList.add("is-codex-clue");
+          btn.innerHTML = `
+            <div class="codex-mini-clue-art">${art || `<span class="codex-card-glyph">${card.glyph}</span>`}</div>
+            <span class="codex-card-name">${card.name}</span>
+          `;
+        } else {
+          btn.innerHTML = `
+            <span class="codex-card-glyph">${card.glyph}</span>
+            <span class="codex-card-name">${card.name}</span>
+          `;
+        }
       } else {
         btn.innerHTML = `
           <span class="unknown-q">?</span>
@@ -528,30 +554,71 @@ window.Duskwood = window.Duskwood || {};
     }
 
     const tagClass = `tag-${card.type.toLowerCase()}`;
+
+    // Room cards show ONLY vintage floorplan + icon + name + direction (no details!)
+    if (card.type === "BLUEPRINT" && card.meta && card.meta.shape) {
+      const d0 = App.CardsDB.getRotatedDoors(card.meta.shape, 0);
+      pane.innerHTML = `
+        <div class="page-chapter">ROOM BLUEPRINT &bull; RECORDED</div>
+        <div class="inspector-wrap">
+          <div class="inspector-card-art type-BLUEPRINT is-room-art is-room-pure">
+            ${App.CardsDB.buildRoomCardSVG(card.id, d0, { zoom: true, name: card.name })}
+          </div>
+          <div class="inspector-title">${card.name}</div>
+          ${buildMetaPills(card)}
+        </div>
+        <div class="page-num">IV</div>
+      `;
+      return;
+    }
+
+    const clueKeyMap = {
+      om_grandfather_clock: "clock",
+      om_past_traveler: "past_player",
+      om_corrupt_painting: "corrupt_painting",
+      om_paranormal_alt: "paranormal_alt",
+      om_rooster_decor: "chicken_decor",
+      om_chalk_grid: "ttt_demo"
+    };
+    const isClue = card.type === "OMEN";
+    const isFlavorProg = card.type === "CHIME" && card.meta && card.meta.flavorProgress;
+
+    const artMarkup = isClue && clueKeyMap[card.id]
+      ? `<div class="codex-clue-art">${getClueArt(clueKeyMap[card.id])}</div>`
+      : card.type === "HEX" && App.Events && card.meta && card.meta.monsterId
+        ? `<div class="codex-monster-art">${App.Events.getMonsterPortraitSVG(card.meta.monsterId)}</div>`
+        : `<span class="big-glyph">${card.glyph}</span>`;
+
     pane.innerHTML = `
       <div class="page-chapter">CARD DETAILS &bull; RECORDED</div>
       <div class="inspector-wrap">
-        <div class="inspector-card-art type-${card.type}${card.type === "BLUEPRINT" ? " is-room-art" : ""}">
+        <div class="inspector-card-art type-${card.type}${isClue ? " is-clue-art" : ""}">
           <span class="deck-tag ${tagClass}">${typeInfo.label}</span>
-          ${
-            card.type === "BLUEPRINT" && card.meta && card.meta.shape
-              ? App.CardsDB.buildRoomDirectionSVG(App.CardsDB.getRotatedDoors(card.meta.shape, 0), card.glyph)
-              : card.type === "HEX" && App.Events && card.meta && card.meta.monsterId
-                ? `<div class="codex-monster-art">${App.Events.getMonsterPortraitSVG(card.meta.monsterId)}</div>`
-                : `<span class="big-glyph">${card.glyph}</span>`
-          }
+          ${artMarkup}
         </div>
         <div class="inspector-title">${card.name}</div>
         ${buildMetaPills(card)}
-        <div class="inspector-box">
-          <span class="inspector-label">CARD EFFECT</span>
-          <p class="inspector-effect">${card.effect}</p>
-        </div>
-        ${buildSubEffectsHtml(card)}
-        <div class="inspector-box">
-          <span class="inspector-label">FIELD NOTES</span>
-          <p class="inspector-lore">"${card.lore}"</p>
-        </div>
+        ${isClue && card.subtitle ? `<div class="codex-clue-sub">"${card.subtitle}"</div>` : ""}
+        ${
+          isFlavorProg
+            ? `<div class="inspector-box">
+                 <span class="inspector-label">ROLEPLAY TEXT (${card.glyph} MINUTES)</span>
+                 <p class="inspector-effect">${card.flavorBody}</p>
+               </div>
+               <div class="inspector-box">
+                 <span class="inspector-label">EFFECT</span>
+                 <p class="inspector-lore">Advances ONLY the player piece by ${card.meta.deltaMinutes} minutes (Hollow Harvester stays still).</p>
+               </div>`
+            : `<div class="inspector-box">
+                 <span class="inspector-label">CARD EFFECT</span>
+                 <p class="inspector-effect">${card.effect}</p>
+               </div>
+               ${buildSubEffectsHtml(card)}
+               ${card.lore ? `<div class="inspector-box">
+                 <span class="inspector-label">FIELD NOTES</span>
+                 <p class="inspector-lore">"${card.lore}"</p>
+               </div>` : ""}`
+        }
       </div>
       <div class="page-num">IV</div>
     `;
