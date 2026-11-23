@@ -1953,6 +1953,29 @@ window.Duskwood = window.Duskwood || {};
     if (App.Knight && App.Knight.getRoomRenderables) {
       App.Knight.getRoomRenderables(ctx, roomKeyForRender, timeSec, matchState).forEach((knR) => roomActors.push(knR));
     }
+    if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
+      App.Network.getRemotePlayersInRoom(room.x, room.y).forEach((rp) => {
+        roomActors.push({
+          y: rp.y,
+          draw: () => {
+            const rCfg = Object.assign({}, rp.character, {
+              facing: rp.facing,
+              walking: rp.moving,
+              lantern: rp.lanternOn
+            });
+            if (rp.facingCorner && App.Character.drawBackCornerInWorld) {
+              App.Character.drawBackCornerInWorld(ctx, rp.x, rp.y, rCfg, timeSec);
+            } else {
+              App.Character.drawInWorld(ctx, rp.x, rp.y, rCfg, timeSec, {
+                seated: false,
+                sprinting: rp.sprinting,
+                crouching: rp.crouching
+              });
+            }
+          }
+        });
+      });
+    }
     roomActors.sort((a, b) => a.y - b.y);
     roomActors.forEach((a) => a.draw());
 

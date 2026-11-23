@@ -34,11 +34,9 @@ window.Duskwood = window.Duskwood || {};
       App.Character.renderToCanvas(charCanvas, ch, timeSec);
     }
 
-    const launchScreen = document.getElementById("launch-screen");
-    if (launchScreen && !launchScreen.classList.contains("hidden")) {
-      const launchCanvas = document.getElementById("launch-avatar-canvas");
-      const walkingClone = Object.assign({}, ch, { walking: true, facing: 1 });
-      App.Character.renderToCanvas(launchCanvas, walkingClone, timeSec);
+    const playModal = document.getElementById("modal-play");
+    if (playModal && !playModal.classList.contains("hidden") && App.MenuUI && App.MenuUI.renderSeatAvatars) {
+      App.MenuUI.renderSeatAvatars(timeSec);
     }
 
     requestAnimationFrame(tick);

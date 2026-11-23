@@ -153,17 +153,13 @@ window.Duskwood = window.Duskwood || {};
     App.Audio.setClockTickAttenuation(attenuation);
   }
 
-  // Crisp pixel nameplate drawn directly above the player character's head
-  function drawPlayerNameplate(ox, oy, scale, lightLevel, camX, camY) {
+  // Crisp pixel nameplate drawn directly above any character's head (local or Co-op teammate)
+  function drawNameplateAt(worldX, worldY, rawName, ox, oy, scale, lightLevel, camX, camY, isTeammate) {
     if (lightLevel <= 0.12) return;
+    const name = ((rawName || "SURVIVOR").trim() || "SURVIVOR").toUpperCase();
 
-    const rawName = (App.Config.state.character.name || "SURVIVOR").trim() || "SURVIVOR";
-    const name = rawName.toUpperCase();
-
-    const screenX = Math.round(ox + (player.x - (camX || 0)) * scale);
-    // Character sprite top is roughly at (player.y - 23); place nameplate neatly above head/hat
-    const screenY = Math.round(oy + (player.y - (camY || 0) - 26.5) * scale);
-
+    const screenX = Math.round(ox + (worldX - (camX || 0)) * scale);
+    const screenY = Math.round(oy + (worldY - (camY || 0) - 26.5) * scale);
     const fontSize = Math.max(11, Math.min(17, Math.round(scale * 3.8)));
 
     worldCtx.save();
@@ -180,14 +176,12 @@ window.Duskwood = window.Duskwood || {};
     const boxX = Math.round(screenX - boxW / 2);
     const boxY = Math.round(screenY - boxH);
 
-    // Subtle dark translucent tag with thin silver border matching game UI
-    worldCtx.fillStyle = "rgba(8, 10, 15, 0.66)";
+    worldCtx.fillStyle = isTeammate ? "rgba(12, 22, 34, 0.72)" : "rgba(8, 10, 15, 0.66)";
     worldCtx.fillRect(boxX, boxY, boxW, boxH);
-    worldCtx.strokeStyle = "rgba(188, 198, 212, 0.55)";
+    worldCtx.strokeStyle = isTeammate ? "rgba(130, 212, 255, 0.70)" : "rgba(188, 198, 212, 0.55)";
     worldCtx.lineWidth = 1;
     worldCtx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
 
-    // Crisp black outline + white player name text
     worldCtx.fillStyle = "#07090d";
     const tx = screenX;
     const ty = screenY - padY + 1;
@@ -196,9 +190,24 @@ window.Duskwood = window.Duskwood || {};
     worldCtx.fillText(name, tx, ty - 1);
     worldCtx.fillText(name, tx, ty + 1);
 
-    worldCtx.fillStyle = "#ffffff";
+    worldCtx.fillStyle = isTeammate ? "#d8f2ff" : "#ffffff";
     worldCtx.fillText(name, tx, ty);
     worldCtx.restore();
+  }
+
+  function drawPlayerNameplate(ox, oy, scale, lightLevel, camX, camY) {
+    drawNameplateAt(
+      player.x,
+      player.y,
+      App.Config.state.character.name || "SURVIVOR",
+      ox,
+      oy,
+      scale,
+      lightLevel,
+      camX,
+      camY,
+      false
+    );
   }
 
   function syncHud() {
@@ -230,7 +239,14 @@ window.Duskwood = window.Duskwood || {};
             : "EXPLORING CABIN";
     }
     syncAtticHud();
-    if (diffTag) diffTag.textContent = gameState.difficulty;
+    if (diffTag) {
+      if (gameState.mode === "MULTIPLAYER" && App.Network && App.Network.isMultiplayerMatch()) {
+        const netSt = App.Network.getState();
+        diffTag.textContent = `CO-OP ${netSt.roomCode} (${netSt.occupiedCount}/4) • ${gameState.difficulty}`;
+      } else {
+        diffTag.textContent = gameState.difficulty;
+      }
+    }
     if (clockEl) clockEl.textContent = formatClock(gameState.clockMinutes);
   }
 
@@ -926,6 +942,9 @@ window.Duskwood = window.Duskwood || {};
       const egCanMap = Boolean(App.Endgame && App.Endgame.canInspectTableMap && App.Endgame.canInspectTableMap(gameState));
       if (!egActive || egCanMap) {
         for (const chair of App.GameRoom.CHAIRS) {
+          if (App.Network && App.Network.isMultiplayerMatch() && App.Network.isChairOccupiedByRemote(chair.id)) {
+            continue;
+          }
           const dist = Math.hypot(player.x - chair.x, player.y - chair.y);
           if (dist <= 22) {
             return {
@@ -1386,9 +1405,34 @@ window.Duskwood = window.Duskwood || {};
 
     worldCtx.drawImage(roomBuffer, ox, oy, drawW, drawH);
 
-    // Draw crisp high-res player name above the character's head (hide while driving inside car!)
+    // Sync local position/pose & interpolate remote Co-op teammates
+    if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
+      App.Network.updateRemoteInterpolation(dt);
+      App.Network.sendPlayerState({
+        x: player.x,
+        y: player.y,
+        facing: player.facing,
+        roomX: gameState.currentRoomCoord.x,
+        roomY: gameState.currentRoomCoord.y,
+        seated: player.seated,
+        chairId: player.chairId,
+        moving: player.moving,
+        sprinting: player.sprinting,
+        crouching: player.crouching,
+        lanternOn: player.lanternOn,
+        facingCorner: player.facingCorner
+      });
+    }
+
+    // Draw crisp high-res player name above local & remote Co-op characters (hide during car/slide cutscenes!)
     if (!(App.Endgame && App.Endgame.isCutsceneBlocking(gameState)) && !(App.Basement && App.Basement.isSlideCutscene(gameState))) {
-      drawPlayerNameplate(ox, oy, scale, (inAtticNow || inBasementNow || inForestNow) ? 0.95 : lightLevel, camOffX, camOffY);
+      const nameLight = (inAtticNow || inBasementNow || inForestNow) ? 0.95 : lightLevel;
+      if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && !inAtticNow && !inBasementNow && !inForestNow) {
+        App.Network.getRemotePlayersInRoom(gameState.currentRoomCoord.x, gameState.currentRoomCoord.y).forEach((rp) => {
+          drawNameplateAt(rp.x, rp.y, rp.name, ox, oy, scale, nameLight, camOffX, camOffY, true);
+        });
+      }
+      drawPlayerNameplate(ox, oy, scale, nameLight, camOffX, camOffY);
     }
 
     // Quick Stardew-style black blink transition when crossing doorways between rooms
@@ -1399,16 +1443,27 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
-  function startSingleplayer() {
+  function startMatchCommon(opts) {
+    const o = opts || {};
     const ch = App.Config.state.character;
-    gameState.difficulty = App.Config.state.difficulty || "NORMAL";
+    gameState.mode = o.mode === "MULTIPLAYER" ? "MULTIPLAYER" : "SINGLEPLAYER";
+    gameState.difficulty = o.difficulty || App.Config.state.difficulty || "NORMAL";
+    gameState.roomCode = o.roomCode || "";
+    gameState.localSeatIdx = typeof o.localSeatIdx === "number" ? o.localSeatIdx : 0;
     gameState.currentRoomCoord = { x: 0, y: 0 };
     roomTransitionAlpha = 0;
     roomTransitionCooldown = 0;
     if (App.CabinRooms) App.CabinRooms.clearCache();
     App.TableView.resetTableMatch(gameState);
 
-    const startChair = App.GameRoom.CHAIRS[0];
+    if (gameState.mode === "MULTIPLAYER" && Array.isArray(o.seats)) {
+      const activeSeats = [];
+      o.seats.forEach((s, i) => { if (s) activeSeats.push(i); });
+      gameState.playerSeats = activeSeats.length ? activeSeats : [0];
+    }
+
+    const chairIdx = Math.max(0, Math.min(App.GameRoom.CHAIRS.length - 1, gameState.localSeatIdx));
+    const startChair = App.GameRoom.CHAIRS[chairIdx];
     player.seated = true;
     player.chairId = startChair.id;
     player.facingCorner = false;
@@ -1463,7 +1518,27 @@ window.Duskwood = window.Duskwood || {};
     );
   }
 
+  function startSingleplayer() {
+    if (App.Network && App.Network.getState().role !== "IDLE") {
+      App.Network.leaveTable(true);
+    }
+    startMatchCommon({ mode: "SINGLEPLAYER", localSeatIdx: 0 });
+  }
+
+  function startMultiplayer(mpConfig) {
+    startMatchCommon({
+      mode: "MULTIPLAYER",
+      roomCode: mpConfig && mpConfig.roomCode,
+      difficulty: mpConfig && mpConfig.difficulty,
+      localSeatIdx: mpConfig && typeof mpConfig.localSeatIdx === "number" ? mpConfig.localSeatIdx : 0,
+      seats: mpConfig && mpConfig.seats
+    });
+  }
+
   function exitToLobby() {
+    if (App.Network && App.Network.getState().role !== "IDLE") {
+      App.Network.leaveTable(true);
+    }
     active = false;
     paused = false;
     dialogueOpen = false;
@@ -1794,6 +1869,7 @@ window.Duskwood = window.Duskwood || {};
   App.GameWorld = {
     init,
     startSingleplayer,
+    startMultiplayer,
     exitToLobby,
     forceStandUpForEvent,
     respawnInCellar,

@@ -829,6 +829,31 @@ window.Duskwood = window.Duskwood || {};
     if (App.Knight && App.Knight.getRoomRenderables) {
       App.Knight.getRoomRenderables(ctx, "0,0", timeSec, matchState).forEach((knR) => renderables.push(knR));
     }
+    if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
+      App.Network.getRemotePlayersInRoom(0, 0).forEach((rp) => {
+        const chairObj = CHAIRS[rp.chairId] || CHAIRS[0];
+        renderables.push({
+          y: rp.seated ? chairObj.y + 1 : rp.y,
+          draw: () => {
+            const rCfg = Object.assign({}, rp.character, {
+              facing: rp.facing,
+              walking: rp.moving,
+              lantern: rp.lanternOn
+            });
+            if (rp.facingCorner && App.Character.drawBackCornerInWorld) {
+              App.Character.drawBackCornerInWorld(ctx, rp.x, rp.y, rCfg, timeSec);
+            } else {
+              App.Character.drawInWorld(ctx, rp.x, rp.y, rCfg, timeSec, {
+                seated: rp.seated,
+                sprinting: rp.sprinting,
+                crouching: rp.crouching,
+                hideShadow: rp.seated
+              });
+            }
+          }
+        });
+      });
+    }
 
     renderables.sort((a, b) => a.y - b.y);
     renderables.forEach((item) => item.draw());

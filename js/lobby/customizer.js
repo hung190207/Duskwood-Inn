@@ -22,6 +22,7 @@ window.Duskwood = window.Duskwood || {};
   function syncHeaderAndBadges() {
     const ch = App.Config.state.character;
     const cleanName = (ch.name || "SURVIVOR").trim() || "SURVIVOR";
+    if (App.Network && App.Network.syncLocalProfile) App.Network.syncLocalProfile();
 
     const footerName = document.getElementById("footer-player-name");
     const spName = document.getElementById("sp-player-name");

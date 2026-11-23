@@ -634,44 +634,54 @@
         </div>
       </div>
 
-      <div id="play-multi-panel" class="modal-body stack-gap hidden">
-        <div class="segmented-row">
+      <div id="play-multi-panel" class="modal-body stack-gap-sm hidden">
+        <div id="mp-tab-row" class="segmented-row">
           <button class="silver-btn seg-btn active" data-mp-tab="host">HOST TABLE</button>
           <button class="silver-btn seg-btn" data-mp-tab="join">JOIN TABLE</button>
         </div>
 
+        <!-- Live Network Connection Status Strip -->
+        <div id="mp-conn-bar" class="mp-conn-bar">
+          <span id="mp-conn-dot" class="mp-conn-dot"></span>
+          <span id="mp-conn-text">OPENING TABLE...</span>
+        </div>
+
+        <!-- Shared Live 4-Seat Table Lobby (Shown for Host & Connected Guests!) -->
         <div id="mp-host-view" class="stack-gap-sm">
           <div class="room-code-bar">
             <span class="room-label">TABLE CODE</span>
             <span id="host-room-code" class="room-code">DUSK</span>
-            <button class="silver-btn mini-btn" data-action="copy-code">COPY</button>
-            <button class="silver-btn mini-btn" data-action="regen-code">NEW</button>
+            <button type="button" class="silver-btn mini-btn" id="btn-copy-code" data-action="copy-code">COPY</button>
+            <button type="button" class="silver-btn mini-btn" id="btn-regen-code" data-action="regen-code">NEW</button>
           </div>
 
-          <div class="seat-grid" id="mp-seat-grid">
-            <div class="seat-card occupied">
-              <span class="seat-num">SEAT 1 (HOST)</span>
-              <strong id="mp-seat-1-name">SURVIVOR</strong>
-              <span class="seat-status ready">READY</span>
+          <div class="mp-diff-strip">
+            <span class="mp-diff-label">DIFFICULTY</span>
+            <div class="mp-diff-btns" id="mp-diff-btns">
+              <button type="button" class="silver-btn mini-btn seg-btn active" data-mp-difficulty="NORMAL">NORMAL</button>
+              <button type="button" class="silver-btn mini-btn seg-btn" data-mp-difficulty="NIGHTMARE">NIGHTMARE</button>
             </div>
-            <div class="seat-card">
-              <span class="seat-num">SEAT 2</span>
-              <span>EMPTY CHAIR</span>
-              <span class="seat-status">WAITING...</span>
-            </div>
-            <div class="seat-card">
-              <span class="seat-num">SEAT 3</span>
-              <span>EMPTY CHAIR</span>
-              <span class="seat-status">WAITING...</span>
-            </div>
-            <div class="seat-card">
-              <span class="seat-num">SEAT 4</span>
-              <span>EMPTY CHAIR</span>
-              <span class="seat-status">WAITING...</span>
-            </div>
+          </div>
+
+          <div class="seat-grid" id="mp-seat-grid"></div>
+
+          <!-- Compact Table Lobby Whisper Chat -->
+          <div class="mp-chat-box">
+            <div id="mp-chat-log" class="mp-chat-log"></div>
+            <form id="mp-chat-form" class="mp-chat-form" autocomplete="off">
+              <input
+                id="mp-chat-input"
+                class="silver-input mp-chat-input"
+                type="text"
+                maxlength="90"
+                placeholder="TYPE A MESSAGE TO TABLE..."
+              />
+              <button type="submit" class="silver-btn mini-btn">SEND</button>
+            </form>
           </div>
         </div>
 
+        <!-- Join Table Code Entry Form -->
         <div id="mp-join-view" class="stack-gap-sm hidden">
           <label class="group-label" for="join-code-input">ENTER 4-LETTER TABLE CODE</label>
           <div class="join-input-row">
@@ -683,14 +693,15 @@
               placeholder="XXXX"
               autocomplete="off"
             />
-            <button class="silver-btn primary-btn" data-action="join-room">[ JOIN ]</button>
+            <button type="button" class="silver-btn primary-btn" id="btn-join-room" data-action="join-room">[ JOIN ]</button>
           </div>
-          <p id="join-feedback" class="helper-note">Ask your host for their 4-letter table code.</p>
+          <p id="join-feedback" class="helper-note">Ask your host for their 4-letter table code — works online (P2P) &amp; across local browser tabs.</p>
         </div>
 
         <div class="action-row">
-          <button class="silver-btn subtle-btn" data-action="back-to-modes">[ BACK ]</button>
-          <button class="silver-btn primary-btn" id="btn-launch-mp" data-action="start-multi">[ START TABLE ]</button>
+          <button type="button" class="silver-btn subtle-btn" id="btn-mp-back" data-action="back-to-modes">[ BACK ]</button>
+          <button type="button" class="silver-btn mini-btn hidden" id="btn-mp-ready" data-action="toggle-mp-ready">[ READY ]</button>
+          <button type="button" class="silver-btn primary-btn" id="btn-launch-mp" data-action="start-multi">[ START TABLE ]</button>
         </div>
       </div>
     </div>
@@ -935,6 +946,7 @@
   <script defer src="js/data/paintings.js"></script>
   <script defer src="js/core/audio.js"></script>
   <script defer src="js/core/character.js"></script>
+  <script defer src="js/core/network.js"></script>
   <script defer src="js/lobby/background.js"></script>
   <script defer src="js/lobby/customizer.js"></script>
   <script defer src="js/lobby/tome.js"></script>
