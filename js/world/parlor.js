@@ -32,14 +32,14 @@ window.Duskwood = window.Duskwood || {};
     colRy: 24
   };
 
-  // Antique Grandfather Clock anchor on the North Wall (sound emitter source!)
+  // Antique Wall-Mounted Grandfather Pendulum Clock on the North Wall (sound emitter source!)
   const CLOCK = {
     x: 126,
-    y: 54,
-    left: 118,
-    top: 13,
-    w: 16,
-    h: 45
+    y: 30,
+    left: 119,
+    top: 14,
+    w: 14,
+    h: 28
   };
 
   const CHAIRS = [
@@ -53,7 +53,6 @@ window.Duskwood = window.Duskwood || {};
   const COLLIDERS = [
     { shape: "ellipse", cx: TABLE.cx, cy: TABLE.cy + 2, rx: TABLE.colRx, ry: TABLE.colRy },
     { x: 18,  y: 50, w: 30, h: 12 }, // Fireplace hearth
-    { x: 118, y: 50, w: 16, h: 11 }, // Grandfather Clock base
     { x: 152, y: 48, w: 24, h: 15 }, // Small Upright Parlor Piano + Stool (leaves NE corner open!)
     { x: 15,  y: 74, w: 14, h: 28 }, // West Wall Side Bookshelf (clear of fireplace & West door!)
     { x: 18,  y: 146, w: 16, h: 18 }, // Side Barrel (leaves SW corner open!)
@@ -309,45 +308,49 @@ window.Duskwood = window.Duskwood || {};
     px(c, 179, 142, 4, 3, "#5b9459");
   }
 
-  // Animated Stardew-Style Antique Grandfather Clock on North Wall
+  // Animated Antique Wall-Mounted Grandfather Pendulum Clock on North Wall (dạng treo tường)
   function drawGrandfatherClock(c, timeSec, matchState) {
-    const x = CLOCK.left; // 118
-    const y = CLOCK.top;  // 13
+    const x = CLOCK.left; // 119
+    const y = CLOCK.top;  // 14
     const cx = CLOCK.x;   // 126
 
-    // Floor contact shadow
-    c.fillStyle = "rgba(0, 0, 0, 0.36)";
-    c.fillRect(x - 1, y + 44, 18, 4);
+    // Subtle wall cast shadow directly behind the hanging wooden clock case (NO floor plinth!)
+    c.fillStyle = "rgba(0, 0, 0, 0.34)";
+    c.fillRect(x + 2, y + 3, 13, 25);
+    c.fillRect(cx - 2, y + 27, 5, 4);
 
-    // Ornate Stepped Crown & Brass Finial
-    px(c, cx - 1, y - 2, 2, 2, "#d9b45a"); // Brass spire
-    px(c, x + 2, y, 12, 2, "#2b180e");
-    px(c, x + 3, y + 1, 10, 1, "#6b4129");
-    px(c, x, y + 2, 16, 3, "#2b180e");
-    px(c, x + 1, y + 3, 14, 1, "#825234");
+    // Ornate arched wall crown & brass spire finial
+    px(c, cx - 1, y - 1, 2, 2, "#d9b45a");
+    px(c, x + 2, y + 1, 10, 2, "#26150c");
+    px(c, x + 3, y + 1, 8,  1, "#7a4c2e");
+    px(c, x,     y + 3, 14, 2, "#26150c");
+    px(c, x + 1, y + 3, 12, 1, "#8c5938");
 
-    // Upper Clock Hood & Carved Trunk
-    px(c, x + 1, y + 5, 14, 14, "#2b180e");
-    px(c, x + 2, y + 6, 12, 12, "#593520");
-    px(c, x + 2, y + 19, 12, 21, "#2b180e");
-    px(c, x + 3, y + 20, 10, 19, "#663d25");
-    px(c, x + 3, y + 20, 1, 19, "#825234"); // Wood highlight trim
+    // Wall-mounted upper clock hood (holds the brass-rimmed ivory dial)
+    px(c, x + 1, y + 5, 12, 11, "#26150c");
+    px(c, x + 2, y + 6, 10, 9,  "#593520");
+    px(c, x + 2, y + 6, 1,  9,  "#7d4e31");
 
-    // Plinth Base
-    px(c, x, y + 40, 16, 6, "#2b180e");
-    px(c, x + 1, y + 41, 14, 4, "#54321e");
-    px(c, x + 2, y + 41, 12, 1, "#7d4e31");
+    // Compact wall-mounted drop-pendulum box (hangs cleanly above the wainscoting!)
+    px(c, x + 2, y + 16, 10, 11, "#26150c");
+    px(c, x + 3, y + 17, 8,  9,  "#633b24");
+    px(c, x + 3, y + 17, 1,  9,  "#825234");
 
-    // Brass-Rimmed Ivory Clock Face (centered at cx = 126, cy = 25)
+    // Decorative carved bottom wooden wall-bracket & hanging drop finial (y = 41..44, floating on wall!)
+    px(c, x + 1, y + 26, 12, 2, "#26150c");
+    px(c, x + 2, y + 26, 10, 1, "#7d4e31");
+    px(c, cx - 2, y + 28, 4, 2, "#3b2214");
+    px(c, cx - 1, y + 30, 2, 2, "#c9a44c");
+
+    // Brass-Rimmed Ivory Clock Face (centered at cx = 126, cy = 24)
     const dialX = cx;
-    const dialY = y + 12;
-    fillPixelEllipse(c, dialX, dialY, 5, 5, "#c9a44c");
-    fillPixelEllipse(c, dialX, dialY, 4, 4, "#efe4c8");
-    // 12 / 3 / 6 / 9 markers
-    px(c, dialX, dialY - 3, 1, 1, "#33261b");
-    px(c, dialX + 3, dialY, 1, 1, "#33261b");
-    px(c, dialX, dialY + 3, 1, 1, "#33261b");
-    px(c, dialX - 3, dialY, 1, 1, "#33261b");
+    const dialY = y + 10;
+    fillPixelEllipse(c, dialX, dialY, 4, 4, "#c9a44c");
+    fillPixelEllipse(c, dialX, dialY, 3, 3, "#efe4c8");
+    px(c, dialX, dialY - 2, 1, 1, "#33261b");
+    px(c, dialX + 2, dialY, 1, 1, "#33261b");
+    px(c, dialX, dialY + 2, 1, 1, "#33261b");
+    px(c, dialX - 2, dialY, 1, 1, "#33261b");
 
     // Live Hands synced to Match Time (12:00 PM + matchState.clockMinutes)
     const mins = matchState ? matchState.clockMinutes : 0;
@@ -355,21 +358,20 @@ window.Duskwood = window.Duskwood || {};
     const hourAng = -Math.PI / 2 + ((totalHours % 12) / 12) * Math.PI * 2;
     const minAng = -Math.PI / 2 + ((mins % 60) / 60) * Math.PI * 2;
 
-    drawPixelLine(c, dialX, dialY, dialX + Math.cos(hourAng) * 2.4, dialY + Math.sin(hourAng) * 2.4, "#1c1512");
-    drawPixelLine(c, dialX, dialY, dialX + Math.cos(minAng) * 3.5, dialY + Math.sin(minAng) * 3.5, "#3b2318");
-    px(c, dialX, dialY, 1, 1, "#b83232"); // Center pin
+    drawPixelLine(c, dialX, dialY, dialX + Math.cos(hourAng) * 2.0, dialY + Math.sin(hourAng) * 2.0, "#1c1512");
+    drawPixelLine(c, dialX, dialY, dialX + Math.cos(minAng) * 2.8, dialY + Math.sin(minAng) * 2.8, "#3b2318");
+    px(c, dialX, dialY, 1, 1, "#b83232");
 
     // Glass Pendulum Window + Swinging Brass Pendulum (1 beat / sec)
-    px(c, x + 5, y + 21, 6, 16, "#14100e");
-    px(c, x + 6, y + 22, 4, 14, "#1d1a19");
-    // Glass glint
-    px(c, x + 6, y + 23, 1, 4, "rgba(215, 228, 248, 0.22)");
+    px(c, x + 4, y + 17, 6, 8, "#14100e");
+    px(c, x + 5, y + 18, 4, 6, "#1d1a19");
+    px(c, x + 5, y + 18, 1, 3, "rgba(215, 228, 248, 0.24)");
 
-    const swing = Math.sin(timeSec * Math.PI) * 1.9;
+    const swing = Math.sin(timeSec * Math.PI) * 1.4;
     const bobX = Math.round(cx - 0.5 + swing);
-    const bobY = y + 33;
-    drawPixelLine(c, cx - 0.5, y + 22, bobX, bobY, "#b59142");
-    px(c, bobX - 1, bobY - 1, 3, 3, "#e8c468");
+    const bobY = y + 22;
+    drawPixelLine(c, cx - 0.5, y + 17, bobX, bobY, "#b59142");
+    px(c, bobX - 1, bobY - 1, 2, 2, "#e8c468");
     px(c, bobX, bobY, 1, 1, "#fff6c7");
   }
 

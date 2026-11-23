@@ -489,6 +489,23 @@ window.Duskwood = window.Duskwood || {};
     c.restore();
   }
 
+  function drawWoodenSideTable(c, x, y, w, h, clothColor) {
+    c.fillStyle = "rgba(0,0,0,0.36)";
+    c.fillRect(x - 1, y + h - 1, w + 2, 4);
+    // Table legs
+    px(c, x + 1, y + h - 4, 2, 4, "#2b190e");
+    px(c, x + w - 3, y + h - 4, 2, 4, "#2b190e");
+    // Wooden tabletop & skirt
+    px(c, x, y, w, h - 2, "#24140b");
+    px(c, x + 1, y + 1, w - 2, h - 5, "#7d5131");
+    px(c, x + 2, y + 2, w - 4, h - 7, "#94633e");
+    px(c, x + 1, y + h - 4, w - 2, 2, "#4f301c");
+    if (clothColor) {
+      px(c, x + 3, y + 2, w - 6, h - 7, clothColor);
+      px(c, x + 4, y + 3, w - 8, Math.max(1, h - 9), "rgba(255,250,236,0.32)");
+    }
+  }
+
   function drawWallPortrait(c, x, y, w, h, accent) {
     px(c, x, y, w, h, "#2b1a0e");
     px(c, x + 1, y + 1, w - 2, h - 2, "#a38343");
@@ -973,6 +990,9 @@ window.Duskwood = window.Duskwood || {};
         emberPos = { x: 104, y: 172 };
         colliders.push({ x: 88, y: 162, w: 32, h: 24 });
 
+        drawWoodenSideTable(c, 132, 68, 22, 14);
+        colliders.push({ x: 132, y: 70, w: 22, h: 12 });
+
         drawCoalBin(c, 54, 108);
         colliders.push({ x: 54, y: 110, w: 22, h: 14 });
         drawOakBarrel(c, 142, 108);
@@ -982,6 +1002,9 @@ window.Duskwood = window.Duskwood || {};
         drawCastIronFurnace(c, 88, 44);
         emberPos = { x: 104, y: 58 };
         colliders.push({ x: 88, y: 50, w: 32, h: 22 });
+
+        drawWoodenSideTable(c, 54, 150, 24, 14);
+        colliders.push({ x: 54, y: 152, w: 24, h: 12 });
 
         drawCoalBin(c, 54, 108);
         colliders.push({ x: 54, y: 110, w: 22, h: 14 });
@@ -1002,6 +1025,8 @@ window.Duskwood = window.Duskwood || {};
 
       drawCoalBin(c, 68, 78);
       colliders.push({ x: 68, y: 82, w: 22, h: 12 });
+      drawWoodenSideTable(c, 100, 82, 24, 13);
+      colliders.push({ x: 100, y: 84, w: 24, h: 11 });
       drawOakBarrel(c, 112, 150);
       colliders.push({ x: 112, y: 152, w: 12, h: 14 });
     }
@@ -1114,6 +1139,9 @@ window.Duskwood = window.Duskwood || {};
 
       drawKitchenCounter(c, 74, 148, 56, 16, true);
       colliders.push({ x: 74, y: 150, w: 56, h: 14 });
+
+      drawWoodenSideTable(c, 156, 142, 24, 14, "#dfd4bc");
+      colliders.push({ x: 156, y: 144, w: 24, h: 12 });
     } else if (d.E && d.S) {
       // Floor: x 52..146 (y 82..194) U x 52..194 (y 82..162)
       // Closed walls: Full North (x=52..194, y=82), West (x=52)
@@ -1125,6 +1153,9 @@ window.Duskwood = window.Duskwood || {};
 
       drawKitchenStove(c, 138, 72);
       colliders.push({ x: 138, y: 80, w: 22, h: 12 });
+
+      drawWoodenSideTable(c, 158, 138, 24, 14, "#dfd4bc");
+      colliders.push({ x: 158, y: 140, w: 24, h: 12 });
     } else if (d.S && d.W) {
       // Floor: x 62..156 (y 82..194) U x 14..156 (y 82..162)
       // Closed walls: Full North (x=14..156, y=82), East (x=156)
@@ -1136,6 +1167,9 @@ window.Duskwood = window.Duskwood || {};
 
       drawKitchenStove(c, 42, 72);
       colliders.push({ x: 42, y: 80, w: 22, h: 12 });
+
+      drawWoodenSideTable(c, 26, 138, 24, 14, "#dfd4bc");
+      colliders.push({ x: 26, y: 140, w: 24, h: 12 });
     } else {
       // W & N: Floor x 62..156 (y 52..166) U x 14..156 (y 86..166)
       drawVintageFridge(c, 134, 36);
@@ -1146,6 +1180,9 @@ window.Duskwood = window.Duskwood || {};
 
       drawKitchenCounter(c, 78, 148, 56, 16, true);
       colliders.push({ x: 78, y: 150, w: 56, h: 14 });
+
+      drawWoodenSideTable(c, 26, 142, 24, 14, "#dfd4bc");
+      colliders.push({ x: 26, y: 144, w: 24, h: 12 });
     }
 
     // Framed antique painting & wall light switch in Kitchen
@@ -1264,6 +1301,9 @@ window.Duskwood = window.Duskwood || {};
       lampPos = { x: 98, y: 142 };
       colliders.push({ x: 92, y: 148, w: 13, h: 12 });
 
+      drawWoodenSideTable(c, 154, 144, 24, 14, "#e6ddc7");
+      colliders.push({ x: 154, y: 146, w: 24, h: 12 });
+
       drawWardrobe(c, 158, 66);
       colliders.push({ x: 158, y: 78, w: 22, h: 14 });
       drawWallPortrait(c, 66, 20, 18, 16, "#543a4f");
@@ -1275,6 +1315,9 @@ window.Duskwood = window.Duskwood || {};
       drawNightstandLamp(c, 96, 78);
       lampPos = { x: 102, y: 76 };
       colliders.push({ x: 96, y: 82, w: 13, h: 10 });
+
+      drawWoodenSideTable(c, 154, 140, 24, 14, "#e6ddc7");
+      colliders.push({ x: 154, y: 142, w: 24, h: 12 });
 
       drawWardrobe(c, 148, 64);
       colliders.push({ x: 148, y: 76, w: 22, h: 14 });
@@ -1288,6 +1331,9 @@ window.Duskwood = window.Duskwood || {};
       lampPos = { x: 106, y: 76 };
       colliders.push({ x: 100, y: 82, w: 13, h: 10 });
 
+      drawWoodenSideTable(c, 26, 140, 24, 14, "#e6ddc7");
+      colliders.push({ x: 26, y: 142, w: 24, h: 12 });
+
       drawWardrobe(c, 36, 64);
       colliders.push({ x: 36, y: 76, w: 22, h: 14 });
       drawWallPortrait(c, 70, 50, 18, 16, "#543a4f");
@@ -1299,6 +1345,9 @@ window.Duskwood = window.Duskwood || {};
       drawNightstandLamp(c, 102, 146);
       lampPos = { x: 108, y: 142 };
       colliders.push({ x: 102, y: 148, w: 13, h: 12 });
+
+      drawWoodenSideTable(c, 26, 144, 24, 14, "#e6ddc7");
+      colliders.push({ x: 26, y: 146, w: 24, h: 12 });
 
       drawWardrobe(c, 26, 66);
       colliders.push({ x: 26, y: 78, w: 22, h: 14 });
@@ -1420,8 +1469,8 @@ window.Duskwood = window.Duskwood || {};
       // Bookcases flanking North door
       drawStudyBookshelf(c, 52, 20, 32);
       colliders.push({ x: 52, y: 46, w: 32, h: 10 });
-      drawStudyBookshelf(c, 124, 20, 32);
-      colliders.push({ x: 124, y: 46, w: 32, h: 10 });
+      drawStudyBookshelf(c, 134, 20, 24);
+      colliders.push({ x: 134, y: 46, w: 24, h: 10 });
 
       // Heavy Oak Desk + Banker's Lamp on West wall (keeping center x=86..126 totally clear!)
       drawStudyDesk(c, 52, 104, true);
@@ -1531,16 +1580,6 @@ window.Duskwood = window.Duskwood || {};
     px(c, x + 4, y + 3, 6, 5, "#d6ccb4"); // Open book on coffee table
   }
 
-  function drawStandingClockStatic(c, x, y) {
-    px(c, x + 1, y, 12, 34, "#24130a");
-    px(c, x + 2, y + 1, 10, 32, "#593520");
-    fillPixelEllipse(c, x + 7, y + 8, 4, 4, "#efe4c8");
-    px(c, x + 7, y + 6, 1, 3, "#1c1512");
-    px(c, x + 7, y + 8, 2, 1, "#1c1512");
-    px(c, x + 5, y + 15, 4, 13, "#14100e");
-    px(c, x + 6, y + 23, 2, 3, "#e8c468");
-  }
-
   function populateLivingRoom(c, room, geo) {
     const rng = createRng(3318);
     const d = room.doors || { N: true, E: true, S: true };
@@ -1572,50 +1611,42 @@ window.Duskwood = window.Duskwood || {};
     px(c, 77, 99, 54, 50, "#b58d4a");
     px(c, 80, 102, 48, 44, "#6e2c35");
 
-    // Place Sofa, Coffee Table & Standing Clock cleanly against the 1 closed side of the T!
+    // Place Sofa & Coffee Table cleanly against the 1 closed side of the T (no static Grandfather Clock!)
     if (!d.W) {
-      // Closed West wall (x=42) -> Vertical Sofa + Coffee Table on West, Standing Clock on North-Left!
+      // Closed West wall (x=42) -> Vertical Sofa + Coffee Table on West
       drawLivingSofa(c, 46, 104, false);
       colliders.push({ x: 46, y: 106, w: 18, h: 38 });
 
       drawCoffeeTable(c, 68, 114, 14, 22);
       colliders.push({ x: 68, y: 116, w: 14, h: 18 });
 
-      drawStandingClockStatic(c, 58, 22);
-      colliders.push({ x: 58, y: 46, w: 14, h: 10 });
       drawWallPortrait(c, 126, 20, 20, 16, "#5c4333");
     } else if (!d.N) {
-      // Closed North wall (y=72) -> Horizontal Sofa + Coffee Table against North wall, Clock beside it!
+      // Closed North wall (y=72) -> Horizontal Sofa + Coffee Table against North wall
       drawLivingSofa(c, 82, 68, true);
       colliders.push({ x: 82, y: 74, w: 44, h: 12 });
 
       drawCoffeeTable(c, 89, 92, 30, 12);
       colliders.push({ x: 89, y: 94, w: 30, h: 10 });
 
-      drawStandingClockStatic(c, 140, 42);
-      colliders.push({ x: 140, y: 66, w: 14, h: 10 });
       drawWallPortrait(c, 52, 42, 20, 16, "#5c4333");
     } else if (!d.E) {
-      // Closed East wall (x=166) -> Vertical Sofa on East, Clock on North-Right
+      // Closed East wall (x=166) -> Vertical Sofa on East
       drawLivingSofa(c, 144, 104, false);
       colliders.push({ x: 144, y: 106, w: 18, h: 38 });
 
       drawCoffeeTable(c, 126, 114, 14, 22);
       colliders.push({ x: 126, y: 116, w: 14, h: 18 });
 
-      drawStandingClockStatic(c, 134, 22);
-      colliders.push({ x: 134, y: 46, w: 14, h: 10 });
       drawWallPortrait(c, 62, 20, 20, 16, "#5c4333");
     } else {
-      // Closed South wall (y=174) -> Horizontal Sofa + Coffee Table along South wall, Clock on North-Left!
+      // Closed South wall (y=174) -> Horizontal Sofa + Coffee Table along South wall
       drawLivingSofa(c, 82, 152, true);
       colliders.push({ x: 82, y: 154, w: 44, h: 16 });
 
       drawCoffeeTable(c, 89, 134, 30, 12);
       colliders.push({ x: 89, y: 136, w: 30, h: 10 });
 
-      drawStandingClockStatic(c, 64, 22);
-      colliders.push({ x: 64, y: 46, w: 14, h: 10 });
       drawWallPortrait(c, 126, 20, 20, 16, "#5c4333");
     }
 
@@ -1787,11 +1818,13 @@ window.Duskwood = window.Duskwood || {};
       // Vertical corridor (N+S) or North-connected L/T corridor!
       // Place inspectable Framed Portrait right on an accessible North wall segment (flanking N door or side arm)!
       if (d.E || d.W) {
-        const armX = d.E ? 154 : 38;
+        const armX = d.E ? 174 : 16;
+        const scX  = d.E ? 133 : 75;
+        const swX  = d.E ? 165 : 38;
         drawWallPortrait(c, armX, 68, 18, 16, isVariant2 ? "#3d464f" : "#4a3832");
-        drawWallSconce(c, d.E ? 136 : 70, 76);
-        drawWallLightSwitch(c, d.E ? 176 : 26, 82, false);
-        lights.push({ x: d.E ? 136 : 70, y: 84, r: 62, color: "255, 208, 132", strength: 0.74, halo: 0.16 });
+        drawWallSconce(c, scX, 76);
+        drawWallLightSwitch(c, swX, 82, false);
+        lights.push({ x: scX, y: 84, r: 62, color: "255, 208, 132", strength: 0.74, halo: 0.16 });
         interactables.push({
           id: "hall_portrait", x: armX + 9, y: 112, r: 26,
           prompt: "[E] INSPECT PORTRAIT",
@@ -1799,9 +1832,9 @@ window.Duskwood = window.Duskwood || {};
           roomId: room.id
         });
         interactables.push({
-          id: "room_light_switch", x: d.E ? 176 : 28, y: 110, r: 20,
+          id: "room_light_switch", x: swX + 2, y: 110, r: 20,
           type: "light_switch",
-          swX: d.E ? 176 : 26, swY: 82,
+          swX: swX, swY: 82,
           prompt: "[E] TURN LIGHT ON"
         });
       } else {

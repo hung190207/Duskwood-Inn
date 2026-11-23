@@ -49,6 +49,25 @@ window.Duskwood = window.Duskwood || {};
     "bp_l_hallway"
   ];
 
+  // Grandfather Clock Clue NEVER spawns in The Dining Room!
+  const GRANDFATHER_CLOCK_ROOMS = ALL_CANDIDATE_ROOMS.filter((r) => r !== "dining_room");
+
+  // Rooms containing a dedicated wooden table/desk -> Past Player spawns as glowing Severed Hand + Hammer on Table!
+  // Rooms NOT in this set -> Past Player spawns as Red Handwritten Wall Text ("Everyone is Dead" / "Help us")!
+  const TABLE_ROOMS = new Set([
+    "bp_study",
+    "bp_living_room",
+    "bp_kitchen",
+    "bp_bedroom",
+    "bp_furnace"
+  ]);
+
+  const RED_WALL_PHRASES = [
+    ["Everyone", "is Dead"],
+    ["Help us", ""],
+    ["Don't look", "back"]
+  ];
+
   // Room-specific thematic surface for Tic-Tac-Toe marks (walls, foggy bathroom mirror, canvas, tiles!)
   const ROOM_TTT_SURFACES = {
     bp_bathroom:    { style: "mirror",      label: "BATHROOM MIRROR",      desc: "A faint symbol traced by a finger across the steam-fogged bathroom mirror glass." },
@@ -63,22 +82,6 @@ window.Duskwood = window.Duskwood || {};
     bp_hallway_2:   { style: "wall_plaster",label: "HALL II WALL",         desc: "Faint chalk etched into the weathered Hall II wallpaper." },
     bp_t_hallway_1: { style: "wall_plaster",label: "T-HALL I WALL",        desc: "Quiet pencil strokes drawn on the T-Hall I wall trim." },
     bp_t_hallway_2: { style: "wall_plaster",label: "T-HALL II WALL",       desc: "A faint etched mark tucked along the T-Hall II wall." }
-  };
-
-  // Room-specific Chicken Decor forms (NOT always a floor statue — wall murals, ceramic plates, wood carvings!)
-  const ROOM_CHICKEN_STYLES = {
-    bp_study:       { style: "wood_figurine", label: "WOODEN ROOSTER FIGURINE", desc: "A small hand-carved wooden rooster figurine tucked on the side shelf in The Study." },
-    bp_kitchen:     { style: "wall_plate",    label: "CERAMIC ROOSTER PLATE",   desc: "A vintage painted ceramic rooster plate hung quietly on the kitchen wall." },
-    dining_room:    { style: "wall_mural",    label: "PAINTED ROOSTER SKETCH",  desc: "A faded farmhouse rooster painted directly onto the wall plaster of The Dining Room." },
-    bp_living_room: { style: "wall_frame",    label: "FRAMED ROOSTER PRINT",    desc: "A small rustic ink print of a rooster mounted subtly on the living room wall." },
-    bp_bedroom:     { style: "wall_mural",    label: "WALLPAPER ROOSTER MOTIF", desc: "A faint stenciled rooster silhouette drawn into the bedroom wall corner." },
-    bp_bathroom:    { style: "tile_decal",    label: "CERAMIC ROOSTER TILE",    desc: "A subtle glazed rooster motif fired onto one of the bathroom wall tiles." },
-    bp_furnace:     { style: "wall_stencil",  label: "CHALKED ROOSTER STENCIL", desc: "A weathered rooster outline stenciled onto the brick wall near the furnace." },
-    bp_l_hallway:   { style: "wall_stencil",  label: "HALLWAY ROOSTER DRAWING", desc: "A faint charcoal drawing of a rooster tucked along the L-Hall wall." },
-    bp_hallway_1:   { style: "wall_stencil",  label: "HALLWAY ROOSTER DRAWING", desc: "A quiet painted rooster stencil along the wall of Hall I." },
-    bp_hallway_2:   { style: "wall_stencil",  label: "HALLWAY ROOSTER DRAWING", desc: "A faded rooster sketch scratched into the Hall II wallpaper." },
-    bp_t_hallway_1: { style: "wall_frame",    label: "SMALL ROOSTER PLAQUE",    desc: "A modest wooden rooster plaque hanging along the T-Hall I wall." },
-    bp_t_hallway_2: { style: "wall_stencil",  label: "HALLWAY ROOSTER STENCIL", desc: "A faint rooster outline stenciled near the corner of T-Hall II." }
   };
 
   function shuffle(arr) {
@@ -133,16 +136,19 @@ window.Duskwood = window.Duskwood || {};
           id: "clue_clock",
           clueKey: "clock",
           omenId: "om_grandfather_clock",
-          roomId: pickSpawnRoom(ALL_CANDIDATE_ROOMS),
+          roomId: pickSpawnRoom(GRANDFATHER_CLOCK_ROOMS),
           isTrueClue: true,
           revealed: false
         });
       } else if (clueKey === "past_player") {
+        const ppRoom = pickSpawnRoom(ALL_CANDIDATE_ROOMS);
+        const phrasePair = RED_WALL_PHRASES[Math.floor(Math.random() * RED_WALL_PHRASES.length)];
         entries.push({
           id: "clue_past_player",
           clueKey: "past_player",
           omenId: "om_past_traveler",
-          roomId: pickSpawnRoom(ALL_CANDIDATE_ROOMS),
+          roomId: ppRoom,
+          wallPhrase: phrasePair,
           isTrueClue: true,
           revealed: false
         });
@@ -336,7 +342,9 @@ window.Duskwood = window.Duskwood || {};
           if (builtRoomIds.has(entry.roomId)) return;
           let pool = topOmenId === "om_corrupt_painting"
             ? builtNonCellar.filter((rid) => PAINTING_ROOMS.includes(rid))
-            : builtNonCellar.slice();
+            : topOmenId === "om_grandfather_clock"
+              ? builtNonCellar.filter((rid) => rid !== "dining_room")
+              : builtNonCellar.slice();
           if (!pool.length) return;
           const unoccupied = pool.filter((rid) => !occupiedClueRooms.has(rid));
           const pickPool = unoccupied.length ? unoccupied : pool;
@@ -397,37 +405,188 @@ window.Duskwood = window.Duskwood || {};
     return 0;
   }
 
-  // ==================== 3. VERIFIED, VARIED ROOM-AWARE CLUE PLACEMENT ANCHORS ====================
-  // Placed naturally along walls, mirrors, shelves & corners — ZERO doorway overlap, ZERO dark-void clipping!
+  // ==================== 3. VERIFIED, ZERO-OVERLAP ROOM CLUE PLACEMENT ANCHORS ====================
+  function getRoomTableTopAnchor(room) {
+    const rid = room.id;
+    const d = room.doors || {};
+
+    if (rid === "bp_study") {
+      return (d.N && d.S) ? { x: 61, y: 120, onTable: true } : { x: 105, y: 158, onTable: true };
+    }
+    if (rid === "bp_living_room") {
+      if (!d.W) return { x: 75,  y: 124, onTable: true };
+      if (!d.N) return { x: 104, y: 97,  onTable: true };
+      if (!d.E) return { x: 133, y: 124, onTable: true };
+      return { x: 104, y: 139, onTable: true };
+    }
+    if (rid === "bp_kitchen") {
+      if (d.N && d.E) return { x: 168, y: 147, onTable: true };
+      if (d.E && d.S) return { x: 170, y: 143, onTable: true };
+      if (d.S && d.W) return { x: 38,  y: 143, onTable: true };
+      return { x: 38, y: 147, onTable: true };
+    }
+    if (rid === "bp_bedroom") {
+      if (d.N && d.E) return { x: 166, y: 149, onTable: true };
+      if (d.E && d.S) return { x: 166, y: 145, onTable: true };
+      if (d.S && d.W) return { x: 38,  y: 145, onTable: true };
+      return { x: 38, y: 149, onTable: true };
+    }
+    if (rid === "bp_furnace") {
+      if (d.N) return { x: 143, y: 73,  onTable: true };
+      if (d.S) return { x: 66,  y: 155, onTable: true };
+      return { x: 112, y: 87, onTable: true };
+    }
+    return null;
+  }
+
+  // Verified bare wall coordinates for Black Chicken Decor & Red Wall Writing (ZERO furniture overlap!)
+  function getBareWallAnchor(room, kind) {
+    const rid = room.id;
+    const d = room.doors || {};
+
+    if (rid === "dining_room") {
+      // Bare wallpaper strip right of Piano (152..176) on North wall (x: 177..193, y: 16..46)
+      return { x: 185, y: 26, isWall: true, compactWall: true, interactY: 58 };
+    }
+
+    if (rid === "bp_bathroom") {
+      const isVert = d.N || d.S;
+      if (isVert) {
+        if (d.N) {
+          // Door 92..116, Switch 80..85 (y:34..41), MedCab 116..128 (y:20..34) -> Clear upper-left wall!
+          return { x: 83, y: 24, isWall: true, compactWall: true, interactY: 58 };
+        }
+        // d.S: MedCab 80..92, Mirror 110..126 -> Clear center wall (94..109)!
+        return { x: 101, y: 27, isWall: true, compactWall: true, interactY: 58 };
+      }
+      // Horizontal Bathroom: Switch 34..39, Mirror 96..112, MedCab 146..158 -> Wide open tile wall!
+      return kind === "past_wall"
+        ? { x: 176, y: 76, isWall: true, interactY: 102 }
+        : { x: 68,  y: 76, isWall: true, interactY: 102 };
+    }
+
+    if (rid === "bp_furnace") {
+      const isVert = d.N || d.S;
+      if (isVert) {
+        if (d.N) {
+          // Door 92..116, Breaker 64..76, Switch 80..85 -> Clear North-right brick wall!
+          return { x: 126, y: 27, isWall: true, interactY: 58 };
+        }
+        // d.S: Pipe y:22..25, Furnace 88..120 -> Clear lower-left brick wall below pipe!
+        return { x: 63, y: 37, isWall: true, interactY: 58 };
+      }
+      // Horizontal Furnace: Pipe y:54..57, Switch 138..143 -> Clear right brick wall below pipe!
+      return { x: 168, y: 69, isWall: true, interactY: 88 };
+    }
+
+    if (rid === "bp_kitchen") {
+      // Clear of Fridge, Stove, Portrait & Light Switch in all 4 L-orientations!
+      if (d.N && d.E) return { x: 83,  y: 28, isWall: true, interactY: 58 };
+      if (d.E && d.S) return { x: 176, y: 60, isWall: true, interactY: 88 };
+      if (d.S && d.W) return { x: 28,  y: 60, isWall: true, interactY: 88 };
+      return { x: 125, y: 28, isWall: true, interactY: 58 };
+    }
+
+    if (rid === "bp_bedroom") {
+      // Clear of Portrait, Wardrobe & Light Switch in all 4 L-orientations!
+      if (d.N && d.E) return { x: 124, y: 24, isWall: true, interactY: 58 };
+      if (d.E && d.S) return { x: 182, y: 60, isWall: true, interactY: 88 };
+      if (d.S && d.W) return { x: 25,  y: 60, isWall: true, interactY: 88 };
+      return { x: 76, y: 23, isWall: true, interactY: 58 };
+    }
+
+    if (rid === "bp_study") {
+      const isVert = d.N && d.S;
+      // Vertical Study: Door 92..116, Right Bookcase 134..158 -> Bare green wallpaper strip x:117..133!
+      // Horizontal Study: Portrait 94..114, Right Bookcase 144..178 -> Bare wallpaper x:117..141!
+      return isVert
+        ? { x: 125, y: 29, isWall: true, compactWall: true, interactY: 58 }
+        : { x: 129, y: 55, isWall: true, interactY: 84 };
+    }
+
+    if (rid === "bp_living_room") {
+      // Static grandfather clock was removed -> wide bare wallpaper on North wall in all 4 orientations!
+      if (!d.W) return { x: 64,  y: 29, isWall: true, interactY: 58 };
+      if (!d.N) return { x: 156, y: 51, isWall: true, interactY: 78 };
+      if (!d.E) return { x: 144, y: 29, isWall: true, interactY: 58 };
+      return { x: 72, y: 29, isWall: true, interactY: 58 };
+    }
+
+    // Hallways (L-Hall, Straight I & II, T-Hall I & II)
+    const hasHorizNorthWall = !d.N && (d.E || d.W);
+    if (hasHorizNorthWall) {
+      if (d.W && d.E) {
+        // Horizontal Straight / T-Hall: sconces 62 & 146, portrait 95..113, switch 130 -> open wall 24..54 or 158..188
+        return kind === "past_wall"
+          ? { x: 170, y: 78, isWall: true, interactY: 110 }
+          : { x: 40,  y: 78, isWall: true, interactY: 110 };
+      }
+      if (d.E) {
+        // E + S (L-Hall): sconce 98, portrait 128..146, switch 163, sconce 176 -> clean gap 105..124!
+        return { x: 114, y: 78, isWall: true, interactY: 110 };
+      }
+      // W + S (L-Hall): sconce 32, portrait 62..80, switch 97, sconce 110 -> clean gap 39..58!
+      return { x: 49, y: 78, isWall: true, interactY: 110 };
+    }
+    if (d.E || d.W) {
+      // North-connected L/T Hallway: sconce 133/75, switch 165/38, portrait 174/16 -> clean open gap 149 / 58!
+      return d.E
+        ? { x: 150, y: 78, isWall: true, interactY: 110 }
+        : { x: 58,  y: 78, isWall: true, interactY: 110 };
+    }
+    // Pure vertical Straight Hallway (N & S doors only; x:78..130, door 92..116, sconce 84 y:30, switch 120 y:32)
+    return { x: 123, y: 21, isWall: true, compactWall: true, interactY: 58 };
+  }
+
   function getSafeClueAnchor(room, omenId) {
     const rid = room.id;
     const d = room.doors || {};
 
-    // The Dining Room (round table is in center 104,126; windows at 54..72 & 134..152; bookshelf 152..174)
+    // 1. PAST PLAYER ("Help us"):
+    //    - Rooms WITH a table -> On top of the table (Severed Hand + Hammer, glowing!)
+    //    - Rooms WITHOUT a table -> Bare wall (Crimson/Red handwritten text!)
+    if (omenId === "om_past_traveler") {
+      if (TABLE_ROOMS.has(rid)) {
+        const tbl = getRoomTableTopAnchor(room);
+        if (tbl) return tbl;
+      }
+      return getBareWallAnchor(room, "past_wall");
+    }
+
+    // 2. CHICKEN DECOR: Pure Black Rooster on bare wall (zero overlap with furniture!)
+    if (omenId === "om_rooster_decor") {
+      return getBareWallAnchor(room, "chicken");
+    }
+
+    // 3. GRANDFATHER CLOCK CLUE (NEVER spawns in dining_room; slender standing clock against closed wall!)
+    if (omenId === "om_grandfather_clock") {
+      if (rid === "bp_living_room") {
+        if (!d.W) return { x: 62,  y: 56 };
+        if (!d.N) return { x: 146, y: 76 };
+        if (!d.E) return { x: 144, y: 56 };
+        return { x: 68, y: 56 };
+      }
+      if (rid === "bp_study")     return (d.N && d.S) ? { x: 144, y: 86 } : { x: 44, y: 154 };
+      if (rid === "bp_bathroom")  return (d.N || d.S) ? { x: 120, y: 84 } : { x: 48, y: 112 };
+      if (rid === "bp_furnace")   return (d.N || d.S) ? { x: 144, y: 92 } : { x: 46, y: 146 };
+      if (rid === "bp_kitchen" || rid === "bp_bedroom") return { x: d.W ? 140 : 68, y: d.S ? 104 : 144 };
+      return { x: d.E ? 148 : d.W ? 60 : 90, y: 120 };
+    }
+
+    // 4. UNCHANGED CLUES: TIC-TAC-TOE (X/O) & PARANORMAL ALTERATION
     if (rid === "dining_room") {
-      if (omenId === "om_grandfather_clock") return { x: 142, y: 56 };
-      if (omenId === "om_chalk_grid")        return { x: 64,  y: 44, isWall: true, interactY: 58 };
-      if (omenId === "om_past_traveler")     return { x: 36,  y: 172 };
-      if (omenId === "om_paranormal_alt")    return { x: 168, y: 170 };
-      if (omenId === "om_rooster_decor")     return { x: 182, y: 30, isWall: true, interactY: 58 };
+      if (omenId === "om_chalk_grid")     return { x: 64,  y: 44, isWall: true, interactY: 58 };
+      if (omenId === "om_paranormal_alt") return { x: 168, y: 170 };
       return { x: 36, y: 172 };
     }
 
-    // The Study: Wooden rooster figurine on side shelf, painter's easel near corner, wall clues!
     if (rid === "bp_study") {
       const isVert = d.N && d.S;
-      if (omenId === "om_chalk_grid") {
-        return isVert ? { x: 140, y: 166, easel: true } : { x: 160, y: 152, easel: true };
-      }
-      if (omenId === "om_grandfather_clock") {
-        return isVert ? { x: 144, y: 84 } : { x: 44, y: 154 };
-      }
+      if (omenId === "om_chalk_grid")     return isVert ? { x: 140, y: 166, easel: true } : { x: 160, y: 152, easel: true };
       if (omenId === "om_paranormal_alt") return isVert ? { x: 140, y: 138 } : { x: 44, y: 104 };
-      if (omenId === "om_rooster_decor")  return isVert ? { x: 66,  y: 158 } : { x: 162, y: 96 };
       return isVert ? { x: 64, y: 174 } : { x: 156, y: 156 };
     }
 
-    // The Bathroom: Tic-Tac-Toe drawn directly on the steamed Bathroom Mirror! Chicken as glazed tile decal!
     if (rid === "bp_bathroom") {
       const isVert = d.N || d.S;
       if (omenId === "om_chalk_grid") {
@@ -435,17 +594,10 @@ window.Duskwood = window.Duskwood || {};
           ? { x: d.N ? 82 : 118, y: 32, isWall: true, isMirror: true, interactY: 58 }
           : { x: 104, y: 78, isWall: true, isMirror: true, interactY: 102 };
       }
-      if (omenId === "om_rooster_decor") {
-        return isVert
-          ? { x: d.N ? 124 : 86, y: 30, isWall: true, interactY: 58 }
-          : { x: 64, y: 78, isWall: true, interactY: 102 };
-      }
-      if (omenId === "om_grandfather_clock") return isVert ? { x: 120, y: 82 } : { x: 48, y: 112 };
-      if (omenId === "om_paranormal_alt")    return isVert ? { x: 116, y: 138 } : { x: 138, y: 138 };
+      if (omenId === "om_paranormal_alt") return isVert ? { x: 116, y: 138 } : { x: 138, y: 138 };
       return isVert ? { x: 88, y: 152 } : { x: 76, y: 138 };
     }
 
-    // Compact Furnace Room: Wall smudges & brick stencils clear of doorway!
     if (rid === "bp_furnace") {
       const isVert = d.N || d.S;
       if (omenId === "om_chalk_grid") {
@@ -453,103 +605,81 @@ window.Duskwood = window.Duskwood || {};
           ? { x: d.N ? 140 : 72, y: 32, isWall: true, interactY: 58 }
           : { x: 68, y: 60, isWall: true, interactY: 88 };
       }
-      if (omenId === "om_rooster_decor") {
-        return isVert
-          ? { x: d.N ? 66 : 138, y: 32, isWall: true, interactY: 58 }
-          : { x: 148, y: 60, isWall: true, interactY: 88 };
-      }
-      if (omenId === "om_grandfather_clock") return isVert ? { x: 144, y: 86 } : { x: 46, y: 146 };
-      if (omenId === "om_paranormal_alt")    return isVert ? { x: 140, y: 144 } : { x: 130, y: 146 };
+      if (omenId === "om_paranormal_alt") return isVert ? { x: 140, y: 144 } : { x: 130, y: 146 };
       return isVert ? { x: 66, y: 168 } : { x: 58, y: 152 };
     }
 
-    // L-shaped Kitchen & Bedroom: Verified clear of EVERY doorway (92..116) & fridge/wardrobe!
     if (rid === "bp_kitchen" || rid === "bp_bedroom") {
-      if (d.N && d.E) {
-        if (omenId === "om_chalk_grid")        return { x: 132, y: 32, isWall: true, interactY: 58 };
-        if (omenId === "om_rooster_decor")     return { x: 180, y: 64, isWall: true, interactY: 94 };
-      } else if (d.E && d.S) {
-        if (omenId === "om_chalk_grid")        return { x: 86,  y: 60, isWall: true, interactY: 88 };
-        if (omenId === "om_rooster_decor")     return { x: 174, y: 60, isWall: true, interactY: 88 };
-      } else if (d.S && d.W) {
-        if (omenId === "om_chalk_grid")        return { x: 38,  y: 60, isWall: true, interactY: 88 };
-        if (omenId === "om_rooster_decor")     return { x: 114, y: 60, isWall: true, interactY: 88 };
-      } else {
-        // W & N
-        if (omenId === "om_chalk_grid")        return { x: 76,  y: 32, isWall: true, interactY: 58 };
-        if (omenId === "om_rooster_decor")     return { x: 46,  y: 64, isWall: true, interactY: 94 };
+      if (omenId === "om_chalk_grid") {
+        if (d.N && d.E) return { x: 132, y: 32, isWall: true, interactY: 58 };
+        if (d.E && d.S) return { x: 86,  y: 60, isWall: true, interactY: 88 };
+        if (d.S && d.W) return { x: 38,  y: 60, isWall: true, interactY: 88 };
+        return { x: 76, y: 32, isWall: true, interactY: 58 };
       }
-      if (omenId === "om_grandfather_clock") return { x: d.W ? 140 : 68, y: d.S ? 104 : 146 };
-      if (omenId === "om_paranormal_alt")    return { x: d.E ? 168 : 40, y: 140 };
-      return { x: d.E ? 164 : 42, y: 146 };
+      if (omenId === "om_paranormal_alt") return { x: d.E ? 168 : 40, y: 122 };
+      return { x: d.E ? 164 : 42, y: 126 };
     }
 
-    // Spacious T-shaped Living Room
     if (rid === "bp_living_room") {
-      if (d.N) {
-        if (omenId === "om_chalk_grid")        return { x: 78,  y: 30, isWall: true, interactY: 58 };
-        if (omenId === "om_rooster_decor")     return { x: 148, y: 30, isWall: true, interactY: 58 };
-      } else {
-        if (omenId === "om_chalk_grid")        return { x: 104, y: 50, isWall: true, interactY: 78 };
-        if (omenId === "om_rooster_decor")     return { x: 168, y: 50, isWall: true, interactY: 78 };
+      if (omenId === "om_chalk_grid") {
+        return d.N ? { x: 78, y: 30, isWall: true, interactY: 58 } : { x: 104, y: 50, isWall: true, interactY: 78 };
       }
-      if (omenId === "om_grandfather_clock") return { x: d.W ? 150 : 58, y: 90 };
-      if (omenId === "om_paranormal_alt")    return { x: d.E ? 168 : 40, y: 148 };
+      if (omenId === "om_paranormal_alt") return { x: d.E ? 168 : 40, y: 148 };
       return { x: d.S ? 68 : 146, y: 158 };
     }
 
-    // Narrow Hallways: Clear of all doorways (never on 92..116 when N is open!)
     const hasHoriz = !d.N && (d.E || d.W);
-    if (hasHoriz) {
-      if (omenId === "om_chalk_grid")        return { x: d.E ? 148 : 60, y: 80, isWall: true, interactY: 110 };
-      if (omenId === "om_rooster_decor")     return { x: d.E ? 172 : 36, y: 80, isWall: true, interactY: 110 };
-    } else if (d.E || d.W) {
-      if (omenId === "om_chalk_grid")        return { x: d.E ? 148 : 60, y: 80, isWall: true, interactY: 110 };
-      if (omenId === "om_rooster_decor")     return { x: d.E ? 176 : 34, y: 80, isWall: true, interactY: 110 };
-    } else {
-      // Pure vertical Straight Hallway (x: 78..130, N door 92..116)
-      if (omenId === "om_chalk_grid")        return { x: 86,  y: 34, isWall: true, interactY: 58 };
-      if (omenId === "om_rooster_decor")     return { x: 122, y: 34, isWall: true, interactY: 58 };
+    if (omenId === "om_chalk_grid") {
+      if (hasHoriz || d.E || d.W) return { x: d.E ? 148 : 60, y: 80, isWall: true, interactY: 110 };
+      return { x: 86, y: 34, isWall: true, interactY: 58 };
     }
-    if (omenId === "om_grandfather_clock") return { x: 92, y: 118 };
-    if (omenId === "om_paranormal_alt")    return { x: d.E ? 150 : d.W ? 58 : 114, y: 132 };
+    if (omenId === "om_paranormal_alt") return { x: d.E ? 150 : d.W ? 58 : 114, y: 132 };
     return { x: d.E ? 156 : d.W ? 52 : 92, y: 138 };
   }
 
-  // ==================== 4. CLEAR, NATURAL & VARIED IN-ROOM CLUE MODELS ====================
+  // ==================== 4. CLEAR, AUTHENTIC IN-ROOM CLUE MODELS ====================
+  // 4a. Smaller, Slimmer Grandfather Clock Clue (modeled after the classic Dining Room Grandfather Clock!)
   function drawGrandfatherClockModel(c, x, y, timeSec) {
-    const lx = Math.round(x - 9);
-    const ty = Math.round(y - 40);
+    const cx = Math.round(x);
+    const lx = cx - 5;       // 11px total max width (slender!)
+    const ty = Math.round(y - 31); // 33px tall (compact & slim!)
 
-    c.fillStyle = "rgba(0, 0, 0, 0.48)";
-    c.fillRect(lx - 1, ty + 41, 20, 4);
+    // Floor contact shadow
+    c.fillStyle = "rgba(0, 0, 0, 0.44)";
+    c.fillRect(lx - 1, ty + 32, 13, 3);
 
-    // Classic mahogany grandfather clock with crisp ivory dial & gleaming brass pendulum
-    px(c, lx + 8, ty - 2, 2, 2, "#e0bc5c");
-    px(c, lx + 2, ty, 14, 2, "#1f1109");
-    px(c, lx, ty + 2, 18, 3, "#1f1109");
-    px(c, lx + 1, ty + 3, 16, 1, "#8c5936");
+    // Ornate Stepped Crown & Brass Spire Finial
+    px(c, cx, ty - 2, 1, 2, "#d9b45a");
+    px(c, lx + 2, ty,     7,  2, "#24130a");
+    px(c, lx + 3, ty,     5,  1, "#70442a");
+    px(c, lx,     ty + 2, 11, 2, "#24130a");
+    px(c, lx + 1, ty + 2, 9,  1, "#875536");
 
-    px(c, lx + 1, ty + 5, 16, 15, "#1f1109");
-    px(c, lx + 2, ty + 6, 14, 13, "#613a22");
-    px(c, lx + 2, ty + 20, 14, 18, "#1f1109");
-    px(c, lx + 3, ty + 21, 12, 16, "#6b4026");
-    px(c, lx + 3, ty + 21, 2, 16, "#8c5938");
+    // Slender Upper Clock Hood (9px wide)
+    px(c, lx + 1, ty + 4, 9, 10, "#24130a");
+    px(c, lx + 2, ty + 5, 7, 8,  "#593520");
 
-    px(c, lx, ty + 38, 18, 5, "#1f1109");
-    px(c, lx + 1, ty + 39, 16, 3, "#54321d");
+    // Slim Mahogany Trunk (7px wide!)
+    px(c, lx + 2, ty + 14, 7, 15, "#24130a");
+    px(c, lx + 3, ty + 15, 5, 13, "#663d25");
+    px(c, lx + 3, ty + 15, 1, 13, "#855435");
 
-    // Crisp ivory clock face frozen at XII
-    fillPixelEllipse(c, lx + 9, ty + 12, 6, 6, "#cfa64c");
-    fillPixelEllipse(c, lx + 9, ty + 12, 5, 5, "#f5ecd6");
-    px(c, lx + 9, ty + 8, 1, 5, "#1a120d");
-    px(c, lx + 9, ty + 12, 1, 1, "#9e2424");
+    // Small Stepped Plinth Base
+    px(c, lx,     ty + 29, 11, 4, "#24130a");
+    px(c, lx + 1, ty + 30, 9,  2, "#54321e");
+    px(c, lx + 2, ty + 30, 7,  1, "#7d4e31");
 
-    // Swinging brass pendulum
-    px(c, lx + 6, ty + 22, 6, 14, "#120e0d");
-    const swing = Math.round(Math.sin(timeSec * 3.4) * 1.8);
-    px(c, lx + 9 + swing, ty + 24, 1, 8, "#cfa64c");
-    px(c, lx + 8 + swing, ty + 30, 3, 3, "#f2cf6b");
+    // Crisp Brass-Rimmed Ivory Clock Face (frozen at XII)
+    fillPixelEllipse(c, cx, ty + 9, 3.5, 3.5, "#c9a44c");
+    fillPixelEllipse(c, cx, ty + 9, 2.5, 2.5, "#f5ecd6");
+    px(c, cx, ty + 7, 1, 3, "#1a120d");
+    px(c, cx, ty + 9, 1, 1, "#9e2424");
+
+    // Narrow Glass Pendulum Pane + Swinging Brass Pendulum
+    px(c, lx + 4, ty + 16, 3, 11, "#120e0d");
+    const swing = Math.round(Math.sin(timeSec * Math.PI) * 1.0);
+    px(c, cx + swing, ty + 17, 1, 7, "#c9a44c");
+    px(c, cx - 1 + swing, ty + 23, 2, 2, "#f2cf6b");
   }
 
   function drawArtistCanvasWithSymbol(c, x, y, symbol) {
@@ -560,7 +690,6 @@ window.Duskwood = window.Duskwood || {};
     px(c, cx - 7, cy - 1, 2, 8, "#5e3a22");
     px(c, cx + 5, cy - 1, 2, 8, "#5e3a22");
     px(c, cx - 1, cy - 22, 2, 27, "#452916");
-    // Crisp linen artist canvas (22x18)
     px(c, cx - 11, cy - 20, 22, 18, "#21140c");
     px(c, cx - 10, cy - 19, 20, 16, "#ebe2cc");
     c.save();
@@ -584,10 +713,9 @@ window.Duskwood = window.Duskwood || {};
     c.save();
 
     if (surfaceStyle === "mirror") {
-      // Clear steamed bathroom mirror (16x18) with unmistakable finger-traced X or O!
       px(c, cx - 8, cy - 9, 16, 18, "#241911");
       px(c, cx - 7, cy - 8, 14, 16, "#7a95a3");
-      px(c, cx - 6, cy - 7, 12, 14, "#b4cad4"); // Steamy condensation haze
+      px(c, cx - 6, cy - 7, 12, 14, "#b4cad4");
       c.strokeStyle = "#233640";
       c.lineWidth = 2.1;
       c.lineCap = "round";
@@ -603,13 +731,11 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
 
-    // Crisp, clearly readable chalk / charcoal / ash mark on wallpaper, wainscoting, kitchen tile, or brick!
     const isDarkInk = surfaceStyle === "wall_tile";
     const shadowCol = isDarkInk ? "rgba(245, 238, 220, 0.55)" : "rgba(14, 10, 8, 0.72)";
     const mainCol   = isDarkInk ? "#1f1916" : "#f5eedc";
 
     c.lineCap = "round";
-    // Crisp dark/light backing outline so the X/O reads clearly against patterned wallpaper!
     c.strokeStyle = shadowCol;
     c.lineWidth = 3.8;
     c.beginPath();
@@ -634,28 +760,81 @@ window.Duskwood = window.Duskwood || {};
     c.restore();
   }
 
-  function drawPastPlayerRemains(c, x, y) {
+  // 4b. PAST PLAYER FORM 1 (In Rooms WITH a Table): Severed Pale Hand + Wooden-Handled Iron Hammer (Matches image_42b895.jpg!)
+  function drawPastPlayerBodyPart(c, x, y, timeSec) {
     const cx = Math.round(x);
     const cy = Math.round(y);
+    const pulse = 0.65 + Math.sin(timeSec * 3.4) * 0.25;
 
-    // Legible scratched chalk "HELP US" with dark outline so it reads cleanly!
-    c.font = "700 6px 'Pixelify Sans', monospace";
+    // Subtle glowing aura underneath the severed hand & hammer on the table (hơi phát sáng!)
+    const g = c.createRadialGradient(cx, cy, 1, cx, cy, 13);
+    g.addColorStop(0, `rgba(255, 232, 185, ${(0.34 * pulse).toFixed(3)})`);
+    g.addColorStop(0.65, `rgba(225, 175, 130, ${(0.14 * pulse).toFixed(3)})`);
+    g.addColorStop(1, "rgba(255, 210, 150, 0)");
+    c.fillStyle = g;
+    c.fillRect(cx - 13, cy - 13, 26, 26);
+
+    // Cast shadows on tabletop
+    c.fillStyle = "rgba(18, 10, 6, 0.44)";
+    c.fillRect(cx - 7, cy - 2, 14, 6);
+
+    // Wooden-handled Iron Hammer lying beside/under the fingers (matching image_42b895!)
+    px(c, cx + 1, cy - 2, 2, 6, "#54321a"); // Wooden handle outline
+    px(c, cx + 1, cy - 1, 2, 5, "#a66c3e"); // Wooden handle
+    px(c, cx - 1, cy + 3, 7, 3, "#212429"); // Heavy iron hammer head outline
+    px(c, cx,     cy + 4, 5, 2, "#636b75"); // Steel hammer head
+    px(c, cx + 1, cy + 4, 3, 1, "#9aa4b0"); // Steel shine
+
+    // Severed Pale Human Hand resting over the hammer handle (matching image_42b895!)
+    px(c, cx - 7, cy - 4, 3, 4, "#6e1118"); // Dark crimson severed wrist stump!
+    px(c, cx - 6, cy - 3, 2, 2, "#a81d28"); // Fresh crimson cross-section
+    px(c, cx - 5, cy - 5, 6, 4, "#c9a690"); // Pale hand back / palm
+    px(c, cx - 4, cy - 5, 4, 2, "#ebd2be"); // Lit knuckle highlight
+    // Curled reaching fingers resting over hammer handle & pointing down
+    px(c, cx + 1, cy - 4, 3, 2, "#e0bfa8"); // Forefinger/middle fingers arched right
+    px(c, cx + 3, cy - 3, 2, 2, "#cfa891"); // Fingertips
+    px(c, cx - 3, cy - 1, 2, 3, "#d9b49d"); // Curled thumb pointing downward
+  }
+
+  // 4c. PAST PLAYER FORM 2 (In Rooms WITHOUT a Table): Crimson/Red Handwritten Wall Text (Matches image_42bba1 & 42bbbd!)
+  function drawPastPlayerRedWallText(c, x, y, phrasePair, compactWall) {
+    const cx = Math.round(x);
+    const cy = Math.round(y);
+    const l1 = compactWall ? "HELP" : ((phrasePair && phrasePair[0]) || "Everyone");
+    const l2 = compactWall ? "US"   : ((phrasePair && phrasePair[1]) || "is Dead");
+
+    c.save();
     c.textAlign = "center";
-    c.fillStyle = "rgba(12, 8, 6, 0.85)";
-    c.fillText("HELP US", cx + 1, cy - 8);
-    c.fillStyle = "#f2ead6";
-    c.fillText("HELP US", cx, cy - 9);
+    c.textBaseline = "middle";
+    const fontSize = compactWall ? 5.2 : 5.6;
+    c.font = `700 ${fontSize}px 'Pixelify Sans', monospace`;
 
-    // Distinct ivory skull + crossed bones on floor!
-    c.fillStyle = "rgba(0,0,0,0.44)";
-    c.fillRect(cx - 8, cy + 2, 16, 4);
-    px(c, cx - 10, cy + 1, 9, 2, "#ded4bc");
-    px(c, cx + 2,  cy + 2, 8, 2, "#cfc4ab");
-    px(c, cx - 4, cy - 5, 9, 7, "#1a1410");
-    px(c, cx - 3, cy - 4, 7, 5, "#f2ebd8");
-    px(c, cx - 2, cy + 1, 5, 2, "#ded4bc");
-    px(c, cx - 2, cy - 2, 2, 2, "#1a1410");
-    px(c, cx + 1, cy - 2, 2, 2, "#1a1410");
+    // Slight eerie crooked tilt + dark crimson shadow so red paint pops cleanly on every wall
+    c.translate(cx, cy);
+    c.rotate(-0.07);
+
+    const drawLine = (txt, dy) => {
+      if (!txt) return;
+      c.fillStyle = "rgba(28, 4, 6, 0.72)";
+      c.fillText(txt, 0.7, dy + 0.7);
+      c.fillStyle = "#a8161e";
+      c.fillText(txt, 0, dy);
+      c.fillStyle = "#cc242c";
+      c.fillText(txt, -0.3, dy - 0.2);
+    };
+
+    if (l2) {
+      drawLine(l1, -3.4);
+      drawLine(l2, 3.2);
+    } else {
+      drawLine(l1, 0);
+    }
+
+    // Subtle blood-red paint drips below letters
+    c.fillStyle = "#8a1118";
+    c.fillRect(-5, 5, 1, 2);
+    c.fillRect(3, 4, 1, 3);
+    c.restore();
   }
 
   function drawUpsideDownFloatingChair(c, x, y, timeSec) {
@@ -663,7 +842,6 @@ window.Duskwood = window.Duskwood || {};
     const hover = Math.round(Math.sin(timeSec * 2.5) * 2.4);
     const cy = Math.round(y) - 10 + hover;
 
-    // Subtle warped wallpaper ripples behind the floating chair
     c.save();
     c.strokeStyle = "rgba(220, 210, 195, 0.36)";
     c.lineWidth = 1;
@@ -673,10 +851,8 @@ window.Duskwood = window.Duskwood || {};
     c.stroke();
     c.restore();
 
-    // Clear shadow far below to emphasize levitation!
     fillPixelEllipse(c, cx, Math.round(y) + 5, 10, 4, "rgba(0, 0, 0, 0.52)");
 
-    // Crisp upside-down wooden cabin chair hovering visibly off the floor
     px(c, cx - 6, cy - 12, 3, 9, "#1c1008");
     px(c, cx + 3, cy - 12, 3, 9, "#1c1008");
     px(c, cx - 5, cy - 11, 2, 7, "#a66c42");
@@ -688,82 +864,51 @@ window.Duskwood = window.Duskwood || {};
     px(c, cx - 3, cy + 3, 6, 6, "#5c361e");
   }
 
-  function drawChickenDecorModel(c, x, y, isHeadless, chickenStyle) {
+  // 4d. CHICKEN DECOR: Stark Black Rooster Silhouette Mounted Directly on the Wall (Matches image_42bbd8.jpg!)
+  function drawChickenDecorModel(c, x, y, isHeadless) {
     const cx = Math.round(x);
     const cy = Math.round(y);
-    const style = chickenStyle || "wall_mural";
 
-    if (style === "wood_figurine") {
-      // Carved wooden rooster figurine on a clear side plinth (Study!)
-      c.fillStyle = "rgba(0,0,0,0.44)";
-      c.fillRect(cx - 7, cy + 4, 14, 3);
-      px(c, cx - 6, cy + 1, 12, 4, "#24140a");
-      px(c, cx - 5, cy + 2, 10, 2, "#875934");
-      px(c, cx - 4, cy - 5, 8, 6, "#1f120a");
-      px(c, cx - 3, cy - 4, 6, 4, "#b87f4b"); // Warm oak body
-      px(c, cx - 7, cy - 6, 4, 5, "#8f5c34"); // Tail feathers
-      if (!isHeadless) {
-        px(c, cx + 3, cy - 9, 4, 6, "#c99058");
-        px(c, cx + 3, cy - 12, 4, 3, "#d63232"); // Bright red comb!
-        px(c, cx + 7, cy - 7, 3, 2, "#f2c144");  // Golden beak!
-      } else {
-        px(c, cx + 3, cy - 5, 3, 2, "#631e1c"); // Snapped neck!
-      }
-      return;
-    }
+    // Faint wall-mounted relief shadow directly behind the black cutout
+    c.fillStyle = "rgba(0, 0, 0, 0.30)";
+    c.fillRect(cx - 5, cy - 2, 10, 6);
 
-    if (style === "wall_plate") {
-      // Crisp vintage ceramic rooster wall plate mounted on kitchen wall (15x15)!
-      fillPixelEllipse(c, cx, cy, 8, 8, "#211914");
-      fillPixelEllipse(c, cx, cy, 7, 7, "#f5eedc");
-      fillPixelEllipse(c, cx, cy, 5, 5, "#e0d6be");
-      // Clear painted rooster silhouette inside plate
-      px(c, cx - 3, cy - 1, 6, 4, "#284463");
-      px(c, cx - 5, cy - 3, 3, 3, "#385b82");
-      if (!isHeadless) {
-        px(c, cx + 2, cy - 4, 3, 4, "#284463");
-        px(c, cx + 2, cy - 6, 3, 2, "#cc2e2e"); // Red comb
-        px(c, cx + 5, cy - 3, 2, 1, "#e8b338"); // Beak
-      } else {
-        px(c, cx + 2, cy - 2, 2, 2, "#8c2424");
-      }
-      return;
-    }
+    const blackMain = "#0b0908";
+    const blackHi   = "#24201c"; // Subtle matte charcoal edge highlight so silhouette reads on dark walls!
 
-    if (style === "wall_frame") {
-      // Crisp framed folk-art rooster picture hung on wall (15x15)!
-      px(c, cx - 8, cy - 8, 16, 16, "#21130b");
-      px(c, cx - 7, cy - 7, 14, 14, "#b89552");
-      px(c, cx - 6, cy - 6, 12, 12, "#f0e6cf");
-      px(c, cx - 4, cy - 1, 7, 5, "#2b2018");
-      px(c, cx - 5, cy - 3, 3, 4, "#7a3b29");
-      if (!isHeadless) {
-        px(c, cx + 2, cy - 4, 3, 4, "#2b2018");
-        px(c, cx + 2, cy - 6, 3, 2, "#cc2b2b");
-        px(c, cx + 5, cy - 3, 2, 1, "#e6ad32");
-      }
-      return;
-    }
+    // Plump arched rooster body (facing right, matching image_42bbd8.jpg!)
+    px(c, cx - 4, cy - 2, 8, 5, blackMain);
+    px(c, cx - 3, cy - 3, 6, 7, blackMain);
+    // Faint charcoal feather cutout highlights inside body (like ornate wrought-iron/stencil decor!)
+    px(c, cx - 2, cy - 1, 3, 1, blackHi);
+    px(c, cx - 1, cy + 1, 3, 1, blackHi);
 
-    // "wall_mural", "wall_stencil", or "tile_decal": Crisp, unmistakably readable wall rooster!
-    const outCol  = "#1a130e";
-    const fillCol = style === "tile_decal" ? "#2e485c" : "#f0e6ce";
-    const combCol = "#d63232";
-    const beakCol = "#f2c144";
+    // Tall fanned black rooster tail feathers curving up-left
+    px(c, cx - 7, cy - 6, 3, 5, blackMain);
+    px(c, cx - 6, cy - 7, 2, 4, blackMain);
+    px(c, cx - 5, cy - 4, 2, 4, blackMain);
+    px(c, cx - 6, cy - 5, 1, 2, blackHi);
 
-    px(c, cx - 6, cy - 3, 10, 6, outCol);
-    px(c, cx - 5, cy - 2, 8,  4, fillCol); // Body
-    px(c, cx - 8, cy - 6, 4,  5, outCol);
-    px(c, cx - 7, cy - 5, 3,  3, fillCol); // Curved tail
-    px(c, cx - 3, cy + 3, 2,  4, fillCol); // Legs
-    px(c, cx + 1, cy + 3, 2,  4, fillCol);
+    // Slender black rooster legs & claws perched on wallpaper
+    px(c, cx - 2, cy + 4, 1, 3, blackMain);
+    px(c, cx + 1, cy + 4, 1, 3, blackMain);
+    px(c, cx - 3, cy + 7, 3, 1, blackMain);
+    px(c, cx,     cy + 7, 3, 1, blackMain);
+
     if (!isHeadless) {
-      px(c, cx + 2, cy - 7, 5, 6, outCol);
-      px(c, cx + 3, cy - 6, 3, 4, fillCol); // Head
-      px(c, cx + 3, cy - 9, 4, 3, combCol); // Bright red comb!
-      px(c, cx + 6, cy - 5, 3, 2, beakCol); // Golden beak!
+      // Proud upright black neck, head, scalloped comb & beak!
+      px(c, cx + 2, cy - 6, 3, 5, blackMain);
+      px(c, cx + 3, cy - 7, 3, 3, blackMain);
+      // Black scalloped comb on crown (all black silhouette!)
+      px(c, cx + 3, cy - 9, 1, 2, blackMain);
+      px(c, cx + 5, cy - 9, 1, 2, blackMain);
+      px(c, cx + 4, cy - 8, 2, 1, blackHi);
+      // Sharp black beak pointing right
+      px(c, cx + 6, cy - 6, 2, 1, blackMain);
+      px(c, cx + 6, cy - 5, 1, 1, blackMain);
     } else {
-      px(c, cx + 3, cy - 3, 3, 2, "#8f2222");
+      // Fake Chicken after 3rd clue revealed: head cleanly snapped/missing!
+      px(c, cx + 2, cy - 3, 2, 2, "#3d1212");
     }
   }
 
@@ -782,8 +927,6 @@ window.Duskwood = window.Duskwood || {};
     return pts;
   }
 
-  // Gentle anti-vignette visibility punch (small 22px radius, soft strength) so clues near
-  // room walls/corners remain clearly readable without looking like neon spotlights!
   function getClueLightPoints(room, matchState) {
     if (!room || !matchState || !matchState.clueManifest) return [];
     const entries = getRevealedEntriesForRoom(room.id, matchState);
@@ -797,7 +940,12 @@ window.Duskwood = window.Duskwood || {};
         return;
       }
       const pt = getSafeClueAnchor(room, entry.omenId);
-      pts.push({ x: pt.x, y: pt.y - (entry.omenId === "om_grandfather_clock" ? 16 : 2), r: 24, strength: 0.56 });
+      if (entry.omenId === "om_past_traveler" && pt.onTable) {
+        // Severed Hand + Hammer on table gently glows in dim light so players notice it!
+        pts.push({ x: pt.x, y: pt.y, r: 30, strength: 0.72 });
+      } else {
+        pts.push({ x: pt.x, y: pt.y - (entry.omenId === "om_grandfather_clock" ? 14 : 2), r: 24, strength: 0.56 });
+      }
     });
     return pts;
   }
@@ -810,7 +958,6 @@ window.Duskwood = window.Duskwood || {};
 
     entries.forEach((entry) => {
       if (entry.omenId === "om_corrupt_painting") {
-        // Unmistakable pale waxy uncanny portrait face & staring eyes on the wall canvas (NO red gore!)
         getCorruptPaintingCoords(room, matchState).forEach((p) => {
           px(ctx, p.x - 3, p.ry + 2, 6, 7, "#e8dfd0");
           px(ctx, p.x - 3, p.ry + 4, 2, 2, "#12100f");
@@ -830,17 +977,19 @@ window.Duskwood = window.Duskwood || {};
           drawWallOrMirrorSymbol(ctx, pt.x, pt.y, entry.symbol, entry.surfaceStyle);
         }
       } else if (entry.omenId === "om_past_traveler") {
-        drawPastPlayerRemains(ctx, pt.x, pt.y);
+        if (pt.onTable) {
+          drawPastPlayerBodyPart(ctx, pt.x, pt.y, timeSec);
+        } else {
+          drawPastPlayerRedWallText(ctx, pt.x, pt.y, entry.wallPhrase, Boolean(pt.compactWall));
+        }
       } else if (entry.omenId === "om_paranormal_alt") {
         drawUpsideDownFloatingChair(ctx, pt.x, pt.y, timeSec);
       } else if (entry.omenId === "om_rooster_decor") {
-        const chDef = ROOM_CHICKEN_STYLES[room.id] || ROOM_CHICKEN_STYLES.dining_room;
-        drawChickenDecorModel(ctx, pt.x, pt.y, Boolean(entry.isFakeChicken && headless), chDef.style);
+        drawChickenDecorModel(ctx, pt.x, pt.y, Boolean(entry.isFakeChicken && headless));
       }
     });
   }
 
-  // Soft post-darkness readability pass ONLY over the exact clue area so corner vignettes never bury clues!
   function renderRoomClueHighlights(ctx, room, timeSec, matchState) {
     if (!room || !matchState || !matchState.clueManifest) return;
     const entries = getRevealedEntriesForRoom(room.id, matchState);
@@ -849,14 +998,24 @@ window.Duskwood = window.Duskwood || {};
     entries.forEach((entry) => {
       if (entry.omenId === "om_corrupt_painting") {
         getCorruptPaintingCoords(room, matchState).forEach((p) => {
-          // Subtle pale ivory gleam on the uncanny eyes when wall is in dim light
           px(ctx, p.x - 2, p.ry + 4, 1, 1, "#f2eee6");
           px(ctx, p.x + 2, p.ry + 4, 1, 1, "#f2eee6");
         });
         return;
       }
       const pt = getSafeClueAnchor(room, entry.omenId);
-      const gy = pt.y - (entry.omenId === "om_grandfather_clock" ? 16 : 2);
+      if (entry.omenId === "om_past_traveler" && pt.onTable) {
+        // Gentle luminous highlight on the severed hand & hammer resting on the table!
+        const pulse = 0.70 + Math.sin(timeSec * 3.4) * 0.25;
+        const g = ctx.createRadialGradient(pt.x, pt.y, 1, pt.x, pt.y, 18);
+        g.addColorStop(0, `rgba(255, 240, 200, ${(0.34 * pulse).toFixed(3)})`);
+        g.addColorStop(0.55, `rgba(245, 205, 155, ${(0.14 * pulse).toFixed(3)})`);
+        g.addColorStop(1, "rgba(255, 224, 175, 0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(pt.x - 18, pt.y - 18, 36, 36);
+        return;
+      }
+      const gy = pt.y - (entry.omenId === "om_grandfather_clock" ? 14 : 2);
       const g = ctx.createRadialGradient(pt.x, gy, 2, pt.x, gy, 20);
       g.addColorStop(0, "rgba(255, 244, 214, 0.14)");
       g.addColorStop(1, "rgba(255, 244, 214, 0)");
@@ -872,7 +1031,7 @@ window.Duskwood = window.Duskwood || {};
     const list = [];
 
     entries.forEach((entry) => {
-      if (entry.omenId === "om_corrupt_painting") return; // Handled directly by room's wall portrait [E]!
+      if (entry.omenId === "om_corrupt_painting") return;
       const pt = getSafeClueAnchor(room, entry.omenId);
       const ix = pt.x;
       const iy = typeof pt.interactY === "number" ? pt.interactY : pt.y;
@@ -899,9 +1058,9 @@ window.Duskwood = window.Duskwood || {};
       } else if (entry.omenId === "om_past_traveler") {
         list.push({
           id: "clue_inspect_past",
-          x: ix, y: iy, r: 20,
-          prompt: "[E] INSPECT CORNER",
-          clueInspect: { entry, room }
+          x: ix, y: iy, r: 24,
+          prompt: pt.onTable ? "[E] INSPECT SEVERED HAND" : "[E] INSPECT WALL WRITING",
+          clueInspect: { entry, room, isBodyPart: Boolean(pt.onTable) }
         });
       } else if (entry.omenId === "om_paranormal_alt") {
         list.push({
@@ -911,11 +1070,10 @@ window.Duskwood = window.Duskwood || {};
           clueInspect: { entry, room }
         });
       } else if (entry.omenId === "om_rooster_decor") {
-        const chDef = ROOM_CHICKEN_STYLES[room.id] || ROOM_CHICKEN_STYLES.dining_room;
         list.push({
           id: "clue_inspect_chicken",
-          x: ix, y: iy, r: 22,
-          prompt: `[E] INSPECT ${chDef.label}`,
+          x: ix, y: iy, r: 24,
+          prompt: "[E] INSPECT CHICKEN DECOR",
           clueInspect: { entry, room }
         });
       }
@@ -925,7 +1083,7 @@ window.Duskwood = window.Duskwood || {};
   }
 
   // ==================== 6. FOCUSED CLOSE-UP INSPECTION MODAL ====================
-  function buildClueCloseUpSVG(entry, matchState, room) {
+  function buildClueCloseUpSVG(entry, matchState, room, isBodyPart) {
     const headless = Boolean(
       entry.isFakeChicken &&
       matchState &&
@@ -941,7 +1099,6 @@ window.Duskwood = window.Duskwood || {};
       let strokeOpacity = "0.78";
 
       if (st === "mirror") {
-        // Steamed bathroom wall mirror with water droplets & finger-traced mark!
         bg = `<rect width="320" height="260" fill="#2c353b"/>
               <rect x="26" y="16" width="268" height="228" rx="6" fill="#423023" stroke="#18100a" stroke-width="5"/>
               <rect x="40" y="30" width="240" height="200" fill="#89a1ad" stroke="#536873" stroke-width="2"/>
@@ -982,7 +1139,6 @@ window.Duskwood = window.Duskwood || {};
         strokeCol = "#e8dec8";
         strokeOpacity = "0.72";
       } else {
-        // Striped antique wallpaper / plaster wall
         bg = `<rect width="320" height="260" fill="#4d4137"/>
               <g fill="#57493e" opacity="0.55">
                 <rect x="18" y="0" width="24" height="260"/><rect x="78" y="0" width="24" height="260"/>
@@ -1002,45 +1158,91 @@ window.Duskwood = window.Duskwood || {};
     }
 
     if (entry.omenId === "om_grandfather_clock") {
+      // Slim, slender antique grandfather clock close-up
       return `
         <svg viewBox="0 0 320 260" class="ci-focus-svg">
           <rect width="320" height="260" fill="#120e0d"/>
-          <path d="M104,24 Q160,2 216,24 L224,44 L96,44 Z" fill="#3b2214" stroke="#180d07" stroke-width="4"/>
-          <rect x="104" y="44" width="112" height="106" fill="#4f2f1c" stroke="#180d07" stroke-width="4"/>
-          <circle cx="160" cy="96" r="42" fill="#c9a44c" stroke="#24150b" stroke-width="4"/>
-          <circle cx="160" cy="96" r="36" fill="#f4ebd2" stroke="#594225" stroke-width="2"/>
-          <text x="160" y="72" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="11" fill="#1f150e">XII</text>
-          <text x="186" y="100" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="10" fill="#1f150e">III</text>
-          <text x="160" y="128" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="10" fill="#1f150e">VI</text>
-          <text x="134" y="100" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="10" fill="#1f150e">IX</text>
-          <line x1="160" y1="96" x2="160" y2="70" stroke="#1c120d" stroke-width="3.5" stroke-linecap="round"/>
-          <line x1="160" y1="96" x2="160" y2="77" stroke="#7a1b1b" stroke-width="2.2" stroke-linecap="round"/>
-          <circle cx="160" cy="96" r="3.5" fill="#1c120d"/>
-          <rect x="114" y="150" width="92" height="102" fill="#422616" stroke="#180d07" stroke-width="4"/>
-          <rect x="130" y="160" width="60" height="84" fill="#120e0d" stroke="#29170d" stroke-width="2"/>
+          <path d="M122,22 Q160,4 198,22 L204,40 L116,40 Z" fill="#3b2214" stroke="#180d07" stroke-width="3.5"/>
+          <rect x="122" y="40" width="76" height="82" fill="#4f2f1c" stroke="#180d07" stroke-width="3.5"/>
+          <circle cx="160" cy="81" r="30" fill="#c9a44c" stroke="#24150b" stroke-width="3.5"/>
+          <circle cx="160" cy="81" r="25" fill="#f4ebd2" stroke="#594225" stroke-width="1.8"/>
+          <text x="160" y="65" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="9" fill="#1f150e">XII</text>
+          <text x="178" y="84" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="8" fill="#1f150e">III</text>
+          <text x="160" y="103" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="8" fill="#1f150e">VI</text>
+          <text x="142" y="84" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="8" fill="#1f150e">IX</text>
+          <line x1="160" y1="81" x2="160" y2="62" stroke="#1c120d" stroke-width="3" stroke-linecap="round"/>
+          <line x1="160" y1="81" x2="160" y2="67" stroke="#7a1b1b" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="160" cy="81" r="2.8" fill="#1c120d"/>
+          <rect x="128" y="122" width="64" height="114" fill="#422616" stroke="#180d07" stroke-width="3.5"/>
+          <rect x="140" y="132" width="40" height="94" fill="#120e0d" stroke="#29170d" stroke-width="2"/>
           <g class="ci-pendulum">
-            <line x1="160" y1="162" x2="160" y2="220" stroke="#c9a44c" stroke-width="3"/>
-            <circle cx="160" cy="224" r="13" fill="#e6c163" stroke="#59411b" stroke-width="2.5"/>
+            <line x1="160" y1="136" x2="160" y2="202" stroke="#c9a44c" stroke-width="2.5"/>
+            <circle cx="160" cy="206" r="10" fill="#e6c163" stroke="#59411b" stroke-width="2.2"/>
           </g>
+          <rect x="116" y="236" width="88" height="18" fill="#3b2214" stroke="#180d07" stroke-width="3.5"/>
         </svg>`;
     }
 
     if (entry.omenId === "om_past_traveler") {
+      if (isBodyPart) {
+        // FORM 1 CLOSE-UP: Severed Pale Hand + Wooden-Handled Iron Hammer on Tabletop (Matches image_42b895.jpg!)
+        return `
+          <svg viewBox="0 0 320 260" class="ci-focus-svg">
+            <defs>
+              <radialGradient id="handGlow" cx="50%" cy="50%" r="48%">
+                <stop offset="0%" stop-color="rgba(255,232,188,0.44)"/>
+                <stop offset="100%" stop-color="rgba(255,210,145,0)"/>
+              </radialGradient>
+            </defs>
+            <!-- Aged patterned tabletop surface & wall corner -->
+            <rect width="320" height="260" fill="#5e4a34"/>
+            <polygon points="0,84 156,36 320,96 320,260 0,260" fill="#d9cca8" stroke="#2e2115" stroke-width="5"/>
+            <ellipse cx="160" cy="144" rx="115" ry="78" fill="url(#handGlow)"/>
+            <!-- Cast shadow beneath hand & hammer -->
+            <ellipse cx="152" cy="154" rx="76" ry="38" fill="rgba(28,18,10,0.34)"/>
+            <!-- Wooden-Handled Iron Hammer resting right under/beside the severed hand -->
+            <g transform="translate(158, 134) rotate(-6)">
+              <rect x="-8" y="-32" width="17" height="72" rx="3" fill="#9c633b" stroke="#361e0f" stroke-width="2.6"/>
+              <line x1="-2" y1="-28" x2="-2" y2="36" stroke="#b87c4f" stroke-width="2" opacity="0.6"/>
+              <polygon points="-38,34 38,34 44,48 34,62 -36,62 -44,48" fill="#4f4844" stroke="#1f1b19" stroke-width="3"/>
+              <polygon points="-34,37 34,37 38,46 -34,46" fill="#736a64"/>
+            </g>
+            <!-- Pale Severed Human Hand with bloody wrist cross-section reaching over the hammer handle -->
+            <g transform="translate(132, 106)">
+              <!-- Severed crimson wrist cross-section -->
+              <ellipse cx="-26" cy="4" rx="10" ry="15" fill="#6b0d14" stroke="#2e0608" stroke-width="2.2"/>
+              <ellipse cx="-25" cy="4" rx="6" ry="10" fill="#9e1922"/>
+              <circle cx="-25" cy="4" r="2.6" fill="#e6d6c3"/>
+              <!-- Back of pale hand & arched fingers gripping the top of the hammer handle -->
+              <path d="M-24,-10 C-6,-18 14,-18 32,-12 C48,-6 60,4 64,14 C65,18 58,20 53,15 C46,7 36,2 24,0 C12,0 2,8 6,20 C9,28 15,34 12,38 C8,42 -2,36 -10,25 C-16,18 -20,16 -24,14 Z" fill="#dfc1aa" stroke="#472d1f" stroke-width="2.6"/>
+              <!-- Extra curled fingers behind index -->
+              <path d="M28,-10 C42,-4 52,5 56,15" fill="none" stroke="#855a44" stroke-width="1.8"/>
+              <path d="M22,-6 C35,0 44,8 48,16" fill="none" stroke="#855a44" stroke-width="1.6"/>
+              <path d="M-12,-4 C0,-10 14,-10 24,-6" fill="none" stroke="#f5e1cf" stroke-width="2.2" opacity="0.65"/>
+            </g>
+          </svg>`;
+      }
+
+      // FORM 2 CLOSE-UP: Blood-Red Handwritten Wall Text (Matches image_42bba1 & image_42bbbd!)
+      const p1 = (entry.wallPhrase && entry.wallPhrase[0]) || "Everyone";
+      const p2 = (entry.wallPhrase && entry.wallPhrase[1]) || "is Dead";
       return `
         <svg viewBox="0 0 320 260" class="ci-focus-svg">
-          <rect width="320" height="260" fill="#241913"/>
-          <line x1="0" y1="65" x2="320" y2="65" stroke="#140d09" stroke-width="3"/>
-          <line x1="0" y1="130" x2="320" y2="130" stroke="#140d09" stroke-width="3"/>
-          <line x1="0" y1="195" x2="320" y2="195" stroke="#140d09" stroke-width="3"/>
-          <text x="160" y="64" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-style="italic" font-weight="700" font-size="34" fill="#d9ceba" opacity="0.82" transform="rotate(-4 160 64)">Help us</text>
-          <path d="M108,162 C102,118 126,92 160,92 C194,92 218,118 212,162 C208,184 194,192 190,208 L190,228 L130,228 L130,208 C126,192 112,184 108,162 Z" fill="#dfd4bc" stroke="#18120d" stroke-width="4"/>
-          <ellipse cx="138" cy="154" rx="16" ry="19" fill="#140f0c"/>
-          <ellipse cx="182" cy="154" rx="16" ry="19" fill="#140f0c"/>
-          <path d="M160,168 L151,188 L169,188 Z" fill="#140f0c"/>
-          <line x1="142" y1="208" x2="142" y2="228" stroke="#18120d" stroke-width="3"/>
-          <line x1="154" y1="208" x2="154" y2="228" stroke="#18120d" stroke-width="3"/>
-          <line x1="166" y1="208" x2="166" y2="228" stroke="#18120d" stroke-width="3"/>
-          <line x1="178" y1="208" x2="178" y2="228" stroke="#18120d" stroke-width="3"/>
+          <rect width="320" height="260" fill="#4f463c"/>
+          <g fill="#5b5146" opacity="0.5">
+            <rect x="20" y="0" width="26" height="260"/><rect x="82" y="0" width="26" height="260"/>
+            <rect x="144" y="0" width="26" height="260"/><rect x="206" y="0" width="26" height="260"/>
+            <rect x="268" y="0" width="26" height="260"/>
+          </g>
+          <rect x="0" y="204" width="320" height="10" fill="#3b2f24"/>
+          <rect x="0" y="214" width="320" height="46" fill="#2e231a"/>
+          <!-- Scrawled crimson wall handwriting -->
+          <g transform="rotate(-4 160 112)">
+            <text x="160" y="96" text-anchor="middle" font-family="'Pixelify Sans', Georgia, serif" font-style="italic" font-weight="700" font-size="44" fill="#8f141c" stroke="#360508" stroke-width="1.2">${p1}</text>
+            ${p2 ? `<text x="166" y="152" text-anchor="middle" font-family="'Pixelify Sans', Georgia, serif" font-style="italic" font-weight="700" font-size="44" fill="#8f141c" stroke="#360508" stroke-width="1.2">${p2}</text>` : ""}
+          </g>
+          <!-- Subtle dripping red paint streaks -->
+          <path d="M98,108 L98,128 M172,158 L172,184 M224,104 L224,122" stroke="#7a1017" stroke-width="2.5" stroke-linecap="round" opacity="0.72"/>
         </svg>`;
     }
 
@@ -1063,46 +1265,43 @@ window.Duskwood = window.Duskwood || {};
         </svg>`;
     }
 
-    // CHICKEN DECOR — Diversified Close-Up Visuals (Wooden Figurine, Ceramic Plate, Wall Mural/Stencil!)
-    const chDef = (room && ROOM_CHICKEN_STYLES[room.id]) || ROOM_CHICKEN_STYLES.dining_room;
-    const chStyle = chDef.style;
-    const bgSvg =
-      chStyle === "wood_figurine"
-        ? `<rect width="320" height="260" fill="#211812"/>
-           <rect x="20" y="198" width="280" height="44" fill="#543520" stroke="#1a0f08" stroke-width="4"/>`
-        : chStyle === "wall_plate"
-          ? `<rect width="320" height="260" fill="#54493e"/>
-             <circle cx="160" cy="130" r="108" fill="#efe7d4" stroke="#362c24" stroke-width="5"/>
-             <circle cx="160" cy="130" r="94" fill="none" stroke="#3b5470" stroke-width="2.5" stroke-dasharray="6,4"/>`
-          : `<rect width="320" height="260" fill="#473c33"/>
-             <rect x="44" y="24" width="232" height="212" rx="10" fill="#52463b" stroke="#2c221b" stroke-width="4"/>`;
-
-    const bodyCol = chStyle === "wood_figurine" ? "#7d4f2d" : chStyle === "wall_plate" ? "#2e4661" : "#261f1a";
-    const wingCol = chStyle === "wood_figurine" ? "#9c673e" : chStyle === "wall_plate" ? "#4b698a" : "#4a3d33";
-
+    // CHICKEN DECOR CLOSE-UP: Pure Black Rooster Silhouette on Patterned Cabin Wallpaper (Matches image_42bbd8.jpg!)
     return `
       <svg viewBox="0 0 320 260" class="ci-focus-svg">
-        ${bgSvg}
-        <path d="M126,118 C142,126 164,122 192,102 C214,88 232,96 240,108 C224,116 234,132 214,148 C196,170 166,182 134,178 C108,174 96,154 102,134 C106,124 116,118 126,118 Z" fill="${bodyCol}" stroke="#140e0a" stroke-width="3"/>
-        <path d="M128,142 Q156,136 178,154 Q152,168 128,142 Z" fill="${wingCol}"/>
-        <line x1="142" y1="178" x2="136" y2="202" stroke="#1c140e" stroke-width="4.5"/>
-        <line x1="168" y1="178" x2="176" y2="202" stroke="#1c140e" stroke-width="4.5"/>
-        <path d="M124,202 L148,202 M164,202 L188,202" stroke="#1c140e" stroke-width="4"/>
+        <rect width="320" height="260" fill="#8c7a5b"/>
+        <!-- Vintage cabin floral/striped wallpaper pattern -->
+        <g fill="#756448" opacity="0.45">
+          <rect x="24" y="0" width="24" height="260"/><rect x="88" y="0" width="24" height="260"/>
+          <rect x="152" y="0" width="24" height="260"/><rect x="216" y="0" width="24" height="260"/>
+          <rect x="280" y="0" width="24" height="260"/>
+        </g>
+        <!-- Soft drop shadow behind black wall silhouette -->
+        <g transform="translate(5, 5)" opacity="0.28">
+          <path d="M190,118 C172,126 148,122 118,100 C96,84 78,94 72,108 C88,116 78,132 100,150 C118,172 150,184 182,180 C208,176 220,156 214,134 C210,124 200,118 190,118 Z" fill="#000000"/>
+        </g>
+        <!-- Stark Black Wall Rooster Silhouette facing right (matching image_42bbd8.jpg!) -->
+        <path d="M190,118 C172,126 148,122 118,100 C96,84 78,94 72,108 C88,116 78,132 100,150 C118,172 150,184 182,180 C208,176 220,156 214,134 C210,124 200,118 190,118 Z" fill="#0d0b0a" stroke="#050404" stroke-width="2.5"/>
+        <!-- Ornate feather cutout slits on black metal/wood decor -->
+        <path d="M138,144 Q162,138 182,154 M144,156 Q166,152 180,164" fill="none" stroke="#8c7a5b" stroke-width="2" opacity="0.55"/>
+        <!-- Legs & claws -->
+        <line x1="146" y1="178" x2="140" y2="206" stroke="#0d0b0a" stroke-width="5" stroke-linecap="round"/>
+        <line x1="174" y1="178" x2="182" y2="206" stroke="#0d0b0a" stroke-width="5" stroke-linecap="round"/>
+        <path d="M126,206 L152,206 M168,206 L194,206" stroke="#0d0b0a" stroke-width="4.5" stroke-linecap="round"/>
         ${
           headless
-            ? `<path d="M104,132 L126,118 L116,138 Z" fill="#7a2420" stroke="#240808" stroke-width="2.5"/>
-               <text x="160" y="74" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="15" fill="#7a1818">HEADLESS — FAKE CLUE!</text>`
-            : `<path d="M102,134 C96,114 98,92 110,84 C122,78 134,88 132,104 C130,114 134,122 136,126 Z" fill="${bodyCol}" stroke="#140e0a" stroke-width="3"/>
-               <path d="M104,84 C100,72 110,66 116,74 C122,64 134,70 130,84 Z" fill="#a82d2d" stroke="#420d0d" stroke-width="2"/>
-               <path d="M98,96 L80,103 L99,109 Z" fill="#d99a2e" stroke="#472d0b" stroke-width="2"/>
-               <circle cx="112" cy="96" r="3" fill="#f4ebd4"/>`
+            ? `<path d="M192,118 L212,132 L198,138 Z" fill="#5e1414"/>
+               <text x="160" y="62" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-weight="700" font-size="16" fill="#6b1010">HEADLESS — FAKE CLUE!</text>`
+            : `<path d="M214,134 C220,112 218,90 206,82 C194,76 182,86 184,104 C186,114 184,122 182,126 Z" fill="#0d0b0a"/>
+               <path d="M210,82 C214,70 204,64 198,72 C192,62 180,68 184,82 Z" fill="#0d0b0a"/>
+               <path d="M216,94 L234,101 L215,107 Z" fill="#0d0b0a"/>
+               <circle cx="203" cy="95" r="2.6" fill="#8c7a5b"/>`
         }
       </svg>`;
   }
 
   function openInspectModal(clueInspect, matchState) {
     if (!clueInspect || !clueInspect.entry) return;
-    const { entry, room } = clueInspect;
+    const { entry, room, isBodyPart } = clueInspect;
 
     const modal = document.getElementById("clue-inspect-modal");
     const titleEl = document.getElementById("clue-modal-title");
@@ -1127,27 +1326,33 @@ window.Duskwood = window.Duskwood || {};
     } else if (entry.omenId === "om_grandfather_clock") {
       if (titleEl) titleEl.textContent = "THE GRANDFATHER CLOCK";
       if (subEl) subEl.textContent = `CLUE MANIFESTATION (${roomLabel})`;
-      if (noteEl) noteEl.textContent = "A mahogany grandfather clock stands flush against the wall, its hands frozen on XII as a hollow chime echoes through the cabin.";
+      if (noteEl) noteEl.textContent = "A slender mahogany grandfather clock stands silently against the wall, its hands frozen on XII as a deep chime echoes through the cabin.";
     } else if (entry.omenId === "om_past_traveler") {
-      if (titleEl) titleEl.textContent = "EVIDENCE OF A PAST PLAYER";
-      if (subEl) subEl.textContent = `CLUE MANIFESTATION (${roomLabel})`;
-      if (noteEl) noteEl.textContent = "Weathered skeletal remains tucked beside faint charcoal writing: 'Help us'. Someone before you never made it to midnight.";
+      if (isBodyPart) {
+        if (titleEl) titleEl.textContent = "EVIDENCE OF A PAST PLAYER";
+        if (subEl) subEl.textContent = `BODY PART ON TABLE (${roomLabel})`;
+        if (noteEl) noteEl.textContent = "A pale severed hand rests faintly glowing atop the table right beside a heavy iron hammer. Someone before you never escaped.";
+      } else {
+        const phraseStr = (entry.wallPhrase || ["Everyone", "is Dead"]).filter(Boolean).join(" ");
+        if (titleEl) titleEl.textContent = "EVIDENCE OF A PAST PLAYER";
+        if (subEl) subEl.textContent = `RED WALL WRITING (${roomLabel})`;
+        if (noteEl) noteEl.textContent = `Scrawled across the cabin wall in dark red: "${phraseStr}". Someone who stayed here before left a final warning behind.`;
+      }
     } else if (entry.omenId === "om_paranormal_alt") {
       if (titleEl) titleEl.textContent = "PARANORMAL ALTERATION";
       if (subEl) subEl.textContent = `CLUE MANIFESTATION (${roomLabel})`;
       if (noteEl) noteEl.textContent = "An antique wooden chair hovers upside-down quietly in the corner while the wallpaper behind it bends unnaturally.";
     } else if (entry.omenId === "om_rooster_decor") {
-      const chDef = (room && ROOM_CHICKEN_STYLES[room.id]) || ROOM_CHICKEN_STYLES.dining_room;
-      if (titleEl) titleEl.textContent = headless ? `HEADLESS ${chDef.label} (FAKE!)` : chDef.label;
-      if (subEl) subEl.textContent = `CHICKEN DECOR (${roomLabel})`;
+      if (titleEl) titleEl.textContent = headless ? "HEADLESS CHICKEN DECOR (FAKE!)" : "BLACK CHICKEN DECOR";
+      if (subEl) subEl.textContent = `WALL DECORATION (${roomLabel})`;
       if (noteEl) {
         noteEl.textContent = headless
-          ? "The rooster's head has snapped cleanly off after the 3rd clue was revealed! This Chicken Decor is a FAKE DECOY — mark X on Chicken Decor in your Book [B]!"
-          : `${chDef.desc} Beware: a fake chicken will lose its head once the 3rd and final clue is revealed.`;
+          ? "The black rooster's head has vanished after the 3rd clue was revealed! This Chicken Decor is a FAKE DECOY — mark X on Chicken Decor in your Book [B]!"
+          : "A stark black rooster silhouette mounted directly onto the cabin wall. Beware: a fake chicken will lose its head once the 3rd and final clue is revealed.";
       }
     }
 
-    artEl.innerHTML = buildClueCloseUpSVG(entry, matchState, room);
+    artEl.innerHTML = buildClueCloseUpSVG(entry, matchState, room, Boolean(isBodyPart));
     inspectOpen = true;
     modal.classList.remove("hidden");
     App.Audio.open();
