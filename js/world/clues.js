@@ -286,8 +286,46 @@ window.Duskwood = window.Duskwood || {};
   // Smart Built-Room Re-binding: once the player has built >= 4 rooms (Dining + Cellar + 2+),
   // any matching unrevealed clue whose pre-rolled room hasn't been drawn yet automatically
   // binds into one of the player's built rooms so clues NEVER stay stuck invisible all match!
+  function isMpClientNotHost(matchState) {
+    return Boolean(
+      matchState &&
+      matchState.mode === "MULTIPLAYER" &&
+      App.Network &&
+      App.Network.isMultiplayerMatch &&
+      App.Network.isMultiplayerMatch() &&
+      !App.Network.isHost()
+    );
+  }
+
+  function broadcastAuthoritativeClueSync(matchState, newlyRevealed) {
+    if (!matchState || matchState.mode !== "MULTIPLAYER") return;
+    if (!App.Network || !App.Network.isMultiplayerMatch || !App.Network.isMultiplayerMatch() || !App.Network.isHost()) return;
+    const revOmenIds = Array.isArray(newlyRevealed) ? newlyRevealed.map((e) => e && e.omenId).filter(Boolean) : [];
+    App.Network.sendGameAction("MP_CLUE_SYNC", {
+      clueManifest: matchState.clueManifest || null,
+      sanctuaryRoomId: matchState.sanctuaryRoomId || "",
+      sanctuaryClueKeys: Array.isArray(matchState.sanctuaryClueKeys) ? matchState.sanctuaryClueKeys.slice() : [],
+      newlyRevealedOmenIds: revOmenIds
+    });
+  }
+
+  function applyNetworkClueSync(payload, matchState) {
+    if (!payload || !matchState) return;
+    if (payload.clueManifest) {
+      // Deep-clone so references stay clean
+      matchState.clueManifest = JSON.parse(JSON.stringify(payload.clueManifest));
+    }
+    if (payload.sanctuaryRoomId) matchState.sanctuaryRoomId = payload.sanctuaryRoomId;
+    if (Array.isArray(payload.sanctuaryClueKeys)) matchState.sanctuaryClueKeys = payload.sanctuaryClueKeys.slice();
+    if (Array.isArray(payload.newlyRevealedOmenIds) && payload.newlyRevealedOmenIds.includes("om_grandfather_clock")) {
+      if (App.Audio && App.Audio.playGrandfatherClockClue) App.Audio.playGrandfatherClockClue();
+    }
+  }
+
   function evaluateTopGraveyardClue(matchState) {
     if (!matchState || !matchState.clueManifest || !matchState.activeOmenId) return [];
+    // MULTIPLAYER: ONLY Host evaluates & re-binds clue rooms so every player sees the EXACT same clues in the EXACT same rooms!
+    if (isMpClientNotHost(matchState)) return [];
     const topOmenId = matchState.activeOmenId;
     const manifest = matchState.clueManifest;
     const builtRoomIds = new Set(Object.values(matchState.roomMap || {}).map((r) => r.id));
@@ -392,6 +430,7 @@ window.Duskwood = window.Duskwood || {};
       }
     }
 
+    broadcastAuthoritativeClueSync(matchState, newlyRevealed);
     return newlyRevealed;
   }
 
@@ -1450,6 +1489,7 @@ window.Duskwood = window.Duskwood || {};
   // 1 hidden true clue in an already-built room! Returns the revealed entry or null.
   function forceRevealOneClue(matchState) {
     if (!matchState || !matchState.clueManifest) return null;
+    if (isMpClientNotHost(matchState)) return null;
     const manifest = matchState.clueManifest;
     const builtRoomIds = new Set(Object.values(matchState.roomMap || {}).map((r) => r.id));
     const candidates = manifest.entries.filter(
@@ -1477,6 +1517,7 @@ window.Duskwood = window.Duskwood || {};
         manifest.fakeChickenHeadless = true;
       }
     }
+    broadcastAuthoritativeClueSync(matchState, [picked]);
     return picked;
   }
 
@@ -1484,6 +1525,8 @@ window.Duskwood = window.Duskwood || {};
     initMatchClues,
     evaluateTopGraveyardClue,
     forceRevealOneClue,
+    broadcastAuthoritativeClueSync,
+    applyNetworkClueSync,
     isFinalClueRevealed,
     isTraitorBlockingFinalClue,
     getRevealedEntriesForRoom,

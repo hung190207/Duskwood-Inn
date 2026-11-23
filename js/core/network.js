@@ -22,8 +22,9 @@ window.Duskwood = window.Duskwood || {};
   const LS_BUS_KEY = "duskwood_inn_coop_ls_pkt_v48";
   const MAX_SEATS = 4;
   const STATE_SEND_INTERVAL_MS = 55; // ~18 Hz player movement/pose sync
-  const HEARTBEAT_MS = 4000;
-  const STALE_GUEST_MS = 14000;
+  const HEARTBEAT_MS = 3500;
+  const STALE_GUEST_LOBBY_MS = 22000;
+  const STALE_GUEST_MATCH_MS = 180000; // 3 min grace during active match so backgrounded browser tabs NEVER get dropped!
 
   const PEERJS_CDNS = [
     "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js",
@@ -436,11 +437,18 @@ window.Duskwood = window.Duskwood || {};
     }
 
     if (msg.type === "GAME_ACTION" && session.inMatch) {
-      emit("gameMessage", { fromId, seatIdx: seat.seatIdx, action: msg.action, payload: msg.payload });
-      // Only auto-relay non-request actions; Host-authoritative requests (MP_REQ_*) are answered directly by Host!
-      if (!String(msg.action || "").startsWith("MP_REQ_")) {
+      const actStr = String(msg.action || "");
+      emit("gameMessage", { fromId, seatIdx: seat.seatIdx, action: actStr, payload: msg.payload });
+      // Host-authoritative client-to-host request actions are handled ONLY by Host and answered via authoritative sync!
+      const isHostOnlyReq =
+        actStr.startsWith("MP_REQ_") ||
+        actStr === "MP_STALKER_ACTION" ||
+        actStr === "MP_KNIGHT_ACTION" ||
+        actStr === "MP_BASEMENT_REPAIR" ||
+        actStr === "MP_MUSICAL_ACTION";
+      if (!isHostOnlyReq) {
         broadcastFromHost(
-          { type: "GAME_ACTION", fromId, seatIdx: seat.seatIdx, action: msg.action, payload: msg.payload },
+          { type: "GAME_ACTION", fromId, seatIdx: seat.seatIdx, action: actStr, payload: msg.payload },
           fromId
         );
       }
@@ -811,10 +819,17 @@ window.Duskwood = window.Duskwood || {};
         sendToHost({ type: "PING" });
       } else if (session.role === "HOST") {
         const now = Date.now();
+        const limitMs = session.inMatch ? STALE_GUEST_MATCH_MS : STALE_GUEST_LOBBY_MS;
         session.seats.forEach((seat) => {
           if (!seat || seat.isHost) return;
+          // If P2P DataChannel is still actively open, NEVER kick a tabbed-out player!
+          const p2pConn = guestConns.get(seat.playerId);
+          if (seat.transport === "P2P" && p2pConn && p2pConn.open) {
+            guestLastSeen.set(seat.playerId, now);
+            return;
+          }
           const last = guestLastSeen.get(seat.playerId) || now;
-          if (now - last > STALE_GUEST_MS) {
+          if (now - last > limitMs) {
             removeGuestById(seat.playerId, "timed out");
           }
         });
@@ -1176,6 +1191,32 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
+  function sendGameActionTo(targetPlayerId, action, payload) {
+    if (!session.inMatch || session.role !== "HOST" || !targetPlayerId) return;
+    sendToGuest(targetPlayerId, {
+      type: "GAME_ACTION",
+      fromId: localPlayerId,
+      seatIdx: 0,
+      action,
+      payload
+    });
+  }
+
+  function requestImmediateResync() {
+    if (!session.inMatch || session.role !== "GUEST" || session.status !== "CONNECTED") return;
+    sendToHost({ type: "PING" });
+    sendToHost({ type: "GAME_ACTION", action: "MP_REQ_FULL_SYNC", payload: { playerId: localPlayerId } });
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      requestImmediateResync();
+    }
+  });
+  window.addEventListener("focus", () => {
+    requestImmediateResync();
+  });
+
   function getPublicState() {
     return {
       localPlayerId,
@@ -1214,6 +1255,8 @@ window.Duskwood = window.Duskwood || {};
     startMatch,
     sendPlayerState,
     sendGameAction,
+    sendGameActionTo,
+    requestImmediateResync,
     updateRemoteInterpolation,
     getRemotePlayersInRoom,
     getAllRemotePlayers,

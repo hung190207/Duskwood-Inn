@@ -415,6 +415,54 @@ window.Duskwood = window.Duskwood || {};
     );
   }
 
+  function isMpHost(matchState) {
+    if (!isMpEventMode(matchState)) return true;
+    return Boolean(App.Network && App.Network.isHost && App.Network.isHost());
+  }
+
+  function isMpGuest(matchState) {
+    return isMpEventMode(matchState) && !isMpHost(matchState);
+  }
+
+  // Returns ALL living players (local + remote teammates) so Host monster AI tracks EVERYONE fairly!
+  function getAllLivingPlayers(matchState, localPlayer) {
+    const list = [];
+    const localPid = (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : "local";
+    if (localPlayer && !isLocalLockedInCellar(matchState) && !isPlayerDeadInEvent(matchState, localPid)) {
+      const c = (matchState && matchState.currentRoomCoord) || { x: 0, y: 0 };
+      list.push({
+        playerId: localPid,
+        isLocal: true,
+        roomKey: `${c.x},${c.y}`,
+        x: localPlayer.x,
+        y: localPlayer.y,
+        lanternOn: Boolean(localPlayer.lanternOn),
+        crouching: Boolean(localPlayer.crouching),
+        moving: Boolean(localPlayer.moving),
+        inAttic: Boolean(App.Attic && App.Attic.isPlayerInAttic && App.Attic.isPlayerInAttic(matchState)),
+        inBasement: Boolean(App.Basement && App.Basement.isInBasementMap && App.Basement.isInBasementMap(matchState))
+      });
+    }
+    if (isMpEventMode(matchState) && App.Network && App.Network.getAllRemotePlayers) {
+      App.Network.getAllRemotePlayers().forEach((rp) => {
+        if (!rp || rp.deadInEvent || rp.deadSpectator || isPlayerDeadInEvent(matchState, rp.playerId)) return;
+        list.push({
+          playerId: rp.playerId,
+          isLocal: false,
+          roomKey: `${rp.roomX || 0},${rp.roomY || 0}`,
+          x: rp.x,
+          y: rp.y,
+          lanternOn: Boolean(rp.lanternOn),
+          crouching: Boolean(rp.crouching),
+          moving: Boolean(rp.moving),
+          inAttic: Boolean(rp.inAttic),
+          inBasement: Boolean(rp.inBasement)
+        });
+      });
+    }
+    return list;
+  }
+
   function isPlayerInCellarRoom(matchState) {
     if (!matchState || !matchState.roomMap || !matchState.currentRoomCoord) return false;
     const rk = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
@@ -892,11 +940,120 @@ window.Duskwood = window.Duskwood || {};
         qIndex: 0,
         currentQ: null,
         playerTurnedAround: false,
-        feedbackText: ""
+        feedbackText: "",
+        syncAccum: 0
       };
+      if (isMpEventMode(matchState) && isMpHost(matchState)) {
+        broadcastCuttingCornersNow(matchState);
+      }
     }
 
     return monster;
+  }
+
+  function broadcastCuttingCornersNow(matchState) {
+    if (!matchState || !matchState.events || !matchState.events.cuttingCorners) return;
+    if (!isMpEventMode(matchState) || !isMpHost(matchState)) return;
+    const cc = matchState.events.cuttingCorners;
+    App.Network.sendGameAction("MP_CC_STATE", {
+      stage: cc.stage,
+      triggerRooms: cc.triggerRooms,
+      timer: cc.timer,
+      questions: cc.questions || [],
+      qIndex: cc.qIndex || 0,
+      currentQ: cc.currentQ || null,
+      headTwisted: Boolean(matchState.events.cuttingCornersNpc && matchState.events.cuttingCornersNpc.headTwisted),
+      globalLightsOut: Boolean(matchState.events.globalLightsOut)
+    });
+  }
+
+  function applyCuttingCornersNetworkState(p, matchState, player) {
+    if (!p || !matchState || !isMpGuest(matchState)) return;
+    if (!matchState.events) initMatchEvents(matchState);
+    if (!matchState.events.cuttingCorners) {
+      onEventCardDrawn({ id: "hx_corners", meta: { monsterId: "corner_man" } }, matchState);
+    }
+    const cc = matchState.events.cuttingCorners;
+    if (!cc) return;
+
+    const prevStage = cc.stage;
+    cc.triggerRooms = typeof p.triggerRooms === "number" ? p.triggerRooms : cc.triggerRooms;
+    cc.questions = Array.isArray(p.questions) ? p.questions : cc.questions;
+    cc.qIndex = typeof p.qIndex === "number" ? p.qIndex : cc.qIndex;
+    cc.currentQ = p.currentQ || null;
+    cc.timer = typeof p.timer === "number" ? p.timer : cc.timer;
+
+    if (matchState.events.cuttingCornersNpc) {
+      matchState.events.cuttingCornersNpc.headTwisted = Boolean(p.headTwisted);
+    }
+    matchState.events.globalLightsOut = Boolean(p.globalLightsOut);
+
+    if (p.stage && p.stage !== prevStage && cc.stage !== "LOCKED_DEAD" && cc.stage !== "DEATH") {
+      if (p.stage === "SCRAMBLE") {
+        // Host started Cutting Corners -> run local blackout + scramble banner!
+        matchState.roomLightStates = {};
+        Object.keys(matchState.roomMap || {}).forEach((rk) => { matchState.roomLightStates[rk] = false; });
+        if (App.FieldBook && App.FieldBook.isOpen()) App.FieldBook.close(true);
+        if (App.Clues && App.Clues.isInspectOpen()) App.Clues.closeInspectModal(true);
+        if (App.GameWorld && App.GameWorld.forceStandUpForEvent) App.GameWorld.forceStandUpForEvent();
+        beginMpEventSession(matchState, "cutting_corners");
+        cc.stage = "SCRAMBLE";
+        App.Audio.hexAlert();
+        showSmudgeBanner("GET TO A CORNER AND FACE IT.
+DO NOT TURN AROUND...", {
+          countdown: Math.max(1, Math.ceil(cc.timer || 10)),
+          typingDurationSec: 5.0,
+          showChoices: false
+        });
+      } else if (p.stage === "QUESTION") {
+        // Check if local Guest actually made it into a valid corner!
+        if (player && !player.facingCorner && matchState.roomMap && matchState.currentRoomCoord) {
+          const curR = matchState.roomMap[`${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`];
+          if (curR) {
+            const corners = getValidCornersForRoom(curR, matchState.roomMap);
+            const near = corners.find((c) => Math.hypot(player.x - c.x, player.y - c.y) <= 18);
+            if (near) {
+              player.x = near.x;
+              player.y = near.y;
+              player.facingCorner = true;
+              player.cornerLock = near;
+            }
+          }
+        }
+        if (player && !player.facingCorner && !isLocalLockedInCellar(matchState)) {
+          triggerCuttingCornersDeath(matchState, "TIME IS UP — YOU DID NOT FACE A CORNER!");
+          return;
+        }
+        cc.stage = "QUESTION";
+        cc.playerTurnedAround = false;
+        if (cc.currentQ) {
+          showSmudgeBanner(cc.currentQ.text, {
+            subtag: `CONDITION ${(cc.qIndex || 0) + 1} / ${Math.max(1, (cc.questions || []).length)}`,
+            countdown: Math.max(1, Math.ceil(cc.timer || 10)),
+            typingDurationSec: 5.0,
+            showChoices: true
+          });
+        }
+      } else if (p.stage === "SURVIVED") {
+        cc.stage = "SURVIVED";
+        App.Audio.clockChime();
+        showSmudgeBanner("IT LEFT THE ROOM...
+YOU SURVIVED CUTTING CORNERS.", {
+          success: true,
+          typingDurationSec: 2.8,
+          showChoices: false
+        });
+      } else if (p.stage === "DONE") {
+        if (player) { player.facingCorner = false; player.cornerLock = null; }
+        cc.stage = "DONE";
+        matchState.events.globalLightsOut = false;
+        matchState.events.cuttingCornersNpc = null;
+        turnAllLightsOn(matchState);
+        hideSmudgeBanner();
+      }
+    } else if (cc.stage === "SCRAMBLE" || cc.stage === "QUESTION") {
+      updateBannerCountdown(cc.timer);
+    }
   }
 
   function buildCuttingCornersQuestions(matchState) {
@@ -989,12 +1146,14 @@ window.Duskwood = window.Duskwood || {};
       typingDurationSec: 5.0,
       showChoices: false
     });
+    broadcastCuttingCornersNow(matchState);
     return true;
   }
 
   // Called whenever a new room is built (or after a turn) to check the 5-6 room trigger!
   function checkCuttingCornersTrigger(matchState) {
     if (!matchState || !matchState.events || !matchState.events.cuttingCorners) return false;
+    if (isMpGuest(matchState)) return false; // Host triggers authoritatively!
     const cc = matchState.events.cuttingCorners;
     if (cc.stage !== "WAITING_ROOMS") return false;
 
@@ -1032,6 +1191,7 @@ window.Duskwood = window.Duskwood || {};
       typingDurationSec: 5.0,
       showChoices: true
     });
+    broadcastCuttingCornersNow(matchState);
   }
 
   function triggerCuttingCornersDeath(matchState, reasonText) {
@@ -1125,6 +1285,25 @@ window.Duskwood = window.Duskwood || {};
     if (!matchState || !matchState.events || !matchState.events.cuttingCorners) return;
     const cc = matchState.events.cuttingCorners;
 
+    // Guest only runs local DEATH cleanup timer; all phase transitions & timers come from Host MP_CC_STATE!
+    if (isMpGuest(matchState)) {
+      if (cc.stage === "DEATH") {
+        cc.timer -= dt;
+        if (cc.timer <= 0) {
+          finishCuttingCornersCleanup(matchState, player, true);
+        }
+      }
+      return;
+    }
+
+    if (isMpEventMode(matchState) && cc.stage !== "WAITING_ROOMS" && cc.stage !== "DONE") {
+      cc.syncAccum = (cc.syncAccum || 0) + dt;
+      if (cc.syncAccum >= 0.25) {
+        cc.syncAccum = 0;
+        broadcastCuttingCornersNow(matchState);
+      }
+    }
+
     if (cc.stage === "WAITING_ROOMS") {
       if (cc.triggerImmediatelyAfterDraw && (!App.TableView || !App.TableView.isBusy())) {
         cc.triggerImmediatelyAfterDraw = false;
@@ -1193,6 +1372,7 @@ window.Duskwood = window.Duskwood || {};
       cc.timer -= dt;
       if (cc.timer <= 0) {
         finishCuttingCornersCleanup(matchState, player, false);
+        broadcastCuttingCornersNow(matchState);
       }
     }
   }
@@ -1360,6 +1540,11 @@ window.Duskwood = window.Duskwood || {};
     beginMpEventSession,
     clearMpEventSession,
     isMpEventMode,
+    isMpHost,
+    isMpGuest,
+    getAllLivingPlayers,
+    broadcastCuttingCornersNow,
+    applyCuttingCornersNetworkState,
     isLocalLockedInCellar,
     isPlayerDeadInEvent,
     isPlayerInCellarRoom,

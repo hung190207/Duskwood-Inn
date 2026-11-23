@@ -118,6 +118,9 @@ window.Duskwood = window.Duskwood || {};
     c.fillStyle = color;
     c.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
   }
+  function isMpMode(m) { return Boolean(App.Events && App.Events.isMpEventMode && App.Events.isMpEventMode(m)); }
+  function isMpHost(m) { return !App.Events || !App.Events.isMpHost || App.Events.isMpHost(m); }
+  function isMpGuest(m) { return Boolean(App.Events && App.Events.isMpGuest && App.Events.isMpGuest(m)); }
 
   function tileChar(col, row) {
     if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return "#";
@@ -510,8 +513,14 @@ window.Duskwood = window.Duskwood || {};
         speed: 40 // Moderate patrol speed (slower than player's 54 walk / 88 sprint!)
       },
       notice: "THE FLOOR IS SHAKING! THE DINING ROOM IS SINKING INTO THE BASEMENT...",
-      noticeTimer: 6.0
+      noticeTimer: 6.0,
+      syncAccum: 0,
+      repairSendAccum: 0,
+      pendingGuestDelta: 0
     };
+    if (isMpMode(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState);
+    }
 
     // Place player safely in The Dining Room during descent
     matchState.currentRoomCoord = { x: 0, y: 0 };
@@ -667,11 +676,54 @@ window.Duskwood = window.Duskwood || {};
       if (bm.noticeTimer === 0) bm.notice = "";
     }
 
-    // 1. 14-Second Violent Shaking Descent
+    // GUEST: sends repair ticks to Host & follows Host's authoritative timers, breakers & Chainsaw position!
+    if (isMpGuest(matchState)) {
+      if (bm.stage === "DESCENDING" || bm.stage === "ASCENDING") {
+        bm.slideTimer = Math.min(SLIDE_DURATION, bm.slideTimer + dt);
+        return;
+      }
+      if (bm.stage === "PRE_START_5S") {
+        bm.preStartTimer = Math.max(0, bm.preStartTimer - dt);
+        return;
+      }
+      if (bm.repairingBoxId && bm.holdingRepairF) {
+        const box = bm.breakers.find((b) => b.id === bm.repairingBoxId);
+        if (box && !box.fixed) {
+          const delta = dt / REPAIR_DURATION;
+          box.progress = Math.min(0.99, box.progress + delta);
+          bm.pendingGuestDelta = (bm.pendingGuestDelta || 0) + delta;
+          bm.repairSendAccum = (bm.repairSendAccum || 0) + dt;
+          repairSparkTimer -= dt;
+          if (repairSparkTimer <= 0) {
+            repairSparkTimer = 0.24;
+            if (App.Audio && App.Audio.electricRepairTick) App.Audio.electricRepairTick();
+          }
+          syncBreakerModalUI(bm);
+          if (bm.repairSendAccum >= 0.12) {
+            App.Network.sendGameAction("MP_BASEMENT_REPAIR", { boxId: box.id, delta: bm.pendingGuestDelta });
+            bm.repairSendAccum = 0;
+            bm.pendingGuestDelta = 0;
+          }
+        }
+      }
+      if (bm.monster && bm.monster.active) {
+        syncChainsawSpatialAudio(bm, player);
+        if (!isPlayerInAlcove(player) && Math.hypot(bm.monster.x - player.x, bm.monster.y - player.y) <= 13.5) {
+          triggerChainsawDeath(matchState);
+        }
+      }
+      return;
+    }
+
+    // 1. 14-Second Violent Shaking Descent (HOST / SP)
     if (bm.stage === "DESCENDING") {
       bm.slideTimer += dt;
       if (bm.slideTimer >= SLIDE_DURATION) {
         finishDescentIntoBasement(bm, player);
+        if (isMpMode(matchState)) broadcastStateNow(matchState);
+      } else if (isMpMode(matchState)) {
+        bm.syncAccum = (bm.syncAccum || 0) + dt;
+        if (bm.syncAccum >= 0.35) { bm.syncAccum = 0; broadcastStateNow(matchState); }
       }
       return;
     }
@@ -681,6 +733,10 @@ window.Duskwood = window.Duskwood || {};
       bm.preStartTimer -= dt;
       if (bm.preStartTimer <= 0) {
         beginBasementHunt(bm);
+        if (isMpMode(matchState)) broadcastStateNow(matchState);
+      } else if (isMpMode(matchState)) {
+        bm.syncAccum = (bm.syncAccum || 0) + dt;
+        if (bm.syncAccum >= 0.30) { bm.syncAccum = 0; broadcastStateNow(matchState); }
       }
       return;
     }
@@ -690,50 +746,18 @@ window.Duskwood = window.Duskwood || {};
       bm.slideTimer += dt;
       if (bm.slideTimer >= SLIDE_DURATION) {
         finishVictoryAscent(bm, matchState, player);
+      } else if (isMpMode(matchState)) {
+        bm.syncAccum = (bm.syncAccum || 0) + dt;
+        if (bm.syncAccum >= 0.35) { bm.syncAccum = 0; broadcastStateNow(matchState); }
       }
       return;
     }
 
     // 4. PLAYING STAGE: Repair Progress + Predefined Chainsaw Patrol!
     if (bm.repairingBoxId && bm.holdingRepairF) {
-      const box = bm.breakers.find((b) => b.id === bm.repairingBoxId);
-      if (box && !box.fixed) {
-        box.progress = Math.min(1.0, box.progress + dt / REPAIR_DURATION);
-        repairSparkTimer -= dt;
-        if (repairSparkTimer <= 0) {
-          repairSparkTimer = 0.24;
-          if (App.Audio && App.Audio.electricRepairTick) App.Audio.electricRepairTick();
-        }
-        syncBreakerModalUI(bm);
-
-        if (box.progress >= 1.0) {
-          box.fixed = true;
-          bm.fixedCount = bm.breakers.filter((b) => b.fixed).length;
-          const allDone = bm.fixedCount >= bm.breakers.length;
-          if (App.Audio && App.Audio.breakerFixed) App.Audio.breakerFixed(allDone);
-          syncBreakerModalUI(bm);
-          bm.holdingRepairF = false;
-
-          if (allDone) {
-            setTimeout(() => {
-              if (matchState.basementEvent && matchState.basementEvent.active) {
-                startVictoryAscent(matchState.basementEvent, matchState, player);
-              }
-            }, 420);
-          } else {
-            bm.notice = `${box.label} REPAIRED (${bm.fixedCount}/5)!`;
-            bm.noticeTimer = 3.0;
-            setTimeout(() => {
-              if (matchState.basementEvent && matchState.basementEvent.repairingBoxId === box.id) {
-                closeBreakerModal(matchState, true);
-              }
-            }, 340);
-          }
-        }
-      }
+      applyHostBreakerDelta(matchState, player, bm.repairingBoxId, dt / REPAIR_DURATION, true);
     }
 
-    // Move Tall Chainsaw-Head Monster along its predefined closed patrol loop at moderate speed!
     const m = bm.monster;
     if (m.active) {
       const wp = PATROL_WAYPOINTS[m.wpIdx % PATROL_WAYPOINTS.length];
@@ -754,12 +778,19 @@ window.Duskwood = window.Duskwood || {};
 
       syncChainsawSpatialAudio(bm, player);
 
-      // Catch Check: SAFE if player is tucked inside any 3-walled recessed alcove ('A')!
       if (!isPlayerInAlcove(player)) {
         const catchDist = Math.hypot(m.x - player.x, m.y - player.y);
         if (catchDist <= 13.5) {
           triggerChainsawDeath(matchState);
         }
+      }
+    }
+
+    if (isMpMode(matchState)) {
+      bm.syncAccum = (bm.syncAccum || 0) + dt;
+      if (bm.syncAccum >= 0.085) {
+        bm.syncAccum = 0;
+        broadcastStateNow(matchState);
       }
     }
   }
@@ -1120,6 +1151,140 @@ window.Duskwood = window.Duskwood || {};
     return Boolean(bm && bm.active && bm.repairingBoxId);
   }
 
+  function applyHostBreakerDelta(matchState, player, boxId, delta, isLocalHost) {
+    const bm = matchState && matchState.basementEvent;
+    if (!bm || !bm.active || bm.stage !== "PLAYING") return;
+    const box = bm.breakers.find((b) => b.id === boxId);
+    if (!box || box.fixed) return;
+
+    box.progress = Math.min(1.0, (box.progress || 0) + Math.max(0, delta || 0));
+    if (isLocalHost) {
+      repairSparkTimer -= (delta || 0) * REPAIR_DURATION;
+      if (repairSparkTimer <= 0) {
+        repairSparkTimer = 0.24;
+        if (App.Audio && App.Audio.electricRepairTick) App.Audio.electricRepairTick();
+      }
+      syncBreakerModalUI(bm);
+    }
+
+    if (box.progress >= 1.0) {
+      box.fixed = true;
+      bm.fixedCount = bm.breakers.filter((b) => b.fixed).length;
+      const allDone = bm.fixedCount >= bm.breakers.length;
+      if (App.Audio && App.Audio.breakerFixed) App.Audio.breakerFixed(allDone);
+      if (bm.repairingBoxId === box.id) {
+        syncBreakerModalUI(bm);
+        bm.holdingRepairF = false;
+      }
+      if (isMpMode(matchState)) broadcastStateNow(matchState, { fixedBoxId: box.id });
+
+      if (allDone) {
+        setTimeout(() => {
+          if (matchState.basementEvent && matchState.basementEvent.active) {
+            startVictoryAscent(matchState.basementEvent, matchState, player);
+            if (isMpMode(matchState)) broadcastStateNow(matchState);
+          }
+        }, 420);
+      } else {
+        bm.notice = `${box.label} REPAIRED (${bm.fixedCount}/5)!`;
+        bm.noticeTimer = 3.0;
+        if (bm.repairingBoxId === box.id) {
+          setTimeout(() => {
+            if (matchState.basementEvent && matchState.basementEvent.repairingBoxId === box.id) {
+              closeBreakerModal(matchState, true);
+            }
+          }, 340);
+        }
+      }
+    }
+  }
+
+  function broadcastStateNow(matchState, extra) {
+    if (!matchState || !isMpMode(matchState) || !isMpHost(matchState)) return;
+    const bm = matchState.basementEvent;
+    if (!bm || !bm.active) return;
+    App.Network.sendGameAction("MP_BASEMENT_STATE", Object.assign({
+      stage: bm.stage,
+      slideTimer: Math.round((bm.slideTimer || 0) * 10) / 10,
+      preStartTimer: Math.round((bm.preStartTimer || 0) * 10) / 10,
+      fixedCount: bm.fixedCount || 0,
+      breakers: bm.breakers.map((b) => ({ id: b.id, progress: Math.round((b.progress || 0) * 100) / 100, fixed: Boolean(b.fixed) })),
+      monster: {
+        active: Boolean(bm.monster.active),
+        x: Math.round(bm.monster.x * 10) / 10,
+        y: Math.round(bm.monster.y * 10) / 10,
+        facing: bm.monster.facing
+      },
+      notice: bm.notice || "",
+      noticeTimer: bm.noticeTimer || 0
+    }, extra || {}));
+  }
+
+  function handleNetworkMessage(action, payload, matchState, player) {
+    if (!matchState || !action) return false;
+    const p = payload || {};
+
+    if (action === "MP_BASEMENT_REPAIR") {
+      if (isMpHost(matchState) && p.boxId && typeof p.delta === "number") {
+        applyHostBreakerDelta(matchState, player, p.boxId, p.delta, false);
+      }
+      return true;
+    }
+
+    if (action === "MP_BASEMENT_STATE") {
+      if (!isMpGuest(matchState)) return true;
+      if (!matchState.basementEvent) startBasementEvent(matchState, player);
+      const bm = matchState.basementEvent;
+      if (!bm) return true;
+
+      const prevStage = bm.stage;
+      bm.stage = p.stage || bm.stage;
+      bm.slideTimer = typeof p.slideTimer === "number" ? p.slideTimer : bm.slideTimer;
+      bm.preStartTimer = typeof p.preStartTimer === "number" ? p.preStartTimer : bm.preStartTimer;
+      bm.fixedCount = typeof p.fixedCount === "number" ? p.fixedCount : bm.fixedCount;
+
+      if (Array.isArray(p.breakers)) {
+        p.breakers.forEach((nb) => {
+          const loc = bm.breakers.find((x) => x.id === nb.id);
+          if (!loc) return;
+          const wasFixed = loc.fixed;
+          loc.progress = Math.max(loc.progress || 0, nb.progress || 0);
+          if (nb.fixed) {
+            loc.progress = 1.0;
+            loc.fixed = true;
+            if (!wasFixed) {
+              if (App.Audio && App.Audio.breakerFixed) App.Audio.breakerFixed(bm.fixedCount >= 5);
+              if (bm.repairingBoxId === loc.id) {
+                syncBreakerModalUI(bm);
+                bm.holdingRepairF = false;
+                setTimeout(() => {
+                  if (matchState.basementEvent && matchState.basementEvent.repairingBoxId === loc.id) {
+                    closeBreakerModal(matchState, true);
+                  }
+                }, 300);
+              }
+            }
+          }
+        });
+        if (bm.repairingBoxId) syncBreakerModalUI(bm);
+      }
+
+      if (p.monster) Object.assign(bm.monster, p.monster);
+      if (p.notice) { bm.notice = p.notice; bm.noticeTimer = p.noticeTimer || 2.5; }
+
+      if (prevStage === "DESCENDING" && bm.stage === "PRE_START_5S" && !bm.localDeadInCellar) {
+        finishDescentIntoBasement(bm, player);
+      } else if (prevStage === "PRE_START_5S" && bm.stage === "PLAYING") {
+        bm.monster.active = true;
+        App.Audio.hexAlert();
+      } else if (prevStage !== "ASCENDING" && bm.stage === "ASCENDING") {
+        startVictoryAscent(bm, matchState, player);
+      }
+      return true;
+    }
+    return false;
+  }
+
   function cleanup(matchState) {
     if (App.Audio && App.Audio.stopBasementSlide) App.Audio.stopBasementSlide();
     if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
@@ -1146,6 +1311,8 @@ window.Duskwood = window.Duskwood || {};
     isSlideCutscene,
     isRepairModalOpen,
     isPlayerInAlcove,
+    broadcastStateNow,
+    handleNetworkMessage,
     cleanup
   };
 })(window.Duskwood);

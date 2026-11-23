@@ -837,12 +837,19 @@ window.Duskwood = window.Duskwood || {};
     rimRotating: false,
     rimPausedBySeat: false,
     rimElapsed: 0,
+    rimStartMs: 0,
+    rimPausedMsTotal: 0,
+    rimPausedAtMs: 0,
     rimDuration: 7.0,
     rimStartAngle: 0,
     rimTargetAngle: 0,
     rimLastTickIdx: 0,
     rimOnComplete: null
   };
+
+  let mpFullSyncIntervalId = null;
+  let mpBgPumpIntervalId = null;
+  let mpLastFullSyncHash = "";
 
   // Pan & Zoom for center wooden room-card layout
   let mapZoom = 1.0;
@@ -901,6 +908,7 @@ window.Duskwood = window.Duskwood || {};
           continue;
         }
         next.elapsed = 0;
+        next.startMs = performance.now();
         next.duration = next.duration || computePawnMoveDuration(delta);
         next.lastNotchIdx = Math.floor(next.fromMin / 15);
         anim.activeStep = next;
@@ -913,6 +921,7 @@ window.Duskwood = window.Duskwood || {};
 
       if (next.type === "RISE_HARVESTER") {
         next.elapsed = 0;
+        next.startMs = performance.now();
         next.duration = 1.45;
         anim.activeStep = next;
         triggerHarvesterEmergence();
@@ -1158,10 +1167,18 @@ window.Duskwood = window.Duskwood || {};
     anim.rimRotating = false;
     anim.rimPausedBySeat = false;
     anim.rimElapsed = 0;
+    anim.rimStartMs = 0;
+    anim.rimPausedMsTotal = 0;
+    anim.rimPausedAtMs = 0;
     anim.rimStartAngle = 0;
     anim.rimTargetAngle = 0;
     anim.rimLastTickIdx = 0;
     anim.rimOnComplete = null;
+    stopMpSyncIntervals();
+    mpLastFullSyncHash = "";
+    if (matchStateRef.mode === "MULTIPLAYER") {
+      startMpSyncIntervals();
+    }
     if (App.Audio && App.Audio.stopRimTurn) App.Audio.stopRimTurn();
 
     matchStateRef.turnCount = 0;
@@ -1366,7 +1383,7 @@ window.Duskwood = window.Duskwood || {};
       const st = anim.activeStep;
 
       if (st.type === "MOVE_PLAYER" || st.type === "MOVE_HARVESTER") {
-        st.elapsed += dt;
+        st.elapsed = st.startMs ? (performance.now() - st.startMs) * 0.001 : (st.elapsed + dt);
         const p = Math.max(0, Math.min(1, st.elapsed / Math.max(0.1, st.duration)));
         const eased = easeInOutSine(p);
         const curMin = st.fromMin + (st.toMin - st.fromMin) * eased;
@@ -1402,7 +1419,7 @@ window.Duskwood = window.Duskwood || {};
           startNextQueuedStep();
         }
       } else if (st.type === "RISE_HARVESTER") {
-        st.elapsed += dt;
+        st.elapsed = st.startMs ? (performance.now() - st.startMs) * 0.001 : (st.elapsed + dt);
         const p = Math.max(0, Math.min(1, st.elapsed / st.duration));
         anim.harvesterRise = p;
         if (p >= 1) {
@@ -1461,18 +1478,25 @@ window.Duskwood = window.Duskwood || {};
       if (isWaitingForAllSeated()) {
         if (!anim.rimPausedBySeat) {
           anim.rimPausedBySeat = true;
+          anim.rimPausedAtMs = performance.now();
           if (App.Audio && App.Audio.stopRimTurn) App.Audio.stopRimTurn();
           syncUI();
         }
         return;
       } else if (anim.rimPausedBySeat) {
         anim.rimPausedBySeat = false;
+        if (anim.rimPausedAtMs > 0) {
+          anim.rimPausedMsTotal += (performance.now() - anim.rimPausedAtMs);
+          anim.rimPausedAtMs = 0;
+        }
         const remainSec = Math.max(0.4, anim.rimDuration - anim.rimElapsed);
         if (App.Audio && App.Audio.playRimTurn) App.Audio.playRimTurn(remainSec);
         syncUI();
       }
 
-      anim.rimElapsed += dt;
+      anim.rimElapsed = anim.rimStartMs
+        ? Math.max(0, (performance.now() - anim.rimStartMs - (anim.rimPausedMsTotal || 0)) * 0.001)
+        : (anim.rimElapsed + dt);
       const p = Math.max(0, Math.min(1, anim.rimElapsed / Math.max(0.1, anim.rimDuration)));
       const eased = easeInOutCubic(p);
       anim.worldRimAngle = anim.rimStartAngle + (anim.rimTargetAngle - anim.rimStartAngle) * eased;
@@ -1598,6 +1622,9 @@ window.Duskwood = window.Duskwood || {};
     anim.rimRotating = true;
     anim.rimPausedBySeat = false;
     anim.rimElapsed = 0;
+    anim.rimStartMs = performance.now();
+    anim.rimPausedMsTotal = 0;
+    anim.rimPausedAtMs = 0;
     anim.rimDuration = durationSec;
     anim.rimStartAngle = currentWorld;
     anim.rimTargetAngle = currentWorld + deltaRad;
@@ -2451,6 +2478,7 @@ window.Duskwood = window.Duskwood || {};
     });
 
     enqueueTurnSteps(steps);
+    if (isMultiplayerNet() && App.Network.isHost()) broadcastFullStateSnapshot(null, true);
     if (onStateChangeCallback) onStateChangeCallback();
   }
 
@@ -4367,9 +4395,254 @@ window.Duskwood = window.Duskwood || {};
     updateAnimations(dt || 0.016);
   }
 
-  function handleNetworkMessage(action, payload) {
+  function stopMpSyncIntervals() {
+    clearInterval(mpFullSyncIntervalId);
+    mpFullSyncIntervalId = null;
+    clearInterval(mpBgPumpIntervalId);
+    mpBgPumpIntervalId = null;
+  }
+
+  function buildFullStateSnapshot() {
+    if (!matchStateRef) return null;
+    return {
+      setupPhase: matchStateRef.setupPhase,
+      tableIntroDone: Boolean(matchStateRef.tableIntroDone),
+      clockMinutes: matchStateRef.clockMinutes || 0,
+      harvesterCardPlayed: Boolean(matchStateRef.harvesterCardPlayed),
+      harvesterSpawned: Boolean(matchStateRef.harvesterSpawned),
+      harvesterMinutes: matchStateRef.harvesterMinutes || 0,
+      harvesterDelayTurns: typeof matchStateRef.harvesterDelayTurns === "number" ? matchStateRef.harvesterDelayTurns : 3,
+      harvesterFrozenTurns: matchStateRef.harvesterFrozenTurns || 0,
+      bannedGraveyardWipe: Boolean(matchStateRef.bannedGraveyardWipe),
+      turnCount: matchStateRef.turnCount || 0,
+      activeSeatIdx: matchStateRef.activeSeatIdx || 0,
+      turnStep,
+      worldRimAngle: normalizeAngle(anim.worldRimAngle || 0),
+      deckCount: deck.length,
+      roomMap: matchStateRef.roomMap || {},
+      roomsBuilt: Object.keys(matchStateRef.roomMap || {}).length,
+      roomLightStates: matchStateRef.roomLightStates || { "0,0": true },
+      candleTrayIds: candleTray.map((c) => c && c.id).filter(Boolean),
+      activeOmen: matchStateRef.activeOmen || null,
+      activeOmenId: matchStateRef.activeOmenId || null,
+      rimPlayedCardIds: rimPlayedCards.map((c) => c && c.id).filter(Boolean),
+      clueManifest: matchStateRef.clueManifest || null,
+      sanctuaryRoomId: matchStateRef.sanctuaryRoomId || "",
+      sanctuaryClueKeys: Array.isArray(matchStateRef.sanctuaryClueKeys) ? matchStateRef.sanctuaryClueKeys.slice() : [],
+      uniqueDrawnCardIds: Array.from(uniqueDrawnCardIds),
+      drawnEventCardIds: Array.isArray(matchStateRef.drawnEventCardIds) ? matchStateRef.drawnEventCardIds.slice() : [],
+      eventCooldownTurns: matchStateRef.eventCooldownTurns || 0,
+      neighborEncounter: matchStateRef.neighborEncounter || null,
+      persistentEventProps: matchStateRef.persistentEventProps || {},
+      heldRolesByPlayer: matchStateRef.heldRolesByPlayer || {},
+      hostBusy: Boolean(anim.activeStep || anim.rimRotating || anim.dealingCards || anim.introStage !== "DONE")
+    };
+  }
+
+  function broadcastFullStateSnapshot(targetPlayerId, forceSend) {
+    if (!matchStateRef || !isMultiplayerNet() || !App.Network.isHost()) return;
+    const snap = buildFullStateSnapshot();
+    if (!snap) return;
+    if (targetPlayerId && App.Network.sendGameActionTo) {
+      App.Network.sendGameActionTo(targetPlayerId, "MP_FULL_STATE_SYNC", snap);
+      return;
+    }
+    const sig = `${snap.setupPhase}|${snap.turnCount}|${snap.activeSeatIdx}|${snap.clockMinutes}|${snap.harvesterMinutes}|${snap.roomsBuilt}|${snap.candleTrayIds.join(",")}|${snap.rimPlayedCardIds.length}|${snap.clueManifest ? JSON.stringify(snap.clueManifest.entries.map((e) => [e.roomId, e.revealed])) : ""}`;
+    if (!forceSend && sig === mpLastFullSyncHash) return;
+    mpLastFullSyncHash = sig;
+    App.Network.sendGameAction("MP_FULL_STATE_SYNC", snap);
+  }
+
+  function applyFullStateSnapshot(snap) {
+    if (!snap || !matchStateRef || (App.Network && App.Network.isHost())) return;
+    let changed = false;
+
+    // 1. Reconcile Room Map (fixes missing rooms after tab switch!)
+    if (snap.roomMap && typeof snap.roomMap === "object") {
+      const curKeys = Object.keys(matchStateRef.roomMap || {}).sort().join("|");
+      const newKeys = Object.keys(snap.roomMap).sort().join("|");
+      if (curKeys !== newKeys) {
+        const oldCnt = Object.keys(matchStateRef.roomMap || {}).length;
+        matchStateRef.roomMap = JSON.parse(JSON.stringify(snap.roomMap));
+        matchStateRef.roomsBuilt = Object.keys(matchStateRef.roomMap).length;
+        if (matchStateRef.roomsBuilt - oldCnt >= 2) {
+          mapPanX = 0;
+          mapPanY = 0;
+        }
+        if (App.CabinRooms && App.CabinRooms.clearCache) App.CabinRooms.clearCache();
+        changed = true;
+      }
+    }
+
+    // 2. Reconcile Clues & Exit Room (100% Host-Authoritative!)
+    if (snap.clueManifest) {
+      const prevSig = matchStateRef.clueManifest ? JSON.stringify(matchStateRef.clueManifest) : "";
+      const nextSig = JSON.stringify(snap.clueManifest);
+      if (prevSig !== nextSig) {
+        matchStateRef.clueManifest = JSON.parse(nextSig);
+        changed = true;
+      }
+    }
+    if (snap.sanctuaryRoomId) matchStateRef.sanctuaryRoomId = snap.sanctuaryRoomId;
+    if (Array.isArray(snap.sanctuaryClueKeys)) matchStateRef.sanctuaryClueKeys = snap.sanctuaryClueKeys.slice();
+
+    // 3. Reconcile Graveyard & Outer Rim Played Cards
+    if (Array.isArray(snap.candleTrayIds)) {
+      const curIds = candleTray.map((c) => c && c.id).join(",");
+      if (curIds !== snap.candleTrayIds.join(",")) {
+        candleTray = snap.candleTrayIds.map((id) => App.CardsDB.getById(id)).filter(Boolean);
+        matchStateRef.activeOmen = snap.activeOmen || null;
+        matchStateRef.activeOmenId = snap.activeOmenId || null;
+        changed = true;
+      }
+    }
+    if (Array.isArray(snap.rimPlayedCardIds) && snap.rimPlayedCardIds.length !== rimPlayedCards.length) {
+      rimPlayedCards.length = 0;
+      snap.rimPlayedCardIds.forEach((id) => {
+        const c = App.CardsDB.getById(id);
+        if (c) rimPlayedCards.push(c);
+      });
+      changed = true;
+    }
+
+    // 4. Reconcile shared metadata & persistent props
+    if (typeof snap.deckCount === "number" && Math.abs(deck.length - snap.deckCount) > 1) {
+      deck = new Array(Math.max(0, snap.deckCount)).fill(null);
+    }
+    if (Array.isArray(snap.uniqueDrawnCardIds)) {
+      snap.uniqueDrawnCardIds.forEach((id) => uniqueDrawnCardIds.add(id));
+      matchStateRef.uniqueDrawnCardIds = Array.from(uniqueDrawnCardIds);
+    }
+    if (Array.isArray(snap.drawnEventCardIds)) matchStateRef.drawnEventCardIds = snap.drawnEventCardIds.slice();
+    if (typeof snap.eventCooldownTurns === "number") matchStateRef.eventCooldownTurns = snap.eventCooldownTurns;
+    if (typeof snap.bannedGraveyardWipe === "boolean") matchStateRef.bannedGraveyardWipe = snap.bannedGraveyardWipe;
+    if (snap.persistentEventProps && typeof snap.persistentEventProps === "object") {
+      matchStateRef.persistentEventProps = JSON.parse(JSON.stringify(snap.persistentEventProps));
+    }
+    if (snap.heldRolesByPlayer && typeof snap.heldRolesByPlayer === "object") {
+      matchStateRef.heldRolesByPlayer = Object.assign({}, matchStateRef.heldRolesByPlayer || {}, snap.heldRolesByPlayer);
+    }
+    if (!App.Events || !App.Events.isAnyEventActive || !App.Events.isAnyEventActive(matchStateRef)) {
+      if (snap.roomLightStates && typeof snap.roomLightStates === "object") {
+        matchStateRef.roomLightStates = Object.assign({}, snap.roomLightStates);
+      }
+    }
+
+    // 5. Catch up stalled intro / turn / pawns / rim angle if Guest lagged behind (e.g., returned from another tab!)
+    if (snap.tableIntroDone && !matchStateRef.tableIntroDone) {
+      matchStateRef.tableIntroDone = true;
+      anim.introStage = "DONE";
+      anim.playerRise = 1;
+      if (App.Audio && App.Audio.stopHumanIntro) App.Audio.stopHumanIntro();
+      changed = true;
+    }
+
+    const hostAheadTurn = (snap.turnCount || 0) > (matchStateRef.turnCount || 0);
+    const phaseMismatch = snap.setupPhase && snap.setupPhase !== matchStateRef.setupPhase && snap.setupPhase !== "STARTER_DEAL";
+    const localIdle = !anim.activeStep && !anim.rimRotating && !anim.dealingCards && anim.stepQueue.length === 0 && !pendingDrawnCard && !anim.drawAnimating;
+
+    if (hostAheadTurn || (phaseMismatch && !snap.hostBusy) || (localIdle && !snap.hostBusy)) {
+      if (hostAheadTurn || phaseMismatch) {
+        clearStepQueue();
+        if (anim.rimRotating) {
+          anim.rimRotating = false;
+          anim.rimPausedBySeat = false;
+          anim.rimOnComplete = null;
+          if (App.Audio && App.Audio.stopRimTurn) App.Audio.stopRimTurn();
+        }
+      }
+      if (matchStateRef.setupPhase !== snap.setupPhase) {
+        matchStateRef.setupPhase = snap.setupPhase;
+        changed = true;
+      }
+      if (matchStateRef.turnCount !== snap.turnCount) {
+        matchStateRef.turnCount = snap.turnCount;
+        changed = true;
+      }
+      if (matchStateRef.activeSeatIdx !== snap.activeSeatIdx) {
+        matchStateRef.activeSeatIdx = snap.activeSeatIdx;
+        changed = true;
+      }
+      if (matchStateRef.clockMinutes !== snap.clockMinutes) {
+        matchStateRef.clockMinutes = snap.clockMinutes;
+        anim.visualPlayerMinutes = snap.clockMinutes;
+        changed = true;
+      }
+      matchStateRef.harvesterCardPlayed = Boolean(snap.harvesterCardPlayed);
+      matchStateRef.harvesterSpawned = Boolean(snap.harvesterSpawned);
+      matchStateRef.harvesterMinutes = snap.harvesterMinutes || 0;
+      matchStateRef.harvesterDelayTurns = typeof snap.harvesterDelayTurns === "number" ? snap.harvesterDelayTurns : matchStateRef.harvesterDelayTurns;
+      matchStateRef.harvesterFrozenTurns = snap.harvesterFrozenTurns || 0;
+      if (matchStateRef.harvesterSpawned) {
+        anim.harvesterRise = 1;
+        anim.harvesterRisingNow = false;
+        anim.visualHarvesterMinutes = matchStateRef.harvesterMinutes;
+      }
+      if (!anim.rimRotating) {
+        anim.worldRimAngle = normalizeAngle(
+          typeof snap.worldRimAngle === "number"
+            ? snap.worldRimAngle
+            : getWorldAngleForSeatId(getActiveSeats()[matchStateRef.activeSeatIdx] || 0)
+        );
+        syncDisplayRimAngleFromWorld();
+      }
+      if (!isLocalPlayersTurn() && typeof snap.turnStep === "number") {
+        turnStep = snap.turnStep;
+      } else if (hostAheadTurn && isLocalPlayersTurn() && !pendingDrawnCard) {
+        turnStep = 1;
+      }
+    }
+
+    if (changed) {
+      syncUI();
+      if (onStateChangeCallback) onStateChangeCallback();
+    }
+  }
+
+  function startMpSyncIntervals() {
+    stopMpSyncIntervals();
+    // Background animation pump (200ms): advances wall-clock table animations even when tab is backgrounded & rAF paused!
+    mpBgPumpIntervalId = setInterval(() => {
+      if (!matchStateRef || !isMultiplayerNet()) return;
+      if (document.hidden) {
+        updateAnimations(0.2);
+      }
+    }, 200);
+
+    // Host authoritative heartbeat snapshot (1.6s) to guarantee 100% convergence across all players!
+    mpFullSyncIntervalId = setInterval(() => {
+      if (!matchStateRef || !isMultiplayerNet() || !App.Network.isHost()) return;
+      broadcastFullStateSnapshot(null, false);
+    }, 1600);
+  }
+
+  function handleNetworkMessage(action, payload, fromSeatIdx, fromPlayerId) {
     if (!matchStateRef || !action) return;
     const p = payload || {};
+
+    if (action === "MP_REQ_FULL_SYNC") {
+      if (App.Network && App.Network.isHost()) {
+        const requesterId = p.playerId || fromPlayerId;
+        broadcastFullStateSnapshot(requesterId, true);
+        if (App.Clues && App.Clues.broadcastAuthoritativeClueSync) {
+          App.Clues.broadcastAuthoritativeClueSync(matchStateRef, []);
+        }
+        // Also immediately push any active event's authoritative state to the returning Guest!
+        if (App.Stalkers && App.Stalkers.broadcastStateNow) App.Stalkers.broadcastStateNow(matchStateRef);
+        if (App.StayLit && App.StayLit.broadcastStateNow) App.StayLit.broadcastStateNow(matchStateRef);
+        if (App.Knight && App.Knight.broadcastStateNow) App.Knight.broadcastStateNow(matchStateRef);
+        if (App.Basement && App.Basement.broadcastStateNow) App.Basement.broadcastStateNow(matchStateRef);
+        if (App.Musical && App.Musical.broadcastStateNow) App.Musical.broadcastStateNow(matchStateRef);
+        if (App.Events && App.Events.broadcastCuttingCornersNow) App.Events.broadcastCuttingCornersNow(matchStateRef);
+        if (App.Attic && App.Attic.broadcastStateNow) App.Attic.broadcastStateNow(matchStateRef);
+      }
+      return;
+    }
+
+    if (action === "MP_FULL_STATE_SYNC") {
+      applyFullStateSnapshot(p);
+      return;
+    }
 
     if (action === "MP_REQ_START_INTRO") {
       if (App.Network && App.Network.isHost() && !matchStateRef.tableIntroDone && anim.introStage === "WAITING") {
@@ -4743,6 +5016,8 @@ window.Duskwood = window.Duskwood || {};
     applyThiefGachaEffect,
     finishThiefTurn,
     getLocalHeldRoleState,
+    stopMpSyncIntervals,
+    broadcastFullStateSnapshot,
     isOpen: () => isOpen,
     isBusy: () => anim.introStage !== "DONE" || anim.dealingCards || anim.harvesterRisingNow || anim.rimRotating || anim.drawAnimating || anim.shuffleAnimating || anim.penaltyPlaying || Boolean(pendingDrawnCard) || Boolean(previewingHandCard) || thiefWheelActive || Boolean(anim.activeStep) || anim.stepQueue.length > 0
   };

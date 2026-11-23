@@ -21,6 +21,19 @@ window.Duskwood = window.Duskwood || {};
 
   const keys = {};
   let stepCooldown = 0;
+
+  // Clears every held keyboard key (fixes Shift + WASD + Right-Click / Window Blur / Tab Switch stuck movement!)
+  function clearAllHeldKeys() {
+    Object.keys(keys).forEach((k) => { keys[k] = false; });
+    player.moving = false;
+    player.sprinting = false;
+    if (active && App.Musical && App.Musical.isActive && App.Musical.isActive(gameState)) {
+      App.Musical.onKeyFUp(gameState, player);
+    }
+    if (active && App.Basement && App.Basement.isActive && App.Basement.isActive(gameState)) {
+      App.Basement.onKeyFUp(gameState);
+    }
+  }
   let roomTransitionAlpha = 0;
   let roomTransitionCooldown = 0;
 
@@ -790,6 +803,7 @@ window.Duskwood = window.Duskwood || {};
       showDialogue("Walk up to a chair and press [E] to sit at the round table first.");
       return;
     }
+    clearAllHeldKeys();
     closeDialogue();
     gameState.seatLabel = gameState.mode === "MULTIPLAYER"
       ? `SEAT ${(gameState.localSeatIdx || 0) + 1}`
@@ -803,6 +817,7 @@ window.Duskwood = window.Duskwood || {};
 
   function setPaused(val) {
     paused = val;
+    if (paused) clearAllHeldKeys();
     document.getElementById("pause-overlay")?.classList.toggle("hidden", !paused);
     if (paused) {
       if (App.Audio.setAtticGhostAttenuation) App.Audio.setAtticGhostAttenuation(0);
@@ -1734,6 +1749,8 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function exitToLobby() {
+    clearAllHeldKeys();
+    if (App.TableView && App.TableView.stopMpSyncIntervals) App.TableView.stopMpSyncIntervals();
     if (App.Network && App.Network.getState().role !== "IDLE") {
       App.Network.leaveTable(true);
     }
@@ -1786,6 +1803,21 @@ window.Duskwood = window.Duskwood || {};
   function bindEvents() {
     window.addEventListener("resize", () => {
       if (active) resizeCanvas();
+    });
+
+    // Fix Bug 3: NEVER let held Shift/WASD keys get stuck on window blur, tab switch, or right-click!
+    window.addEventListener("blur", clearAllHeldKeys);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) clearAllHeldKeys();
+    });
+    document.addEventListener("contextmenu", (e) => {
+      if (!active) return;
+      // Allow intentional in-game right-clicks inside Clue Book, Hand Card Zoom, or Table Map Rotate!
+      if (e.target && e.target.closest && e.target.closest("#field-book-modal, #fp-hand-cards, #fp-map-viewport")) {
+        return;
+      }
+      // Suppress native browser right-click menu on the 2D cabin canvas so Shift + Move + Right-Click NEVER eats keyup!
+      e.preventDefault();
     });
 
     document.addEventListener("keydown", (e) => {
@@ -2002,6 +2034,10 @@ window.Duskwood = window.Duskwood || {};
 
     document.addEventListener("keyup", (e) => {
       keys[e.code] = false;
+      if (!e.shiftKey) {
+        keys["ShiftLeft"] = false;
+        keys["ShiftRight"] = false;
+      }
       if (e.code === "KeyF" && active && !paused && App.Musical && App.Musical.isActive && App.Musical.isActive(gameState)) {
         App.Musical.onKeyFUp(gameState, player);
         syncHud();
@@ -2111,6 +2147,48 @@ window.Duskwood = window.Duskwood || {};
           }
           return;
         }
+        if (msg.action === "MP_CLUE_SYNC") {
+          if (App.Clues && App.Clues.applyNetworkClueSync) {
+            App.Clues.applyNetworkClueSync(p, gameState);
+            syncHud();
+          }
+          return;
+        }
+        if (msg.action === "MP_CC_STATE") {
+          if (App.Events && App.Events.applyCuttingCornersNetworkState) {
+            App.Events.applyCuttingCornersNetworkState(p, gameState, player);
+            syncHud();
+          }
+          return;
+        }
+        if (msg.action.startsWith("MP_STALKER_")) {
+          if (App.Stalkers && App.Stalkers.handleNetworkMessage) {
+            App.Stalkers.handleNetworkMessage(msg.action, p, gameState);
+            syncHud();
+          }
+          return;
+        }
+        if (msg.action.startsWith("MP_STAYLIT_")) {
+          if (App.StayLit && App.StayLit.handleNetworkMessage) {
+            App.StayLit.handleNetworkMessage(msg.action, p, gameState);
+            syncHud();
+          }
+          return;
+        }
+        if (msg.action.startsWith("MP_KNIGHT_")) {
+          if (App.Knight && App.Knight.handleNetworkMessage) {
+            App.Knight.handleNetworkMessage(msg.action, p, gameState);
+            syncHud();
+          }
+          return;
+        }
+        if (msg.action.startsWith("MP_BASEMENT_")) {
+          if (App.Basement && App.Basement.handleNetworkMessage) {
+            App.Basement.handleNetworkMessage(msg.action, p, gameState, player);
+            syncHud();
+          }
+          return;
+        }
         if (msg.action.startsWith("MP_ATTIC_")) {
           if (App.Attic && App.Attic.handleNetworkMessage) {
             App.Attic.handleNetworkMessage(msg.action, p, gameState);
@@ -2145,7 +2223,7 @@ window.Duskwood = window.Duskwood || {};
           return;
         }
         if (App.TableView && App.TableView.handleNetworkMessage) {
-          App.TableView.handleNetworkMessage(msg.action, p, msg.seatIdx);
+          App.TableView.handleNetworkMessage(msg.action, p, msg.seatIdx, msg.fromId);
         }
       });
     }

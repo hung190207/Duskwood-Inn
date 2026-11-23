@@ -339,6 +339,8 @@ window.Duskwood = window.Duskwood || {};
       App.Network.isMultiplayerMatch()
     );
   }
+  function isMpHost(m) { return !isMultiplayerMatch(m) || (App.Network && App.Network.isHost()); }
+  function isMpGuest(m) { return isMultiplayerMatch(m) && !(App.Network && App.Network.isHost()); }
 
   // ==================== 2. START / SPAWN POPCORN / CONTROLS ====================
   function spawnPopcorns(roomMap) {
@@ -425,8 +427,12 @@ window.Duskwood = window.Duskwood || {};
         chasing: false
       },
       notice: "A GIANT MONKEY APPEARED RIGHT BESIDE YOU! (10s...)",
-      noticeTimer: 5.5
+      noticeTimer: 5.5,
+      syncAccum: 0
     };
+    if (isMultiplayerMatch(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState);
+    }
 
     // Silent during intro & throwing phase — monkey_sfx.mp3 plays ONLY if Chase Phase starts!
 
@@ -835,11 +841,16 @@ window.Duskwood = window.Duskwood || {};
       mr.transitionFlickerTimer = Math.max(0, mr.transitionFlickerTimer - dt);
     }
 
-    // 1. 10-second Intro Stage (lights off, dim table glow showing Giant Monkey right next to player)
+    // 1. 10-second Intro Stage (Host triggers PLAYING_20S authoritatively so all players start together!)
     if (mr.stage === "INTRO_10S") {
-      mr.introTimer -= dt;
+      mr.introTimer = Math.max(0, mr.introTimer - dt);
+      if (isMpGuest(matchState)) return;
       if (mr.introTimer <= 0) {
         beginMusical20sPhase(matchState);
+        if (isMultiplayerMatch(matchState)) broadcastStateNow(matchState);
+      } else if (isMultiplayerMatch(matchState)) {
+        mr.syncAccum = (mr.syncAccum || 0) + dt;
+        if (mr.syncAccum >= 0.30) { mr.syncAccum = 0; broadcastStateNow(matchState); }
       }
       return;
     }
@@ -913,24 +924,35 @@ window.Duskwood = window.Duskwood || {};
         }
       }
 
-      mr.musicTimer -= dt;
+      mr.musicTimer = Math.max(0, mr.musicTimer - dt);
+      if (isMpGuest(matchState)) return;
       if (mr.musicTimer <= 0) {
-        // Time up without reaching TARGET_POPCORNS -> Pick 1 random Red Safe Room & Monkey begins hunting!
         startRedRoomChasePhase(matchState, null, false);
+        if (isMultiplayerMatch(matchState)) broadcastStateNow(matchState);
+      } else if (isMultiplayerMatch(matchState)) {
+        mr.syncAccum = (mr.syncAccum || 0) + dt;
+        if (mr.syncAccum >= 0.25) { mr.syncAccum = 0; broadcastStateNow(matchState); }
       }
       return;
     }
 
-    // 4. Giant Monkey Chase Stage — Find & enter the Glowing Red Room to stop the Monkey and resume throwing!
+    // 4. Giant Monkey Chase Stage — Host moves Monkey & checks Red Room; Guests render synced Monkey & check local catch!
     if (mr.stage === "CHASE") {
       if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
         if (App.Audio && App.Audio.setMonkeySfxAttenuation) App.Audio.setMonkeySfxAttenuation(0);
-        return;
+        if (isMpGuest(matchState)) return;
       }
       const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
       const occ = getRedRoomOccupancy(matchState);
 
-      // ALL players (or sole player in SP) reached the Red Safe Room -> Monkey halts & throwing resumes!
+      if (isMpGuest(matchState)) {
+        syncMonkeySpatialAudio(mr, matchState, player);
+        if (!occ.localInRed && mr.monkey.roomKey === pRoomKey && Math.hypot(mr.monkey.x - player.x, mr.monkey.y - player.y) <= 15.0) {
+          triggerMusicalDeath(matchState);
+        }
+        return;
+      }
+
       if (occ.allInRed) {
         if (isMultiplayerMatch(matchState)) {
           App.Network.sendGameAction("MP_MUSICAL_RESUME", {
@@ -939,39 +961,32 @@ window.Duskwood = window.Duskwood || {};
           });
         }
         beginMusical20sPhase(matchState, true);
+        if (isMultiplayerMatch(matchState)) broadcastStateNow(matchState);
         return;
       }
 
-      // Pick chase target: NEVER allow Giant Monkey to enter the Red Safe Room!
-      let targetRoomKey = pRoomKey;
-      let targetX = player.x;
-      let targetY = player.y;
+      // Host chases NEAREST living player currently OUTSIDE the Red Safe Room!
+      const living = (App.Events && App.Events.getAllLivingPlayers)
+        ? App.Events.getAllLivingPlayers(matchState, player)
+        : [{ isLocal: true, roomKey: pRoomKey, x: player.x, y: player.y }];
+      const outsidePlayers = living.filter((lp) => lp.roomKey !== mr.redRoomKey);
 
-      if (occ.localInRed) {
-        // Local player is SAFE inside the Red Room! If MP teammates are outside, Monkey hunts an outside teammate;
-        // otherwise Monkey stalks outside in The Dining Room (or adjacent non-red room).
-        let foundOutside = false;
-        if (isMultiplayerMatch(matchState) && App.Network && App.Network.getAllRemotePlayers) {
-          const outside = App.Network.getAllRemotePlayers().find(
-            (rp) => !(mr.deadPlayerIds && mr.deadPlayerIds.has(rp.playerId)) && `${rp.roomX || 0},${rp.roomY || 0}` !== mr.redRoomKey
-          );
-          if (outside) {
-            targetRoomKey = `${outside.roomX || 0},${outside.roomY || 0}`;
-            targetX = outside.x;
-            targetY = outside.y;
-            foundOutside = true;
-          }
-        }
-        if (!foundOutside) {
-          const nonRed = getEventRoomKeys(matchState.roomMap).find((k) => k !== mr.redRoomKey) || "0,0";
-          targetRoomKey = nonRed;
-          targetX = 104;
-          targetY = 126;
-        }
+      let targetRoomKey = null;
+      let targetX = 104;
+      let targetY = 126;
+      if (outsidePlayers.length > 0) {
+        let bestD = Infinity;
+        const mR = (matchState.roomMap && matchState.roomMap[mr.monkey.roomKey]) || { x: 0, y: 0 };
+        outsidePlayers.forEach((lp) => {
+          const lR = (matchState.roomMap && matchState.roomMap[lp.roomKey]) || { x: 0, y: 0 };
+          const d = Math.hypot((mR.x * 208 + mr.monkey.x) - (lR.x * 208 + lp.x), (mR.y * 208 + mr.monkey.y) - (lR.y * 208 + lp.y));
+          if (d < bestD) { bestD = d; targetRoomKey = lp.roomKey; targetX = lp.x; targetY = lp.y; }
+        });
+      } else {
+        targetRoomKey = getEventRoomKeys(matchState.roomMap).find((k) => k !== mr.redRoomKey) || "0,0";
       }
 
-      // Guard: step Monkey only if next move does NOT enter mr.redRoomKey
-      if (targetRoomKey !== mr.redRoomKey) {
+      if (targetRoomKey && targetRoomKey !== mr.redRoomKey) {
         const prevRoom = mr.monkey.roomKey;
         const prevX = mr.monkey.x;
         const prevY = mr.monkey.y;
@@ -984,8 +999,17 @@ window.Duskwood = window.Duskwood || {};
       }
       syncMonkeySpatialAudio(mr, matchState, player);
 
-      // Lethal contact ONLY if player is OUTSIDE the Red Safe Room!
-      if (!occ.localInRed && mr.monkey.roomKey === pRoomKey && Math.hypot(mr.monkey.x - player.x, mr.monkey.y - player.y) <= 15.0) {
+      if (isMultiplayerMatch(matchState)) {
+        mr.syncAccum = (mr.syncAccum || 0) + dt;
+        if (mr.syncAccum >= 0.085) { mr.syncAccum = 0; broadcastStateNow(matchState); }
+      }
+
+      if (
+        !(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) &&
+        !occ.localInRed &&
+        mr.monkey.roomKey === pRoomKey &&
+        Math.hypot(mr.monkey.x - player.x, mr.monkey.y - player.y) <= 15.0
+      ) {
         triggerMusicalDeath(matchState);
       }
     }
@@ -1255,10 +1279,60 @@ window.Duskwood = window.Duskwood || {};
     return Boolean(mr && mr.active && (mr.stage === "PLAYING_20S" || mr.stage === "CHASE"));
   }
 
+  function broadcastStateNow(matchState) {
+    if (!matchState || !isMultiplayerMatch(matchState) || !isMpHost(matchState)) return;
+    const mr = matchState.musicalEvent;
+    if (!mr || !mr.active) return;
+    App.Network.sendGameAction("MP_MUSICAL_STATE", {
+      stage: mr.stage,
+      round: mr.round || 1,
+      introTimer: Math.round((mr.introTimer || 0) * 10) / 10,
+      musicTimer: Math.round((mr.musicTimer || 0) * 10) / 10,
+      scored: mr.scored || 0,
+      redRoomKey: mr.redRoomKey || null,
+      monkey: {
+        roomKey: mr.monkey.roomKey,
+        x: Math.round(mr.monkey.x * 10) / 10,
+        y: Math.round(mr.monkey.y * 10) / 10,
+        facing: mr.monkey.facing,
+        chasing: Boolean(mr.monkey.chasing)
+      },
+      notice: mr.notice || "",
+      noticeTimer: mr.noticeTimer || 0
+    });
+  }
+
   function handleNetworkMessage(action, payload, matchState) {
-    const mr = matchState && matchState.musicalEvent;
-    if (!mr || !mr.active || !action) return;
+    if (!matchState || !action) return;
     const p = payload || {};
+
+    if (action === "MP_MUSICAL_STATE") {
+      if (!isMpGuest(matchState)) return;
+      if (!matchState.musicalEvent) startMusicalRoomsEvent(matchState, null);
+      const mr = matchState.musicalEvent;
+      if (!mr) return;
+      const prevStage = mr.stage;
+      mr.round = p.round || mr.round;
+      mr.introTimer = typeof p.introTimer === "number" ? p.introTimer : mr.introTimer;
+      mr.musicTimer = typeof p.musicTimer === "number" ? p.musicTimer : mr.musicTimer;
+      mr.scored = Math.max(mr.scored || 0, typeof p.scored === "number" ? p.scored : 0);
+      if (p.monkey) Object.assign(mr.monkey, p.monkey);
+      if (p.notice) { mr.notice = p.notice; mr.noticeTimer = p.noticeTimer || 2.5; }
+
+      if (prevStage === "INTRO_10S" && p.stage === "PLAYING_20S") {
+        beginMusical20sPhase(matchState, false);
+      } else if (prevStage !== "CHASE" && p.stage === "CHASE" && p.redRoomKey) {
+        startRedRoomChasePhase(matchState, p.redRoomKey, true);
+      } else if (prevStage === "CHASE" && p.stage === "PLAYING_20S") {
+        beginMusical20sPhase(matchState, true);
+      } else if (p.stage === "CHASE" && p.redRoomKey) {
+        mr.redRoomKey = p.redRoomKey;
+      }
+      return;
+    }
+
+    const mr = matchState && matchState.musicalEvent;
+    if (!mr || !mr.active) return;
 
     if (action === "MP_MUSICAL_SCORE") {
       if (p.popId) {
@@ -1316,6 +1390,7 @@ window.Duskwood = window.Duskwood || {};
     onKeyFDown,
     onKeyFUp,
     update,
+    broadcastStateNow,
     handleNetworkMessage,
     forceEndFromNetwork,
     drawCardboardBox,

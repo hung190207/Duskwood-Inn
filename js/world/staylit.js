@@ -45,6 +45,9 @@ window.Duskwood = window.Duskwood || {};
     c.fillStyle = color;
     c.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
   }
+  function isMpMode(m) { return Boolean(App.Events && App.Events.isMpEventMode && App.Events.isMpEventMode(m)); }
+  function isMpHost(m) { return !App.Events || !App.Events.isMpHost || App.Events.isMpHost(m); }
+  function isMpGuest(m) { return Boolean(App.Events && App.Events.isMpGuest && App.Events.isMpGuest(m)); }
 
   function snapshotRoomLights(matchState) {
     const snap = {};
@@ -245,6 +248,9 @@ window.Duskwood = window.Duskwood || {};
       .join(" & ");
     sl.notice = `LIGHTS SHIFTED! STAY INSIDE: ${litNames}`;
     sl.noticeTimer = 4.2;
+    if (isMpMode(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState, { lightShift: true });
+    }
   }
 
   function vanishHoundOnLightContact(sl, roomKey, x, y) {
@@ -317,8 +323,12 @@ window.Duskwood = window.Duskwood || {};
         retargetTimer: 2.0
       },
       notice: "ALL LIGHTS ARE FLICKERING! STAY IN THE 2 LIT ROOMS FOR 90 SECONDS!",
-      noticeTimer: 5.0
+      noticeTimer: 5.0,
+      syncAccum: 0
     };
+    if (isMpMode(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState);
+    }
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
@@ -426,7 +436,23 @@ window.Duskwood = window.Duskwood || {};
       return vb.age < vb.maxAge;
     });
 
-    // 1. 5-Second All-Lights Flicker Phase
+    // GUEST: strictly mirrors Host's 2 lit rooms, timers & Shadow Hound! Only checks local catch in dark!
+    if (isMpGuest(matchState)) {
+      if (
+        sl.stage === "SURVIVE_90S" &&
+        sl.hound &&
+        sl.hound.active &&
+        !(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState))
+      ) {
+        const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+        if (!sl.litRoomKeys.has(pRoomKey) && sl.hound.roomKey === pRoomKey && Math.hypot(sl.hound.x - player.x, sl.hound.y - player.y) <= 13.5) {
+          triggerStayLitDeath(matchState);
+        }
+      }
+      return;
+    }
+
+    // 1. 5-Second All-Lights Flicker Phase (HOST / SP)
     if (sl.stage === "FLICKER_5S") {
       sl.flickerTimer -= dt;
       if (sl.flickerTimer <= 0) {
@@ -434,6 +460,10 @@ window.Duskwood = window.Duskwood || {};
         sl.surviveTimer = SURVIVE_DURATION;
         applyLitRoomsToCabin(sl, matchState, true);
         spawnHoundInDarkRoom(sl, matchState);
+        if (isMpMode(matchState)) broadcastStateNow(matchState, { lightShift: true });
+      } else if (isMpMode(matchState)) {
+        sl.syncAccum = (sl.syncAccum || 0) + dt;
+        if (sl.syncAccum >= 0.25) { sl.syncAccum = 0; broadcastStateNow(matchState); }
       }
       return;
     }
@@ -450,58 +480,76 @@ window.Duskwood = window.Duskwood || {};
       applyLitRoomsToCabin(sl, matchState, true);
     }
 
-    // 3. Quadruped Shadow Hound AI
+    // 3. Quadruped Shadow Hound AI (tracks ALL living players caught in dark rooms!)
     const h = sl.hound;
     if (!h.active) {
       h.respawnTimer -= dt;
       if (h.respawnTimer <= 0) {
         spawnHoundInDarkRoom(sl, matchState);
       }
-      return;
-    }
-
-    // Double-check if Hound is standing inside a lit room -> vanish immediately!
-    if (sl.litRoomKeys.has(h.roomKey)) {
+    } else if (sl.litRoomKeys.has(h.roomKey)) {
       vanishHoundOnLightContact(sl, h.roomKey, h.x, h.y);
-      return;
-    }
-
-    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
-      return;
-    }
-
-    const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
-    const playerInDark = !sl.litRoomKeys.has(pRoomKey);
-
-    if (playerInDark) {
-      if (h.state !== "CHASE") {
-        h.state = "CHASE";
-        sl.notice = "YOU ARE IN THE DARK! THE GLOWING SHADOW BEAST IS CHASING YOU — FIND A LIT ROOM!";
-        sl.noticeTimer = 2.8;
-      }
-      moveHoundStep(sl, pRoomKey, player.x, player.y, 58, dt, matchState.roomMap);
-
-      if (h.active && h.roomKey === pRoomKey && Math.hypot(h.x - player.x, h.y - player.y) <= 13.5) {
-        triggerStayLitDeath(matchState);
-      }
+      if (isMpMode(matchState)) broadcastStateNow(matchState, { vanished: { roomKey: h.roomKey, x: h.x, y: h.y } });
     } else {
-      // Player is SAFE inside a lit room! Hound freely patrols across dark rooms.
-      if (h.state === "CHASE") {
-        h.state = "PATROL";
-        h.retargetTimer = 0.25;
-      }
-      h.retargetTimer -= dt;
-      const arrived = moveHoundStep(sl, h.patrolRoomKey, h.patrolX, h.patrolY, 40, dt, matchState.roomMap);
-      if (h.active && (arrived || h.retargetTimer <= 0)) {
-        const darkKeys = getEventRoomKeys(matchState.roomMap).filter((k) => !sl.litRoomKeys.has(k));
-        if (darkKeys.length) {
-          const nextK = darkKeys[Math.floor(Math.random() * darkKeys.length)];
-          const sp = getSafeSpotForRoom(matchState.roomMap[nextK]);
-          h.patrolRoomKey = nextK;
-          h.patrolX = sp.x;
-          h.patrolY = sp.y;
+      const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+      const living = (App.Events && App.Events.getAllLivingPlayers)
+        ? App.Events.getAllLivingPlayers(matchState, player)
+        : [{ isLocal: true, roomKey: pRoomKey, x: player.x, y: player.y }];
+
+      let bestDarkTarget = null;
+      let bestDist = Infinity;
+      const hRoomObj = (matchState.roomMap && matchState.roomMap[h.roomKey]) || { x: 0, y: 0 };
+      living.forEach((lp) => {
+        const rObj = matchState.roomMap && matchState.roomMap[lp.roomKey];
+        if (!rObj || rObj.id === "bp_cellar") return;
+        if (sl.litRoomKeys.has(lp.roomKey)) return;
+        const d = Math.hypot((hRoomObj.x * 208 + h.x) - (rObj.x * 208 + lp.x), (hRoomObj.y * 208 + h.y) - (rObj.y * 208 + lp.y));
+        if (d < bestDist) { bestDist = d; bestDarkTarget = lp; }
+      });
+
+      if (bestDarkTarget) {
+        if (h.state !== "CHASE") {
+          h.state = "CHASE";
+          sl.notice = "SOMEONE IS IN THE DARK! THE GLOWING SHADOW BEAST IS HUNTING — FIND A LIT ROOM!";
+          sl.noticeTimer = 2.8;
         }
-        h.retargetTimer = 3.2 + Math.random() * 2.4;
+        moveHoundStep(sl, bestDarkTarget.roomKey, bestDarkTarget.x, bestDarkTarget.y, 58, dt, matchState.roomMap);
+
+        if (
+          h.active &&
+          !(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) &&
+          !sl.litRoomKeys.has(pRoomKey) &&
+          h.roomKey === pRoomKey &&
+          Math.hypot(h.x - player.x, h.y - player.y) <= 13.5
+        ) {
+          triggerStayLitDeath(matchState);
+        }
+      } else {
+        if (h.state === "CHASE") {
+          h.state = "PATROL";
+          h.retargetTimer = 0.25;
+        }
+        h.retargetTimer -= dt;
+        const arrived = moveHoundStep(sl, h.patrolRoomKey, h.patrolX, h.patrolY, 40, dt, matchState.roomMap);
+        if (h.active && (arrived || h.retargetTimer <= 0)) {
+          const darkKeys = getEventRoomKeys(matchState.roomMap).filter((k) => !sl.litRoomKeys.has(k));
+          if (darkKeys.length) {
+            const nextK = darkKeys[Math.floor(Math.random() * darkKeys.length)];
+            const sp = getSafeSpotForRoom(matchState.roomMap[nextK]);
+            h.patrolRoomKey = nextK;
+            h.patrolX = sp.x;
+            h.patrolY = sp.y;
+          }
+          h.retargetTimer = 3.2 + Math.random() * 2.4;
+        }
+      }
+    }
+
+    if (isMpMode(matchState)) {
+      sl.syncAccum = (sl.syncAccum || 0) + dt;
+      if (sl.syncAccum >= 0.085) {
+        sl.syncAccum = 0;
+        broadcastStateNow(matchState);
       }
     }
   }
@@ -632,6 +680,61 @@ window.Duskwood = window.Duskwood || {};
     return Boolean(matchState && matchState.stayLitEvent && matchState.stayLitEvent.active);
   }
 
+  function broadcastStateNow(matchState, extra) {
+    if (!matchState || !isMpMode(matchState) || !isMpHost(matchState)) return;
+    const sl = matchState.stayLitEvent;
+    if (!sl || !sl.active) return;
+    App.Network.sendGameAction("MP_STAYLIT_STATE", Object.assign({
+      stage: sl.stage,
+      flickerTimer: Math.round((sl.flickerTimer || 0) * 10) / 10,
+      surviveTimer: Math.round((sl.surviveTimer || 0) * 10) / 10,
+      cycleTimer: Math.round((sl.cycleTimer || 0) * 10) / 10,
+      litRoomKeys: Array.from(sl.litRoomKeys || []),
+      hound: {
+        active: Boolean(sl.hound.active),
+        roomKey: sl.hound.roomKey,
+        x: Math.round(sl.hound.x * 10) / 10,
+        y: Math.round(sl.hound.y * 10) / 10,
+        facing: sl.hound.facing,
+        state: sl.hound.state
+      },
+      notice: sl.notice || "",
+      noticeTimer: sl.noticeTimer || 0
+    }, extra || {}));
+  }
+
+  function handleNetworkMessage(action, payload, matchState) {
+    if (action !== "MP_STAYLIT_STATE" || !matchState || !isMpGuest(matchState)) return false;
+    const p = payload || {};
+    if (!matchState.stayLitEvent) startStayInLightEvent(matchState);
+    const sl = matchState.stayLitEvent;
+    if (!sl) return true;
+
+    sl.stage = p.stage || sl.stage;
+    sl.flickerTimer = typeof p.flickerTimer === "number" ? p.flickerTimer : sl.flickerTimer;
+    sl.surviveTimer = typeof p.surviveTimer === "number" ? p.surviveTimer : sl.surviveTimer;
+    sl.cycleTimer = typeof p.cycleTimer === "number" ? p.cycleTimer : sl.cycleTimer;
+    if (Array.isArray(p.litRoomKeys)) {
+      sl.litRoomKeys = new Set(p.litRoomKeys);
+      if (sl.stage === "SURVIVE_90S") {
+        matchState.roomLightStates = {};
+        getEventRoomKeys(matchState.roomMap).forEach((k) => {
+          matchState.roomLightStates[k] = sl.litRoomKeys.has(k);
+        });
+      }
+    }
+    if (p.lightShift && App.Audio && App.Audio.playLightSwitchSurge) {
+      App.Audio.playLightSwitchSurge(4.0);
+    }
+    if (p.vanished) {
+      sl.vanishBursts.push({ roomKey: p.vanished.roomKey, x: p.vanished.x, y: p.vanished.y - 10, age: 0, maxAge: 0.72 });
+      if (App.Audio && App.Audio.shadowHoundVanish) App.Audio.shadowHoundVanish();
+    }
+    if (p.hound) Object.assign(sl.hound, p.hound);
+    if (p.notice) { sl.notice = p.notice; sl.noticeTimer = p.noticeTimer || 2.5; }
+    return true;
+  }
+
   function cleanup(matchState) {
     if (App.Audio && App.Audio.stopLightSwitchSurge) App.Audio.stopLightSwitchSurge();
     if (App.Jumpscare) App.Jumpscare.stop();
@@ -646,6 +749,8 @@ window.Duskwood = window.Duskwood || {};
     renderRoomHighlights,
     getHudSummary,
     isActive,
+    broadcastStateNow,
+    handleNetworkMessage,
     cleanup
   };
 })(window.Duskwood);

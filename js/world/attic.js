@@ -1166,8 +1166,26 @@ window.Duskwood = window.Duskwood || {};
       }
     }
 
-    // 4b. Update Spatial Ghost Audio (1.0s -> 3.0s loop) based on exact distance to player!
+    // 4b. Update Spatial Ghost Audio (1.0s -> 3.0s loop) & sync Ghost pose for Multiplayer spectators!
     syncAtticGhostSpatialAudio(att, player);
+    if (isMpMatch(matchState)) {
+      att._ghostSyncAccum = (att._ghostSyncAccum || 0) + dt;
+      if (att._ghostSyncAccum >= 0.10) {
+        att._ghostSyncAccum = 0;
+        App.Network.sendGameAction("MP_ATTIC_GHOST", {
+          active: Boolean(g.active),
+          state: g.state,
+          x: Math.round(g.x * 10) / 10,
+          y: Math.round(g.y * 10) / 10,
+          facing: g.facing,
+          alpha: Math.round((g.alpha || 0) * 100) / 100,
+          burnTimer: g.burnTimer || 0,
+          holdingCandle: Boolean(att.holdingCandle),
+          candleX: Math.round(att.candle.x * 10) / 10,
+          candleY: Math.round(att.candle.y * 10) / 10
+        });
+      }
+    }
 
     // 5. Lethal Contact Check (Ghost catches player!)
     const catchDist = Math.hypot(g.x - player.x, g.y - player.y);
@@ -1221,9 +1239,31 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
+  function broadcastStateNow(matchState) {
+    if (!matchState || !matchState.atticEvent || !matchState.atticEvent.active) return;
+    broadcastAtticSync(matchState, "MP_ATTIC_SYNC");
+  }
+
   function handleNetworkMessage(action, payload, matchState) {
     if (!matchState || !action) return false;
     const p = payload || {};
+
+    if (action === "MP_ATTIC_GHOST") {
+      const att = matchState.atticEvent;
+      if (!att || !att.active || att.inAttic) return false;
+      Object.assign(att.ghost, {
+        active: Boolean(p.active),
+        state: p.state || "IDLE",
+        x: typeof p.x === "number" ? p.x : att.ghost.x,
+        y: typeof p.y === "number" ? p.y : att.ghost.y,
+        facing: p.facing || 1,
+        alpha: typeof p.alpha === "number" ? p.alpha : 0,
+        burnTimer: typeof p.burnTimer === "number" ? p.burnTimer : 0
+      });
+      if (typeof p.candleX === "number") att.candle.x = p.candleX;
+      if (typeof p.candleY === "number") att.candle.y = p.candleY;
+      return true;
+    }
 
     if (action === "MP_ATTIC_INIT" || action === "MP_ATTIC_SYNC") {
       if (!matchState.atticEvent) return false;
@@ -1537,6 +1577,7 @@ window.Duskwood = window.Duskwood || {};
     getRoomLadderInteractable,
     renderRoomLadder,
     renderViewport,
+    broadcastStateNow,
     handleNetworkMessage,
     forceEndFromNetwork,
     isAtticActive,

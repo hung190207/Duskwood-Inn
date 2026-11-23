@@ -55,6 +55,9 @@ window.Duskwood = window.Duskwood || {};
     c.fillStyle = color;
     c.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
   }
+  function isMpMode(m) { return Boolean(App.Events && App.Events.isMpEventMode && App.Events.isMpEventMode(m)); }
+  function isMpHost(m) { return !App.Events || !App.Events.isMpHost || App.Events.isMpHost(m); }
+  function isMpGuest(m) { return Boolean(App.Events && App.Events.isMpGuest && App.Events.isMpGuest(m)); }
 
   function snapshotRoomLights(matchState) {
     const snap = {};
@@ -375,8 +378,12 @@ window.Duskwood = window.Duskwood || {};
         y: knightPos.y
       },
       notice: "CHECK THE ROUND TABLE! RED=KNIGHT • BLUE=DESTINATION • GREEN=STATUE (10s/TURN)",
-      noticeTimer: 6.0
+      noticeTimer: 6.0,
+      syncAccum: 0
     };
+    if (isMpMode(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState);
+    }
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
@@ -391,9 +398,13 @@ window.Duskwood = window.Duskwood || {};
     return matchState.knightEvent;
   }
 
-  function rotateStatue(matchState) {
+  function rotateStatue(matchState, fromNetworkAction) {
     const kn = matchState && matchState.knightEvent;
     if (!kn || !kn.active || kn.stage !== "PLAYER_TURN") return false;
+    if (isMpGuest(matchState) && !fromNetworkAction) {
+      App.Network.sendGameAction("MP_KNIGHT_ACTION", { action: "rotate" });
+      return true;
+    }
 
     const wasDormant = !kn.statue.activated;
     kn.statue.activated = true;
@@ -416,6 +427,9 @@ window.Duskwood = window.Duskwood || {};
     kn.noticeTimer = 3.2;
 
     if (tableGlanceOpen) renderTableGlanceModal(matchState);
+    if (isMpMode(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState, { rotated: true });
+    }
     return true;
   }
 
@@ -472,9 +486,19 @@ window.Duskwood = window.Duskwood || {};
       }
     }
 
-    // 2. The Knight (Bộ giáp) advances 1 room toward the player via BFS!
+    // 2. The Knight (Bộ giáp) advances 1 room toward the NEAREST living player via BFS!
     const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
-    const nextKnightKey = findBfsNextRoom(matchState.roomMap, kn.knight.roomKey, pRoomKey);
+    let chaseTargetKey = pRoomKey;
+    if (isMpMode(matchState) && App.Events && App.Events.getAllLivingPlayers) {
+      const living = App.Events.getAllLivingPlayers(matchState, { x: 104, y: 126 });
+      const { distMap } = getReachableRoomKeys(matchState.roomMap || {}, kn.knight.roomKey);
+      let bestHops = Infinity;
+      living.forEach((lp) => {
+        const hops = typeof distMap[lp.roomKey] === "number" ? distMap[lp.roomKey] : 99;
+        if (hops < bestHops) { bestHops = hops; chaseTargetKey = lp.roomKey; }
+      });
+    }
+    const nextKnightKey = findBfsNextRoom(matchState.roomMap, kn.knight.roomKey, chaseTargetKey);
     if (nextKnightKey) {
       kn.knight.roomKey = nextKnightKey;
       const kp = getSafeCenterForRoom(matchState.roomMap[nextKnightKey], 1);
@@ -490,6 +514,9 @@ window.Duskwood = window.Duskwood || {};
     const knightRoomName = matchState.roomMap[kn.knight.roomKey]?.fullName || "THE DARK";
     kn.notice = `LIGHTS OUT — HEAVY ARMOR FOOTSTEPS ECHO (${!kn.statue.activated ? "STATUE DORMANT — ROTATE IT [E] FIRST" : statueMoved ? "STATUE SLID 1 ROOM" : "STATUE AT DEAD END"})...`;
     kn.noticeTimer = 2.2;
+    if (isMpMode(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState, { knightMoved: true });
+    }
 
     // 3. Same-Room Kill Check (skip if local player is already dead & locked in Cellar!)
     if (!(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) && kn.knight.roomKey === pRoomKey) {
@@ -589,6 +616,15 @@ window.Duskwood = window.Duskwood || {};
       if (kn.noticeTimer === 0) kn.notice = "";
     }
 
+    // GUEST: follows Host's authoritative turn phases, statue & knight positions!
+    if (isMpGuest(matchState)) {
+      if (tableGlanceOpen) {
+        const timerEl = document.getElementById("knight-map-timer");
+        if (timerEl) timerEl.textContent = `YOUR TURN: ${Math.max(0, Math.ceil(kn.turnTimer))}S`;
+      }
+      return;
+    }
+
     if (kn.stage === "PLAYER_TURN") {
       kn.turnTimer -= dt;
       if (tableGlanceOpen) {
@@ -597,6 +633,9 @@ window.Duskwood = window.Duskwood || {};
       }
       if (kn.turnTimer <= 0) {
         executeKnightAndStatueTurn(matchState);
+      } else if (isMpMode(matchState)) {
+        kn.syncAccum = (kn.syncAccum || 0) + dt;
+        if (kn.syncAccum >= 0.25) { kn.syncAccum = 0; broadcastStateNow(matchState); }
       }
       return;
     }
@@ -604,7 +643,6 @@ window.Duskwood = window.Duskwood || {};
     if (kn.stage === "KNIGHT_TURN") {
       kn.turnTimer -= dt;
       if (kn.turnTimer <= 0) {
-        // Back to 10-second Player Turn!
         kn.stage = "PLAYER_TURN";
         kn.turnTimer = PLAYER_TURN_SEC;
         kn.playerMovesLeft = 1;
@@ -618,6 +656,7 @@ window.Duskwood = window.Duskwood || {};
         kn.notice = `TURN ${kn.turnNumber} — YOUR TURN (10S)! MOVE 1 ROOM OR ROTATE STATUE [E].`;
         kn.noticeTimer = 3.2;
         App.Audio.lightSwitch();
+        if (isMpMode(matchState)) broadcastStateNow(matchState, { newPlayerTurn: true });
       }
     }
   }
@@ -860,6 +899,84 @@ window.Duskwood = window.Duskwood || {};
     return Boolean(kn && kn.active && kn.stage === "KNIGHT_TURN");
   }
 
+  function broadcastStateNow(matchState, extra) {
+    if (!matchState || !isMpMode(matchState) || !isMpHost(matchState)) return;
+    const kn = matchState.knightEvent;
+    if (!kn || !kn.active) return;
+    App.Network.sendGameAction("MP_KNIGHT_STATE", Object.assign({
+      stage: kn.stage,
+      turnNumber: kn.turnNumber,
+      turnTimer: Math.round((kn.turnTimer || 0) * 10) / 10,
+      destRoomKey: kn.destRoomKey,
+      destPos: kn.destPos,
+      statue: Object.assign({}, kn.statue),
+      knight: Object.assign({}, kn.knight),
+      notice: kn.notice || "",
+      noticeTimer: kn.noticeTimer || 0
+    }, extra || {}));
+  }
+
+  function handleNetworkMessage(action, payload, matchState) {
+    if (!matchState || !action) return false;
+    const p = payload || {};
+
+    if (action === "MP_KNIGHT_ACTION") {
+      if (isMpHost(matchState) && p.action === "rotate") {
+        rotateStatue(matchState, true);
+      }
+      return true;
+    }
+
+    if (action === "MP_KNIGHT_STATE") {
+      if (!isMpGuest(matchState)) return true;
+      if (!matchState.knightEvent) startKnightEvent(matchState);
+      const kn = matchState.knightEvent;
+      if (!kn) return true;
+
+      const prevStage = kn.stage;
+      const prevTurnNum = kn.turnNumber;
+      kn.stage = p.stage || kn.stage;
+      kn.turnNumber = typeof p.turnNumber === "number" ? p.turnNumber : kn.turnNumber;
+      kn.turnTimer = typeof p.turnTimer === "number" ? p.turnTimer : kn.turnTimer;
+      if (p.destRoomKey) kn.destRoomKey = p.destRoomKey;
+      if (p.destPos) kn.destPos = Object.assign({}, p.destPos);
+      if (p.statue) Object.assign(kn.statue, p.statue);
+      if (p.knight) Object.assign(kn.knight, p.knight);
+      if (p.notice) { kn.notice = p.notice; kn.noticeTimer = p.noticeTimer || 2.5; }
+
+      if (p.rotated && App.Audio && App.Audio.playPawnMove) {
+        App.Audio.playPawnMove(2.0);
+      }
+      if (p.newPlayerTurn || (prevStage === "KNIGHT_TURN" && kn.stage === "PLAYER_TURN") || kn.turnNumber > prevTurnNum) {
+        kn.playerMovesLeft = 1;
+        Object.keys(matchState.roomMap || {}).forEach((k) => {
+          if (matchState.roomMap[k] && matchState.roomMap[k].id === "bp_cellar") return;
+          matchState.roomLightStates[k] = true;
+        });
+        App.Audio.lightSwitch();
+      }
+      if (p.knightMoved || (prevStage === "PLAYER_TURN" && kn.stage === "KNIGHT_TURN")) {
+        closeTableGlanceModal(true);
+        if (App.Audio && App.Audio.playKnightFootstep) App.Audio.playKnightFootstep(2.0);
+        const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+        if (
+          !(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) &&
+          kn.knight.roomKey === pRoomKey
+        ) {
+          const knightRoomName = matchState.roomMap[kn.knight.roomKey]?.fullName || "THE DARK";
+          setTimeout(() => {
+            if (matchState.knightEvent && matchState.knightEvent.active) {
+              triggerKnightDeath(matchState, `THE KNIGHT STEPPED INTO ${knightRoomName} WITH YOU!`);
+            }
+          }, 650);
+        }
+      }
+      if (tableGlanceOpen) renderTableGlanceModal(matchState);
+      return true;
+    }
+    return false;
+  }
+
   function cleanup(matchState) {
     closeTableGlanceModal(true);
     if (App.Audio && App.Audio.stopKnightFootstep) App.Audio.stopKnightFootstep();
@@ -884,6 +1001,8 @@ window.Duskwood = window.Duskwood || {};
     forceEndFromNetwork,
     isActive,
     isDarkPhase,
+    broadcastStateNow,
+    handleNetworkMessage,
     cleanup
   };
 })(window.Duskwood);

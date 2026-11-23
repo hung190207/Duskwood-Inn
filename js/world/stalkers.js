@@ -54,6 +54,24 @@ window.Duskwood = window.Duskwood || {};
     c.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
   }
 
+  function isMpMode(matchState) {
+    return Boolean(App.Events && App.Events.isMpEventMode && App.Events.isMpEventMode(matchState));
+  }
+  function isMpHost(matchState) {
+    return !App.Events || !App.Events.isMpHost || App.Events.isMpHost(matchState);
+  }
+  function isMpGuest(matchState) {
+    return Boolean(App.Events && App.Events.isMpGuest && App.Events.isMpGuest(matchState));
+  }
+  function getLocalPid() {
+    return (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : "local";
+  }
+  function getRoomGlobalDist(roomMap, rkA, ax, ay, rkB, bx, by) {
+    const rA = (roomMap && roomMap[rkA]) || { x: 0, y: 0 };
+    const rB = (roomMap && roomMap[rkB]) || { x: 0, y: 0 };
+    return Math.hypot((rA.x * 208 + ax) - (rB.x * 208 + bx), (rA.y * 208 + ay) - (rB.y * 208 + by));
+  }
+
   // ==================== SHARED CABIN GRAPH BFS & SAFE ANCHORS ====================
   function getSafeCenterForRoom(room) {
     if (!room) return { x: 104, y: 126 };
@@ -384,8 +402,12 @@ window.Duskwood = window.Duskwood || {};
         retargetTimer: 1.5
       },
       notice: "ALL CABIN LIGHTS SNAPPED ON! SWITCH OFF EVERY LIGHT — HE HUNTS THE LIGHT!",
-      noticeTimer: 5.5
+      noticeTimer: 5.5,
+      syncAccum: 0
     };
+    if (isMpMode(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState);
+    }
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
@@ -512,27 +534,51 @@ window.Duskwood = window.Duskwood || {};
     const roomIsLit = !inCellar && Boolean(matchState.roomLightStates && matchState.roomLightStates[pRoomKey] === true);
     const playerVisibleInLight = !inCellar && (roomIsLit || Boolean(player.lanternOn));
 
-    if (playerVisibleInLight) {
+    // GUEST: strictly uses Host-synced Tall Man position & only checks local catch!
+    if (isMpGuest(matchState)) {
+      if (playerVisibleInLight && m.roomKey === pRoomKey && Math.hypot(m.x - player.x, m.y - player.y) <= 13.5) {
+        triggerTallManDeath(matchState);
+      }
+      return;
+    }
+
+    // HOST / SP: check ALL living players (Host + remote teammates) for visibility in light!
+    const living = (App.Events && App.Events.getAllLivingPlayers)
+      ? App.Events.getAllLivingPlayers(matchState, player)
+      : [{ isLocal: true, roomKey: pRoomKey, x: player.x, y: player.y, lanternOn: player.lanternOn }];
+
+    let bestTarget = null;
+    let bestDist = Infinity;
+    living.forEach((lp) => {
+      const rObj = matchState.roomMap && matchState.roomMap[lp.roomKey];
+      if (!rObj || rObj.id === "bp_cellar") return;
+      const rLit = Boolean(matchState.roomLightStates && matchState.roomLightStates[lp.roomKey] === true);
+      if (!rLit && !lp.lanternOn) return;
+      const d = getRoomGlobalDist(matchState.roomMap, m.roomKey, m.x, m.y, lp.roomKey, lp.x, lp.y);
+      if (d < bestDist) {
+        bestDist = d;
+        bestTarget = Object.assign({}, lp, { rLit });
+      }
+    });
+
+    if (bestTarget) {
       if (m.state !== "CHASE") {
         m.state = "CHASE";
-        tm.notice = roomIsLit
-          ? "HE SEES YOU IN THE LIT ROOM! TURN OFF THE SWITCH OR RUN!"
-          : "HE SEES YOUR LANTERN! PRESS [F] TO HIDE IN THE DARK!";
+        tm.notice = bestTarget.rLit
+          ? "HE SEES SOMEONE IN A LIT ROOM! TURN OFF THE SWITCH OR RUN!"
+          : "HE SEES A LANTERN! PRESS [F] TO HIDE IN THE DARK!";
         tm.noticeTimer = 2.8;
       }
-      // Moderate chase speed (41 px/s — threatening but slower than player's 54 walk / 88 sprint!)
-      moveEntityAcrossCabin(m, pRoomKey, player.x, player.y, 41, dt, matchState.roomMap);
+      moveEntityAcrossCabin(m, bestTarget.roomKey, bestTarget.x, bestTarget.y, 41, dt, matchState.roomMap);
 
-      // Can ONLY catch player when player is in light or holding lit lantern!
-      if (m.roomKey === pRoomKey && Math.hypot(m.x - player.x, m.y - player.y) <= 13.5) {
+      if (playerVisibleInLight && m.roomKey === pRoomKey && Math.hypot(m.x - player.x, m.y - player.y) <= 13.5) {
         triggerTallManDeath(matchState);
       }
     } else {
-      // Player is hidden in darkness (room light OFF & lantern OFF) -> Tall Man loses sight & patrols lit rooms!
       if (m.state === "CHASE") {
         m.state = "PATROL";
         m.retargetTimer = 0.2;
-        tm.notice = "YOU ARE HIDDEN IN THE DARK — HE CANNOT SEE YOU.";
+        tm.notice = "EVERYONE IS HIDDEN IN THE DARK — HE CANNOT SEE YOU.";
         tm.noticeTimer = 2.4;
       }
 
@@ -550,6 +596,14 @@ window.Duskwood = window.Duskwood || {};
         m.patrolX = pt.x;
         m.patrolY = pt.y;
         m.retargetTimer = 4.5 + Math.random() * 3.0;
+      }
+    }
+
+    if (isMpMode(matchState)) {
+      tm.syncAccum = (tm.syncAccum || 0) + dt;
+      if (tm.syncAccum >= 0.085) {
+        tm.syncAccum = 0;
+        broadcastStateNow(matchState);
       }
     }
   }
@@ -617,8 +671,12 @@ window.Duskwood = window.Duskwood || {};
         noiseCooldown: 0
       },
       notice: "PRESS [C] TO CROUCH! USE LANTERN [F] & POP RED BALLOONS [E]!",
-      noticeTimer: 5.5
+      noticeTimer: 5.5,
+      syncAccum: 0
     };
+    if (isMpMode(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState);
+    }
 
     // Start clown_laugh.mp3 + spatial balloons_sfx.mp3 proximity loop (audible across adjacent rooms!)
     if (App.Audio && App.Audio.playClownLaughLoop) {
@@ -675,9 +733,14 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
-  function popBalloon(matchState, balloonId) {
+  function popBalloon(matchState, balloonId, fromNetworkAction) {
     const rb = matchState && matchState.redBalloonsEvent;
     if (!rb || !rb.active) return false;
+    // Guest forwards balloon pop to Host so Host authoritatively updates & syncs to all players!
+    if (isMpGuest(matchState) && !fromNetworkAction) {
+      App.Network.sendGameAction("MP_STALKER_ACTION", { kind: "red_balloons", action: "pop", balloonId });
+      return true;
+    }
     const b = rb.balloons.find((x) => x.id === balloonId && !x.popped);
     if (!b) return false;
 
@@ -740,6 +803,9 @@ window.Duskwood = window.Duskwood || {};
       rb.noticeTimer = 5.5;
     }
 
+    if (isMpMode(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState);
+    }
     return true;
   }
 
@@ -821,42 +887,72 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
 
-    // Monster Spawn Trigger: spawns whenever any player is NOT crouching (after grace OR moving uncrouched)!
-    const isNotCrouching = !player.crouching;
-    if (!rb.clown.spawned && isNotCrouching && (rb.crouchGraceTimer <= 0 || player.moving)) {
-      spawnJackInTheBoxClown(rb, matchState, pRoomKey, player.x, player.y);
+    // GUEST: strictly checks lethal contact against Host-synced Clown!
+    if (isMpGuest(matchState)) {
+      const cl = rb.clown;
+      if (cl && cl.spawned && cl.roomKey === pRoomKey && Math.hypot(cl.x - player.x, cl.y - player.y) <= 13.0) {
+        triggerRedBalloonsDeath(matchState);
+      }
+      return;
     }
 
-    if (!rb.clown.spawned) return;
+    // HOST / SP: check ALL living players for uncrouched noise!
+    const living = (App.Events && App.Events.getAllLivingPlayers)
+      ? App.Events.getAllLivingPlayers(matchState, player)
+      : [{ isLocal: true, roomKey: pRoomKey, x: player.x, y: player.y, crouching: player.crouching, moving: player.moving }];
 
-    const cl = rb.clown;
-    if (cl.noiseCooldown > 0) cl.noiseCooldown = Math.max(0, cl.noiseCooldown - dt);
-
-    // Standing / walking / sprinting without Crouch emits noise that attracts the Clown!
-    if (isNotCrouching && cl.noiseCooldown <= 0 && (player.moving || cl.roomKey === pRoomKey)) {
-      alertClownToSound(rb, pRoomKey, player.x, player.y, null);
-      cl.noiseCooldown = 0.55;
+    if (!rb.clown.spawned) {
+      const noisy = living.find((lp) => !lp.crouching && (rb.crouchGraceTimer <= 0 || lp.moving));
+      if (noisy) {
+        spawnJackInTheBoxClown(rb, matchState, noisy.roomKey, noisy.x, noisy.y);
+      }
     }
 
-    const speed = cl.state === "INVESTIGATE" ? 44 : 26;
-    const arrived = moveEntityAcrossCabin(cl, cl.targetRoomKey, cl.targetX, cl.targetY, speed, dt, matchState.roomMap);
+    if (rb.clown.spawned) {
+      const cl = rb.clown;
+      if (cl.noiseCooldown > 0) cl.noiseCooldown = Math.max(0, cl.noiseCooldown - dt);
 
-    cl.retargetTimer -= dt;
-    if (arrived || cl.retargetTimer <= 0) {
-      // Pick a random non-Cellar room to patrol quietly until the next sound!
-      cl.state = "PATROL";
-      const allKeys = getEventRoomKeys(matchState.roomMap);
-      const nextK = allKeys[Math.floor(Math.random() * allKeys.length)] || "0,0";
-      const pt = getSafeCenterForRoom(matchState.roomMap[nextK]);
-      cl.targetRoomKey = nextK;
-      cl.targetX = pt.x;
-      cl.targetY = pt.y;
-      cl.retargetTimer = 5.0 + Math.random() * 3.0;
+      if (cl.noiseCooldown <= 0) {
+        let noisyTarget = null;
+        let bestD = Infinity;
+        living.forEach((lp) => {
+          if (lp.crouching) return;
+          if (!lp.moving && cl.roomKey !== lp.roomKey) return;
+          const d = getRoomGlobalDist(matchState.roomMap, cl.roomKey, cl.x, cl.y, lp.roomKey, lp.x, lp.y);
+          if (d < bestD) { bestD = d; noisyTarget = lp; }
+        });
+        if (noisyTarget) {
+          alertClownToSound(rb, noisyTarget.roomKey, noisyTarget.x, noisyTarget.y, null);
+          cl.noiseCooldown = 0.55;
+        }
+      }
+
+      const speed = cl.state === "INVESTIGATE" ? 44 : 26;
+      const arrived = moveEntityAcrossCabin(cl, cl.targetRoomKey, cl.targetX, cl.targetY, speed, dt, matchState.roomMap);
+
+      cl.retargetTimer -= dt;
+      if (arrived || cl.retargetTimer <= 0) {
+        cl.state = "PATROL";
+        const allKeys = getEventRoomKeys(matchState.roomMap);
+        const nextK = allKeys[Math.floor(Math.random() * allKeys.length)] || "0,0";
+        const pt = getSafeCenterForRoom(matchState.roomMap[nextK]);
+        cl.targetRoomKey = nextK;
+        cl.targetX = pt.x;
+        cl.targetY = pt.y;
+        cl.retargetTimer = 5.0 + Math.random() * 3.0;
+      }
+
+      if (cl.roomKey === pRoomKey && Math.hypot(cl.x - player.x, cl.y - player.y) <= 13.0) {
+        triggerRedBalloonsDeath(matchState);
+      }
     }
 
-    // Lethal Contact Check
-    if (cl.roomKey === pRoomKey && Math.hypot(cl.x - player.x, cl.y - player.y) <= 13.0) {
-      triggerRedBalloonsDeath(matchState);
+    if (isMpMode(matchState)) {
+      rb.syncAccum = (rb.syncAccum || 0) + dt;
+      if (rb.syncAccum >= 0.085) {
+        rb.syncAccum = 0;
+        broadcastStateNow(matchState);
+      }
     }
   }
 
@@ -1150,6 +1246,7 @@ window.Duskwood = window.Duskwood || {};
           x: pt.x,
           y: pt.y,
           collected: false,
+          heldByPlayerId: null,
           delivered: false
         });
       });
@@ -1208,8 +1305,12 @@ window.Duskwood = window.Duskwood || {};
         pauseTimer: 1.6
       },
       notice: "A PUPPET HAS APPEARED IN THE DINING ROOM — LIGHTS FLICKERING (10s)!",
-      noticeTimer: 5.5
+      noticeTimer: 5.5,
+      syncAccum: 0
     };
+    if (isMpMode(matchState) && isMpHost(matchState)) {
+      broadcastStateNow(matchState);
+    }
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
@@ -1297,55 +1398,75 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
-  function handleFeelingSmallInteract(matchState, player, target) {
+  function executeFeelingSmallActionOnHost(matchState, actorPid, actorRoomKey, actorX, actorY, action, shapeItemId) {
     const fs = matchState && matchState.feelingSmallEvent;
     if (!fs || !fs.active || fs.stage === "CHASE") return false;
+    const isLocalActor = actorPid === getLocalPid();
+    const curHeld = fs.shapes.find((s) => s.heldByPlayerId === actorPid && !s.delivered) || null;
 
-    if (target.type === "pickup_shape") {
-      const sh = fs.shapes.find((s) => s.id === target.shapeItemId && !s.collected && !s.delivered);
+    if (action === "pickup") {
+      const sh = fs.shapes.find((s) => s.id === shapeItemId && !s.collected && !s.delivered);
       if (!sh) return false;
-      // If player already holds a different shape, drop the old one right at their feet!
-      if (fs.heldShape) {
-        const old = fs.shapes.find((s) => s.id === fs.heldShape.id);
-        if (old) {
-          old.collected = false;
-          old.roomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
-          old.x = player.x;
-          old.y = player.y;
-        }
+      if (curHeld) {
+        curHeld.collected = false;
+        curHeld.heldByPlayerId = null;
+        curHeld.roomKey = actorRoomKey;
+        curHeld.x = actorX;
+        curHeld.y = actorY;
       }
       sh.collected = true;
-      fs.heldShape = { id: sh.id, shapeId: sh.shapeId };
-      App.Audio.open();
+      sh.heldByPlayerId = actorPid;
+      if (isLocalActor) {
+        fs.heldShape = { id: sh.id, shapeId: sh.shapeId };
+        App.Audio.open();
+      }
       const def = getShapeDef(sh.shapeId);
       fs.notice = `PICKED UP ${def.name}! BRING IT TO THE TOY TRAIN!`;
       fs.noticeTimer = 2.8;
+      if (isMpMode(matchState)) broadcastStateNow(matchState);
       return true;
     }
 
-    if (target.type === "toy_train") {
+    if (action === "drop") {
+      if (!curHeld) return false;
+      curHeld.collected = false;
+      curHeld.heldByPlayerId = null;
+      curHeld.roomKey = actorRoomKey;
+      curHeld.x = actorX;
+      curHeld.y = actorY;
+      if (isLocalActor) {
+        fs.heldShape = null;
+        App.Audio.click();
+      }
+      if (isMpMode(matchState)) broadcastStateNow(matchState);
+      return true;
+    }
+
+    if (action === "deliver") {
       const reqId = fs.turnOrder[fs.turnIndex];
       const reqDef = getShapeDef(reqId);
-
-      if (!fs.heldShape) {
-        fs.notice = `THE TOY TRAIN NEEDS: ${reqDef.name}!`;
-        fs.noticeTimer = 2.5;
-        App.Audio.click();
+      if (!curHeld) {
+        if (isLocalActor) {
+          fs.notice = `THE TOY TRAIN NEEDS: ${reqDef.name}!`;
+          fs.noticeTimer = 2.5;
+          App.Audio.click();
+        }
+        return true;
+      }
+      if (curHeld.shapeId !== reqId) {
+        if (isLocalActor) {
+          const heldDef = getShapeDef(curHeld.shapeId);
+          fs.notice = `WRONG SHAPE (${heldDef.short})! THE TRAIN NEEDS ${reqDef.name}!`;
+          fs.noticeTimer = 2.8;
+          App.Audio.close();
+        }
         return true;
       }
 
-      if (fs.heldShape.shapeId !== reqId) {
-        const heldDef = getShapeDef(fs.heldShape.shapeId);
-        fs.notice = `WRONG SHAPE (${heldDef.short})! THE TRAIN NEEDS ${reqDef.name}!`;
-        fs.noticeTimer = 2.8;
-        App.Audio.close();
-        return true;
-      }
-
-      // MATCHING SHAPE INSERTED!
-      const shObj = fs.shapes.find((s) => s.id === fs.heldShape.id);
-      if (shObj) shObj.delivered = true;
-      fs.heldShape = null;
+      // MATCHING SHAPE INSERTED — advances turn & resets 18s timer for ALL players simultaneously!
+      curHeld.delivered = true;
+      curHeld.heldByPlayerId = null;
+      if (isLocalActor) fs.heldShape = null;
       fs.placedShapes.push(reqId);
       fs.turnIndex += 1;
 
@@ -1353,7 +1474,6 @@ window.Duskwood = window.Duskwood || {};
       if (App.Audio && App.Audio.shapeInsert) App.Audio.shapeInsert(won);
 
       if (won) {
-        // PLAYER WINS FEELING SMALL?! — Keep parked Toy Train (full 4 stacked shapes!) & leftover blocks!
         if (App.Audio && App.Audio.stopToyTrainLoop) App.Audio.stopToyTrainLoop();
         savePersistentFeelingSmallProps(matchState, fs);
         restoreRoomLights(matchState, fs.savedLights);
@@ -1362,7 +1482,6 @@ window.Duskwood = window.Duskwood || {};
         if (App.Events && App.Events.onEventWonBroadcast) {
           App.Events.onEventWonBroadcast(matchState, "feeling_small", "ALL 4 SHAPES DELIVERED!\nTHE PUPPET COLLAPSES — CELLAR DOOR UNLOCKED.");
         }
-
         if (App.Events && App.Events.showSmudgeBanner) {
           App.Events.showSmudgeBanner(
             "ALL 4 SHAPES DELIVERED!\nTHE PUPPET'S STRINGS SNAP AND IT COLLAPSES.",
@@ -1375,14 +1494,45 @@ window.Duskwood = window.Duskwood || {};
         return true;
       }
 
-      // Brief stop pause as train accepts the shape before chugging onward!
       if (fs.train) fs.train.pauseTimer = 1.2;
-      // Next Turn (reset 18s countdown for the next shape!)
       fs.turnTimer = fs.turnDurationSec || 18.0;
       const nextDef = getShapeDef(fs.turnOrder[fs.turnIndex]);
       fs.notice = `TURN ${fs.turnIndex + 1}/4: FIND & INSERT ${nextDef.name} (${Math.round(fs.turnTimer)}s)!`;
       fs.noticeTimer = 3.8;
+      if (isMpMode(matchState)) broadcastStateNow(matchState);
       return true;
+    }
+
+    return false;
+  }
+
+  function handleFeelingSmallInteract(matchState, player, target) {
+    const fs = matchState && matchState.feelingSmallEvent;
+    if (!fs || !fs.active || fs.stage === "CHASE") return false;
+    const rk = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+    const pid = getLocalPid();
+
+    if (target.type === "pickup_shape") {
+      if (isMpGuest(matchState)) {
+        App.Network.sendGameAction("MP_STALKER_ACTION", {
+          kind: "feeling_small", action: "pickup", shapeItemId: target.shapeItemId,
+          playerId: pid, roomKey: rk, x: player.x, y: player.y
+        });
+        App.Audio.open();
+        return true;
+      }
+      return executeFeelingSmallActionOnHost(matchState, pid, rk, player.x, player.y, "pickup", target.shapeItemId);
+    }
+
+    if (target.type === "toy_train") {
+      if (isMpGuest(matchState)) {
+        App.Network.sendGameAction("MP_STALKER_ACTION", {
+          kind: "feeling_small", action: "deliver",
+          playerId: pid, roomKey: rk, x: player.x, y: player.y
+        });
+        return true;
+      }
+      return executeFeelingSmallActionOnHost(matchState, pid, rk, player.x, player.y, "deliver", null);
     }
 
     return false;
@@ -1391,16 +1541,17 @@ window.Duskwood = window.Duskwood || {};
   function handleFeelingSmallDrop(matchState, player) {
     const fs = matchState && matchState.feelingSmallEvent;
     if (!fs || !fs.active || !fs.heldShape) return false;
-    const old = fs.shapes.find((s) => s.id === fs.heldShape.id);
-    if (old) {
-      old.collected = false;
-      old.roomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
-      old.x = player.x + player.facing * 5;
-      old.y = player.y;
+    const rk = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+    const pid = getLocalPid();
+    if (isMpGuest(matchState)) {
+      App.Network.sendGameAction("MP_STALKER_ACTION", {
+        kind: "feeling_small", action: "drop",
+        playerId: pid, roomKey: rk, x: player.x + player.facing * 5, y: player.y
+      });
+      App.Audio.click();
+      return true;
     }
-    fs.heldShape = null;
-    App.Audio.click();
-    return true;
+    return executeFeelingSmallActionOnHost(matchState, pid, rk, player.x + player.facing * 5, player.y, "drop", null);
   }
 
   function updateFeelingSmall(dt, matchState, player) {
@@ -1410,6 +1561,23 @@ window.Duskwood = window.Duskwood || {};
     if (fs.noticeTimer > 0) {
       fs.noticeTimer = Math.max(0, fs.noticeTimer - dt);
       if (fs.noticeTimer === 0) fs.notice = "";
+    }
+
+    // GUEST: never runs independent timers or Puppet CHASE transitions! Follows Host MP_STALKER_STATE 100%!
+    if (isMpGuest(matchState)) {
+      if (fs.train && fs.train.spawned) {
+        syncToyTrainSpatialAudio(fs, matchState, player);
+      }
+      if (
+        fs.stage === "CHASE" &&
+        !(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState))
+      ) {
+        const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+        if (fs.puppet && fs.puppet.roomKey === pRoomKey && Math.hypot(fs.puppet.x - player.x, fs.puppet.y - player.y) <= 14.0) {
+          triggerFeelingSmallDeath(matchState);
+        }
+      }
+      return;
     }
 
     if (fs.stage === "FLICKER_INTRO") {
@@ -1425,21 +1593,26 @@ window.Duskwood = window.Duskwood || {};
         fs.noticeTimer = 5.0;
         App.Audio.clockChime();
         syncToyTrainSpatialAudio(fs, matchState, player);
+        if (isMpMode(matchState)) broadcastStateNow(matchState);
+      } else if (isMpMode(matchState)) {
+        fs.syncAccum = (fs.syncAccum || 0) + dt;
+        if (fs.syncAccum >= 0.25) { fs.syncAccum = 0; broadcastStateNow(matchState); }
       }
       return;
     }
 
-    // Toy Train actively roams ALL ACROSS the entire built cabin map via connected doorways!
+    const living = (App.Events && App.Events.getAllLivingPlayers)
+      ? App.Events.getAllLivingPlayers(matchState, player)
+      : [{ isLocal: true, roomKey: `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`, x: player.x, y: player.y }];
+
     if (fs.train.spawned) {
       const tr = fs.train;
-      const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
-      const nearPlayer = tr.roomKey === pRoomKey && Math.hypot(tr.x - player.x, tr.y - player.y) <= 28;
+      const nearAny = living.some((lp) => tr.roomKey === lp.roomKey && Math.hypot(tr.x - lp.x, tr.y - lp.y) <= 28);
 
       if (tr.pauseTimer > 0) {
         tr.pauseTimer = Math.max(0, tr.pauseTimer - dt);
       } else {
-        // Gently slow down when player is right beside the train so pressing [E] is crisp & fair!
-        const trainSpeed = nearPlayer ? 12 : 34;
+        const trainSpeed = nearAny ? 12 : 34;
         tr.retargetTimer -= dt;
         const arrived = moveEntityAcrossCabin(
           tr,
@@ -1470,26 +1643,39 @@ window.Duskwood = window.Duskwood || {};
     if (fs.stage === "PLAYING") {
       fs.turnTimer -= dt;
       if (fs.turnTimer <= 0) {
-        // 10 seconds elapsed without inserting the shape -> THE PUPPET CHASES & KILLS THE PLAYER!
         fs.stage = "CHASE";
         fs.puppet.chasing = true;
         App.Audio.hexAlert();
         fs.notice = "TIME'S UP! THE PUPPET IS COMING FOR YOU!";
         fs.noticeTimer = 6.0;
+        if (isMpMode(matchState)) broadcastStateNow(matchState);
+      } else if (isMpMode(matchState)) {
+        fs.syncAccum = (fs.syncAccum || 0) + dt;
+        if (fs.syncAccum >= 0.085) { fs.syncAccum = 0; broadcastStateNow(matchState); }
       }
       return;
     }
 
-    if (App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState)) {
-      return;
-    }
-
     if (fs.stage === "CHASE") {
-      const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
-      // Relentless fast marionette chase across rooms (98 px/s > player sprint!)
-      moveEntityAcrossCabin(fs.puppet, pRoomKey, player.x, player.y, 98, dt, matchState.roomMap);
-      if (fs.puppet.roomKey === pRoomKey && Math.hypot(fs.puppet.x - player.x, fs.puppet.y - player.y) <= 14.0) {
-        triggerFeelingSmallDeath(matchState);
+      // Chase nearest living player across the cabin!
+      let target = null;
+      let bestD = Infinity;
+      living.forEach((lp) => {
+        const d = getRoomGlobalDist(matchState.roomMap, fs.puppet.roomKey, fs.puppet.x, fs.puppet.y, lp.roomKey, lp.x, lp.y);
+        if (d < bestD) { bestD = d; target = lp; }
+      });
+      if (target) {
+        moveEntityAcrossCabin(fs.puppet, target.roomKey, target.x, target.y, 98, dt, matchState.roomMap);
+      }
+      if (isMpMode(matchState)) {
+        fs.syncAccum = (fs.syncAccum || 0) + dt;
+        if (fs.syncAccum >= 0.085) { fs.syncAccum = 0; broadcastStateNow(matchState); }
+      }
+      if (!(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(matchState))) {
+        const pRoomKey = `${matchState.currentRoomCoord.x},${matchState.currentRoomCoord.y}`;
+        if (fs.puppet.roomKey === pRoomKey && Math.hypot(fs.puppet.x - player.x, fs.puppet.y - player.y) <= 14.0) {
+          triggerFeelingSmallDeath(matchState);
+        }
       }
     }
   }
@@ -1808,6 +1994,180 @@ window.Duskwood = window.Duskwood || {};
     return null;
   }
 
+  function broadcastStateNow(matchState) {
+    if (!matchState || !isMpMode(matchState) || !isMpHost(matchState)) return;
+
+    const tm = matchState.tallManEvent;
+    if (tm && tm.active) {
+      App.Network.sendGameAction("MP_STALKER_STATE", {
+        kind: "tall_man",
+        restoringLights: Boolean(tm.restoringLights),
+        litRemaining: tm.litRemaining,
+        totalSwitches: tm.totalSwitches,
+        monster: {
+          roomKey: tm.monster.roomKey,
+          x: Math.round(tm.monster.x * 10) / 10,
+          y: Math.round(tm.monster.y * 10) / 10,
+          facing: tm.monster.facing,
+          state: tm.monster.state
+        },
+        notice: tm.notice || "",
+        noticeTimer: tm.noticeTimer || 0
+      });
+    }
+
+    const rb = matchState.redBalloonsEvent;
+    if (rb && rb.active) {
+      App.Network.sendGameAction("MP_STALKER_STATE", {
+        kind: "red_balloons",
+        redTotal: rb.redTotal,
+        redPopped: rb.redPopped,
+        goldSpawned: Boolean(rb.goldSpawned),
+        crouchGraceTimer: rb.crouchGraceTimer || 0,
+        balloons: rb.balloons.map((b) => ({
+          id: b.id, roomKey: b.roomKey, x: Math.round(b.x * 10) / 10, y: Math.round(b.y * 10) / 10,
+          isGold: Boolean(b.isGold), popped: Boolean(b.popped), phase: b.phase || 0
+        })),
+        clown: {
+          spawned: Boolean(rb.clown.spawned),
+          roomKey: rb.clown.roomKey,
+          x: Math.round(rb.clown.x * 10) / 10,
+          y: Math.round(rb.clown.y * 10) / 10,
+          facing: rb.clown.facing,
+          state: rb.clown.state
+        },
+        notice: rb.notice || "",
+        noticeTimer: rb.noticeTimer || 0
+      });
+    }
+
+    const fs = matchState.feelingSmallEvent;
+    if (fs && fs.active) {
+      App.Network.sendGameAction("MP_STALKER_STATE", {
+        kind: "feeling_small",
+        stage: fs.stage,
+        introTimer: Math.round((fs.introTimer || 0) * 10) / 10,
+        turnOrder: fs.turnOrder.slice(),
+        turnIndex: fs.turnIndex,
+        turnTimer: Math.round((fs.turnTimer || 0) * 10) / 10,
+        placedShapes: fs.placedShapes.slice(),
+        shapes: fs.shapes.map((s) => ({
+          id: s.id, shapeId: s.shapeId, roomKey: s.roomKey,
+          x: Math.round(s.x * 10) / 10, y: Math.round(s.y * 10) / 10,
+          collected: Boolean(s.collected), heldByPlayerId: s.heldByPlayerId || null, delivered: Boolean(s.delivered)
+        })),
+        puppet: {
+          roomKey: fs.puppet.roomKey,
+          x: Math.round(fs.puppet.x * 10) / 10,
+          y: Math.round(fs.puppet.y * 10) / 10,
+          facing: fs.puppet.facing,
+          chasing: Boolean(fs.puppet.chasing)
+        },
+        train: {
+          spawned: Boolean(fs.train.spawned),
+          roomKey: fs.train.roomKey,
+          x: Math.round(fs.train.x * 10) / 10,
+          y: Math.round(fs.train.y * 10) / 10,
+          facing: fs.train.facing
+        },
+        notice: fs.notice || "",
+        noticeTimer: fs.noticeTimer || 0
+      });
+    }
+  }
+
+  function handleNetworkMessage(action, payload, matchState) {
+    if (!matchState || !action) return false;
+    const p = payload || {};
+
+    // Host processes Guest interaction actions!
+    if (action === "MP_STALKER_ACTION") {
+      if (!isMpHost(matchState)) return true;
+      if (p.kind === "red_balloons" && p.action === "pop") {
+        popBalloon(matchState, p.balloonId, true);
+        return true;
+      }
+      if (p.kind === "feeling_small") {
+        executeFeelingSmallActionOnHost(matchState, p.playerId, p.roomKey || "0,0", p.x || 104, p.y || 126, p.action, p.shapeItemId);
+        return true;
+      }
+      return true;
+    }
+
+    // Guest applies Host authoritative snapshots!
+    if (action === "MP_STALKER_STATE") {
+      if (!isMpGuest(matchState)) return true;
+
+      if (p.kind === "tall_man") {
+        if (!matchState.tallManEvent) startTallManEvent(matchState);
+        const tm = matchState.tallManEvent;
+        if (!tm) return true;
+        tm.restoringLights = Boolean(p.restoringLights);
+        tm.litRemaining = typeof p.litRemaining === "number" ? p.litRemaining : tm.litRemaining;
+        tm.totalSwitches = typeof p.totalSwitches === "number" ? p.totalSwitches : tm.totalSwitches;
+        if (p.monster) Object.assign(tm.monster, p.monster);
+        if (p.notice) { tm.notice = p.notice; tm.noticeTimer = p.noticeTimer || 2.5; }
+        return true;
+      }
+
+      if (p.kind === "red_balloons") {
+        if (!matchState.redBalloonsEvent) startRedBalloonsEvent(matchState);
+        const rb = matchState.redBalloonsEvent;
+        if (!rb) return true;
+        const prevPoppedIds = new Set(rb.balloons.filter((b) => b.popped).map((b) => b.id));
+        const wasGold = rb.goldSpawned;
+        const wasClown = rb.clown.spawned;
+        rb.redTotal = p.redTotal;
+        rb.redPopped = p.redPopped;
+        rb.goldSpawned = Boolean(p.goldSpawned);
+        rb.crouchGraceTimer = p.crouchGraceTimer || 0;
+        if (Array.isArray(p.balloons)) {
+          p.balloons.forEach((nb) => {
+            if (nb.popped && !prevPoppedIds.has(nb.id)) {
+              if (App.Audio && App.Audio.balloonPop) App.Audio.balloonPop(nb.isGold);
+              rb.popBursts.push({ roomKey: nb.roomKey, x: nb.x, y: nb.y - 16, isGold: nb.isGold, age: 0, maxAge: 0.48 });
+            }
+          });
+          rb.balloons = p.balloons.map((b) => Object.assign({}, b));
+        }
+        if (rb.goldSpawned && !wasGold) App.Audio.clockChime();
+        if (p.clown) {
+          Object.assign(rb.clown, p.clown);
+          if (rb.clown.spawned && !wasClown) App.Audio.hexAlert();
+        }
+        if (p.notice) { rb.notice = p.notice; rb.noticeTimer = p.noticeTimer || 2.5; }
+        return true;
+      }
+
+      if (p.kind === "feeling_small") {
+        if (!matchState.feelingSmallEvent) startFeelingSmallEvent(matchState);
+        const fs = matchState.feelingSmallEvent;
+        if (!fs) return true;
+        const prevStage = fs.stage;
+        const prevTurn = fs.turnIndex;
+        fs.stage = p.stage;
+        fs.introTimer = p.introTimer;
+        if (Array.isArray(p.turnOrder)) fs.turnOrder = p.turnOrder.slice();
+        fs.turnIndex = p.turnIndex;
+        fs.turnTimer = p.turnTimer;
+        if (Array.isArray(p.placedShapes)) fs.placedShapes = p.placedShapes.slice();
+        if (Array.isArray(p.shapes)) {
+          fs.shapes = p.shapes.map((s) => Object.assign({}, s));
+          const mine = fs.shapes.find((s) => s.heldByPlayerId === getLocalPid() && !s.delivered);
+          fs.heldShape = mine ? { id: mine.id, shapeId: mine.shapeId } : null;
+        }
+        if (p.puppet) Object.assign(fs.puppet, p.puppet);
+        if (p.train) Object.assign(fs.train, p.train);
+        if (p.notice) { fs.notice = p.notice; fs.noticeTimer = p.noticeTimer || 2.5; }
+        if (prevStage === "FLICKER_INTRO" && fs.stage === "PLAYING") App.Audio.clockChime();
+        if (prevStage !== "CHASE" && fs.stage === "CHASE") App.Audio.hexAlert();
+        if (fs.turnIndex > prevTurn && App.Audio && App.Audio.shapeInsert) App.Audio.shapeInsert(false);
+        return true;
+      }
+    }
+    return false;
+  }
+
   function cleanup(matchState) {
     if (App.Audio && App.Audio.stopClownLaughLoop) App.Audio.stopClownLaughLoop();
     if (App.Audio && App.Audio.stopBalloonsSfxLoop) App.Audio.stopBalloonsSfxLoop();
@@ -1838,6 +2198,8 @@ window.Duskwood = window.Duskwood || {};
     isFeelingSmallActive,
     isAnyStalkerActive,
     getHudSummary,
+    broadcastStateNow,
+    handleNetworkMessage,
     cleanup
   };
 })(window.Duskwood);
