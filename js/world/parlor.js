@@ -72,9 +72,9 @@ window.Duskwood = window.Duskwood || {};
     },
     {
       id: "dining_light_switch",
-      x: 50, y: 58, r: 22,
+      x: 142, y: 58, r: 18,
       type: "light_switch",
-      swX: 48, swY: 36,
+      swX: 140, swY: 40,
       prompt: "[E] TURN LIGHT OFF"
     }
   ];
@@ -462,9 +462,10 @@ window.Duskwood = window.Duskwood || {};
     c.ellipse(cx, cy, gInnerRx, gInnerRy, 0, 0, Math.PI * 2);
     c.stroke();
 
-    // 12 warm ivory carved hour notches (XII at 6 o'clock, advancing clockwise)
+    // 12 warm ivory carved hour notches (XII anchored at Seat 1's West chair in MP, 6 o'clock in SP)
+    const seat1ClockOff = (matchState && matchState.mode === "MULTIPLAYER") ? (Math.PI / 2) : 0;
     for (let i = 0; i < 12; i++) {
-      const ang = Math.PI / 2 + (i * Math.PI * 2) / 12;
+      const ang = Math.PI / 2 + seat1ClockOff + (i * Math.PI * 2) / 12;
       const mx = Math.round(cx + Math.cos(ang) * gMidRx);
       const my = Math.round(cy + Math.sin(ang) * gMidRy);
       px(c, mx, my, 1, 1, i === 0 ? "#fae6b4" : "#d4ba88");
@@ -529,10 +530,10 @@ window.Duskwood = window.Duskwood || {};
     px(c, pedX + 1, pedY + 6, 6, 2, "#ebdcc0");
     px(c, pedX + 2, pedY + 6, 4, 1, "#fff6de");
 
-    // 8. Upright Physical Pawns inside the carved clock groove (exact 720-min sync)
+    // 8. Upright Physical Pawns inside the carved clock groove (exact 720-min sync from Seat 1's XII!)
     if (!matchState || matchState.tableIntroDone) {
       const pFrac = matchState ? ((matchState.clockMinutes || 0) % 720) / 720 : 0;
-      const lAng = Math.PI / 2 + pFrac * Math.PI * 2;
+      const lAng = Math.PI / 2 + seat1ClockOff + pFrac * Math.PI * 2;
       const lx = Math.round(cx + Math.cos(lAng) * gMidRx);
       const ly = Math.round(cy + Math.sin(lAng) * gMidRy);
       px(c, lx - 1, ly - 4, 3, 5, "#241914");
@@ -542,7 +543,7 @@ window.Duskwood = window.Duskwood || {};
 
     if (matchState && matchState.harvesterSpawned) {
       const hFrac = ((matchState.harvesterMinutes || 0) % 720) / 720;
-      const hAng = Math.PI / 2 + hFrac * Math.PI * 2;
+      const hAng = Math.PI / 2 + seat1ClockOff + hFrac * Math.PI * 2;
       const hx = Math.round(cx + Math.cos(hAng) * gMidRx);
       const hy = Math.round(cy + Math.sin(hAng) * gMidRy);
       px(c, hx - 1, hy - 5, 3, 6, "#110d14");
@@ -894,8 +895,8 @@ window.Duskwood = window.Duskwood || {};
     const isDawn = App.Endgame && App.Endgame.isDaylightWinMode && App.Endgame.isDaylightWinMode(matchState);
     const diningSwitchOn = isDawn || (!thiefActive && !globalBlackout && !diningShattered && !(matchState && matchState.roomLightStates && matchState.roomLightStates["0,0"] === false));
 
-    // Draw live Dining Room wall light switch next to fireplace (48, 36)
-    drawDiningLightSwitch(ctx, 48, 36, diningSwitchOn);
+    // Draw live Dining Room wall light switch on clear North wainscoting below right window (140, 40)
+    drawDiningLightSwitch(ctx, 140, 40, diningSwitchOn);
 
     if (isDawn) {
       // Bright warm morning sunlight filling The Dining Room!
@@ -966,11 +967,11 @@ window.Duskwood = window.Duskwood || {};
       }
 
       // Faint switch pinpoint so player can locate the Dining Room light switch in the dark
-      const sg = pmctx.createRadialGradient(50, 39, 1, 50, 39, 14);
+      const sg = pmctx.createRadialGradient(142, 43, 1, 142, 43, 14);
       sg.addColorStop(0, "rgba(0,0,0,0.68)");
       sg.addColorStop(1, "rgba(0,0,0,0)");
       pmctx.fillStyle = sg;
-      pmctx.fillRect(36, 25, 28, 28);
+      pmctx.fillRect(128, 29, 28, 28);
 
       if (App.Clues && App.Clues.getClueLightPoints) {
         App.Clues.getClueLightPoints(diningObj, matchState).forEach((cl) => {
@@ -985,7 +986,7 @@ window.Duskwood = window.Duskwood || {};
       ctx.drawImage(parlorMask, 0, 0);
 
       // Tiny warm switch locator dot + hanging bulb cord (broken & sparking if shattered!)
-      px(ctx, 50, 41, 1, 1, "#ffdb8c");
+      px(ctx, 142, 45, 1, 1, "#ffdb8c");
       const swayX = Math.sin(timeSec * (diningShattered ? 6.5 : 1.15)) * (diningShattered ? 2.2 : 0.8);
       const bulbX = TABLE.cx + swayX;
       ctx.fillStyle = "#121116";

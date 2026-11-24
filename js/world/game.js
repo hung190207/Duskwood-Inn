@@ -1041,6 +1041,7 @@ window.Duskwood = window.Duskwood || {};
       inCar: localInCar,
       inAttic: inAtticNow,
       inBasement: inBasementNow,
+      holdingPopcorn: Boolean(gameState.musicalEvent && gameState.musicalEvent.active && gameState.musicalEvent.holdingPopcornId),
       deadInEvent: localDeadEvent,
       deadSpectator: localDeadSpec
     }, Boolean(forceNow));
@@ -1262,35 +1263,47 @@ window.Duskwood = window.Duskwood || {};
         }
       }
 
+      let bestDin = null;
+      let bestDinDist = Infinity;
       for (const item of App.GameRoom.INTERACTABLES) {
         const dist = Math.hypot(player.x - item.x, player.y - item.y);
-        if (dist <= item.r) {
-          let label = item.prompt;
-          if (item.type === "light_switch") {
-            const isOn = !(gameState.roomLightStates && gameState.roomLightStates["0,0"] === false);
-            label = isOn ? "[E] TURN LIGHT OFF" : "[E] TURN LIGHT ON";
-          }
-          return { type: "prop", item, prompt: label };
+        if (dist <= item.r && dist < bestDinDist) {
+          bestDinDist = dist;
+          bestDin = item;
         }
+      }
+      if (bestDin) {
+        let label = bestDin.prompt;
+        if (bestDin.type === "light_switch") {
+          const isOn = !(gameState.roomLightStates && gameState.roomLightStates["0,0"] === false);
+          label = isOn ? "[E] TURN LIGHT OFF" : "[E] TURN LIGHT ON";
+        }
+        return { type: "prop", item: bestDin, prompt: label };
       }
       return null;
     }
 
-    // 3. Current non-Dining room interactables (Portraits & Light Switches)
+    // 3. Current non-Dining room interactables (Portraits & Light Switches — always pick closest!)
     const curRoom = getCurrentRoomObj();
     if (curRoom && App.CabinRooms) {
       const rData = App.CabinRooms.getRoomData(curRoom, gameState.roomMap);
+      let bestItem = null;
+      let bestDist = Infinity;
       for (const item of rData.interactables || []) {
         const dist = Math.hypot(player.x - item.x, player.y - item.y);
-        if (dist <= item.r) {
-          let label = item.prompt;
-          if (item.type === "light_switch") {
-            const rk = `${curRoom.x},${curRoom.y}`;
-            const isOn = !(gameState.roomLightStates && gameState.roomLightStates[rk] === false);
-            label = isOn ? "[E] TURN LIGHT OFF" : "[E] TURN LIGHT ON";
-          }
-          return { type: "prop", item, prompt: label };
+        if (dist <= item.r && dist < bestDist) {
+          bestDist = dist;
+          bestItem = item;
         }
+      }
+      if (bestItem) {
+        let label = bestItem.prompt;
+        if (bestItem.type === "light_switch") {
+          const rk = `${curRoom.x},${curRoom.y}`;
+          const isOn = !(gameState.roomLightStates && gameState.roomLightStates[rk] === false);
+          label = isOn ? "[E] TURN LIGHT OFF" : "[E] TURN LIGHT ON";
+        }
+        return { type: "prop", item: bestItem, prompt: label };
       }
     }
     return null;
@@ -1767,7 +1780,8 @@ window.Duskwood = window.Duskwood || {};
         sprinting: Boolean(specTarget.sprinting),
         crouching: Boolean(specTarget.crouching),
         lanternOn: Boolean(specTarget.lanternOn),
-        facingCorner: Boolean(specTarget.facingCorner)
+        facingCorner: Boolean(specTarget.facingCorner),
+        holdingPopcorn: Boolean(specTarget.holdingPopcorn)
       };
       if (specTarget.inAttic && App.Attic && App.Attic.renderViewport) {
         const cam = App.Attic.renderViewport(rbCtx, timeSec, specProxy, specTarget.character, gameState);
@@ -1846,6 +1860,7 @@ window.Duskwood = window.Duskwood || {};
         inCar: localInCar,
         inAttic: inAtticNow,
         inBasement: inBasementNow,
+        holdingPopcorn: Boolean(gameState.musicalEvent && gameState.musicalEvent.active && gameState.musicalEvent.holdingPopcornId),
         deadInEvent: localDeadEvent,
         deadSpectator: localDeadSpec
       });
@@ -2387,16 +2402,16 @@ window.Duskwood = window.Duskwood || {};
       } else if (act === "cc-stay-corner") {
         if (App.Events) App.Events.submitCuttingCornersChoice(gameState, player, false);
       } else if (act === "retry-endgame") {
-        if (App.Endgame) App.Endgame.cleanup(gameState);
-        if (gameState.mode === "MULTIPLAYER" && App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch()) {
-          if (App.Network.isHost && App.Network.isHost()) {
-            App.Network.startMatch();
-          } else {
-            exitToLobby();
-          }
-        } else {
-          startSingleplayer();
+        if (
+          gameState.mode === "MULTIPLAYER" &&
+          App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() &&
+          App.Endgame && App.Endgame.voteTryAgain
+        ) {
+          App.Endgame.voteTryAgain(gameState);
+          return;
         }
+        if (App.Endgame) App.Endgame.cleanup(gameState);
+        startSingleplayer();
       } else if (act === "close-breaker-modal") {
         if (App.Basement) App.Basement.closeBreakerModal(gameState, false);
         syncHud();
@@ -2408,6 +2423,9 @@ window.Duskwood = window.Duskwood || {};
       } else if (act === "thief-stand-close") {
         if (App.Thief) App.Thief.closeStandModal(false);
       } else if (act === "exit-to-lobby") {
+        if (App.Endgame && App.Endgame.isRematchVotingActive && App.Endgame.isRematchVotingActive(gameState)) {
+          if (App.Endgame.voteReturnToLobby(gameState)) return;
+        }
         exitToLobby();
       }
     });
@@ -2469,6 +2487,18 @@ window.Duskwood = window.Duskwood || {};
         appendIngameChatMessage(entry);
       });
 
+      App.Network.on("playerLeft", (info) => {
+        if (!active || !info || !info.playerId) return;
+        if (App.Endgame && App.Endgame.onRematchPlayerLeft) {
+          App.Endgame.onRematchPlayerLeft(info.playerId, gameState);
+        }
+      });
+      App.Network.on("rematchPeerJoined", (info) => {
+        if (!active || !info || !info.playerId) return;
+        if (App.Endgame && App.Endgame.onRematchPeerJoined) {
+          App.Endgame.onRematchPeerJoined(info.playerId, gameState);
+        }
+      });
       App.Network.on("gameMessage", (msg) => {
         if (!active || !msg || !msg.action) return;
         const p = msg.payload || {};
@@ -2556,6 +2586,7 @@ window.Duskwood = window.Duskwood || {};
           msg.action.startsWith("MP_ENDGAME_") ||
           msg.action.startsWith("MP_CAR_") ||
           msg.action.startsWith("MP_FOREST_") ||
+          msg.action.startsWith("MP_REMATCH_") ||
           msg.action === "MP_HARVESTER_LOSE"
         ) {
           if (App.Endgame && App.Endgame.handleNetworkMessage) {

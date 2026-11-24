@@ -718,16 +718,29 @@ window.Duskwood = window.Duskwood || {};
     px(ctx, CX - 3, CY - 10, 2, 2, "#8cffbe");
     px(ctx, CX + 2, CY - 10, 2, 2, "#ff8c94");
 
+    const drawMiniHeldCard = (pxPos, pyPos, facingDir, cardObj) => {
+      const hx = Math.round(pxPos + (facingDir || 1) * 7);
+      const hy = Math.round(pyPos - 10);
+      px(ctx, hx - 3, hy - 4, 7, 9, "#1c120a");
+      px(ctx, hx - 2, hy - 3, 5, 7, "#f5ecd4");
+      px(ctx, hx - 1, hy - 2, 3, 2, cardObj.polarity === "negative" ? "#9e1c24" : "#26733f");
+    };
+
+    // Draw held Gacha card for ALL remote teammates in The Dining Room!
+    if (th.stage === "PICK_AND_PLACE" && App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && App.Network.getRemotePlayersInRoom) {
+      App.Network.getRemotePlayersInRoom(0, 0).forEach((rp) => {
+        if (!rp || rp.deadSpectator || rp.deadInEvent || rp.inAttic || rp.inBasement) return;
+        const rCard = th.playerHoldingCard[rp.playerId];
+        if (rCard) drawMiniHeldCard(rp.x, rp.y, rp.facing, rCard);
+      });
+    }
+
     // If local player is holding a picked Gacha card: draw mini card next to player & highlight empty wheel slots!
     const localPid = getLocalPid();
     const heldCard = th.playerHoldingCard[localPid];
     if (heldCard && th.stage === "PICK_AND_PLACE") {
       if (player) {
-        const hx = Math.round(player.x + player.facing * 7);
-        const hy = Math.round(player.y - 10);
-        px(ctx, hx - 3, hy - 4, 7, 9, "#1c120a");
-        px(ctx, hx - 2, hy - 3, 5, 7, "#f5ecd4");
-        px(ctx, hx - 1, hy - 2, 3, 2, heldCard.polarity === "negative" ? "#9e1c24" : "#26733f");
+        drawMiniHeldCard(player.x, player.y, player.facing, heldCard);
       }
 
       // Highlight the 4 empty colored placement spots around the wheel so player sees where to press [E]!

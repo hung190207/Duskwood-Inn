@@ -45,6 +45,8 @@ window.Duskwood = window.Duskwood || {};
   let canvas = null;
   let ctx = null;
   let staticTableCanvas = null;
+  let clockDialCanvas = null;
+  let clockDialCachedOffset = null;
   let outerRimRingCanvas = null;
 
   function createRng(seed) {
@@ -213,66 +215,8 @@ window.Duskwood = window.Duskwood || {};
     strokePixelEllipse(c, g.cx, g.cy, g.grooveInnerRx + 1, g.grooveInnerRy + 1, "#2b190e", 2);
     strokePixelEllipse(c, g.cx, g.cy, g.grooveInnerRx - 1, g.grooveInnerRy - 1, "#8c6543", 1);
 
-    // 7. Etched 12-Hour Clock Groove divided into 48 exact 15-minute notches (720 min total)
-    //    Each hour (60m) has its Roman numeral + 3 radial carved ticks (:15, :30, :45)
-    const ROMAN = ["XII", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI"];
-    c.font = "700 7px 'Pixelify Sans', monospace";
-    c.textAlign = "center";
-    c.textBaseline = "middle";
-
-    for (let i = 0; i < 48; i++) {
-      const ang = Math.PI / 2 + (i * Math.PI * 2) / 48;
-      const cosA = Math.cos(ang);
-      const sinA = Math.sin(ang);
-      const mx = g.cx + cosA * g.grooveMidRx;
-      const my = g.cy + sinA * g.grooveMidRy;
-
-      // Outward normal direction of the ellipse at angle ang
-      const nxRaw = cosA / g.grooveMidRx;
-      const nyRaw = sinA / g.grooveMidRy;
-      const nLen = Math.hypot(nxRaw, nyRaw) || 1;
-      const nx = nxRaw / nLen;
-      const ny = nyRaw / nLen;
-
-      if (i % 4 === 0) {
-        // Full Hour Mark (:00) — Carved Roman Numeral + outer/inner alignment pin
-        const num = ROMAN[i / 4];
-        c.fillStyle = "#24140a";
-        c.fillText(num, Math.round(mx) + 1, Math.round(my) + 1);
-        c.fillStyle = i === 0 ? "#fae6b4" : "#e3cb9b";
-        c.fillText(num, Math.round(mx), Math.round(my));
-
-        // Tiny crisp indicator notch on the outer groove lip for exact hour alignment
-        const ox = Math.round(g.cx + cosA * (g.grooveOuterRx - 2));
-        const oy = Math.round(g.cy + sinA * (g.grooveOuterRy - 2));
-        px(c, ox, oy, 1, 1, "#e3cb9b");
-      } else {
-        // Quarter-hour (:15 / :45) & Half-hour (:30) radial carved tick lines inside groove
-        const isHalfHour = i % 4 === 2;
-        const halfSpan = isHalfHour ? 3.2 : 2.0;
-        const x1 = mx - nx * halfSpan;
-        const y1 = my - ny * halfSpan;
-        const x2 = mx + nx * halfSpan;
-        const y2 = my + ny * halfSpan;
-
-        // Carved dark groove shadow + warm ivory highlight stroke
-        c.save();
-        c.lineWidth = isHalfHour ? 1.5 : 1.1;
-        c.strokeStyle = "#26150b";
-        c.beginPath();
-        c.moveTo(x1 + 0.8, y1 + 0.8);
-        c.lineTo(x2 + 0.8, y2 + 0.8);
-        c.stroke();
-
-        c.strokeStyle = isHalfHour ? "#dec796" : "#b89d6d";
-        c.beginPath();
-        c.moveTo(x1, y1);
-        c.lineTo(x2, y2);
-        c.stroke();
-        c.restore();
-      }
-    }
-
+    // 7. Etched 12-Hour Clock Groove markings are rendered via buildClockDialSprite(clockOff)
+    //    so XII is ALWAYS anchored in front of Seat 1 across every Multiplayer seat POV!
     c.restore();
 
     c.save();
@@ -366,11 +310,83 @@ window.Duskwood = window.Duskwood || {};
     rc.stroke();
   }
 
-  // Exact (x, y) position in carved groove from continuous minutes (0 = XII, 720 = full 12h lap back to XII)
-  function getGroovePointFromMinutes(minutes) {
+  // Cached 12-Hour Roman numeral & 48-notch clock dial aligned to Seat 1's perspective offset!
+  function ensureClockDialSprite(clockOff) {
+    const normOff = (((clockOff || 0) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const key = Math.round(normOff * 1000);
+    if (clockDialCanvas && clockDialCachedOffset === key) return clockDialCanvas;
+
+    clockDialCachedOffset = key;
+    if (!clockDialCanvas) {
+      clockDialCanvas = document.createElement("canvas");
+      clockDialCanvas.width = W;
+      clockDialCanvas.height = H;
+    }
+    const c = clockDialCanvas.getContext("2d");
+    c.imageSmoothingEnabled = false;
+    c.clearRect(0, 0, W, H);
+
+    const g = TABLE_GEO;
+    const ROMAN = ["XII", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI"];
+    c.font = "700 7px 'Pixelify Sans', monospace";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+
+    for (let i = 0; i < 48; i++) {
+      const ang = Math.PI / 2 + normOff + (i * Math.PI * 2) / 48;
+      const cosA = Math.cos(ang);
+      const sinA = Math.sin(ang);
+      const mx = g.cx + cosA * g.grooveMidRx;
+      const my = g.cy + sinA * g.grooveMidRy;
+
+      const nxRaw = cosA / g.grooveMidRx;
+      const nyRaw = sinA / g.grooveMidRy;
+      const nLen = Math.hypot(nxRaw, nyRaw) || 1;
+      const nx = nxRaw / nLen;
+      const ny = nyRaw / nLen;
+
+      if (i % 4 === 0) {
+        const num = ROMAN[i / 4];
+        c.fillStyle = "#24140a";
+        c.fillText(num, Math.round(mx) + 1, Math.round(my) + 1);
+        c.fillStyle = i === 0 ? "#fae6b4" : "#e3cb9b";
+        c.fillText(num, Math.round(mx), Math.round(my));
+
+        const ox = Math.round(g.cx + cosA * (g.grooveOuterRx - 2));
+        const oy = Math.round(g.cy + sinA * (g.grooveOuterRy - 2));
+        px(c, ox, oy, 1, 1, "#e3cb9b");
+      } else {
+        const isHalfHour = i % 4 === 2;
+        const halfSpan = isHalfHour ? 3.2 : 2.0;
+        const x1 = mx - nx * halfSpan;
+        const y1 = my - ny * halfSpan;
+        const x2 = mx + nx * halfSpan;
+        const y2 = my + ny * halfSpan;
+
+        c.save();
+        c.lineWidth = isHalfHour ? 1.5 : 1.1;
+        c.strokeStyle = "#26150b";
+        c.beginPath();
+        c.moveTo(x1 + 0.8, y1 + 0.8);
+        c.lineTo(x2 + 0.8, y2 + 0.8);
+        c.stroke();
+
+        c.strokeStyle = isHalfHour ? "#dec796" : "#b89d6d";
+        c.beginPath();
+        c.moveTo(x1, y1);
+        c.lineTo(x2, y2);
+        c.stroke();
+        c.restore();
+      }
+    }
+    return clockDialCanvas;
+  }
+
+  // Exact (x, y) position in carved groove from continuous minutes (0 = XII anchored in front of Seat 1!)
+  function getGroovePointFromMinutes(minutes, clockOff) {
     const g = TABLE_GEO;
     const norm = (((minutes % 720) + 720) % 720) / 720;
-    const ang = Math.PI / 2 + norm * Math.PI * 2;
+    const ang = Math.PI / 2 + (clockOff || 0) + norm * Math.PI * 2;
     return {
       x: g.cx + Math.cos(ang) * g.grooveMidRx,
       y: g.cy + Math.sin(ang) * g.grooveMidRy,
@@ -378,9 +394,9 @@ window.Duskwood = window.Duskwood || {};
     };
   }
 
-  // Subtle trembling shadow fissure at XII while Harvester countdown (3 -> 1 turns) ticks down
-  function drawDormantFissureAtSpawn(c, timeSec, turnsLeft) {
-    const pt = getGroovePointFromMinutes(0);
+  // Subtle trembling shadow fissure at XII (in front of Seat 1) while Harvester countdown ticks down
+  function drawDormantFissureAtSpawn(c, timeSec, turnsLeft, clockOff) {
+    const pt = getGroovePointFromMinutes(0, clockOff);
     const x = Math.round(pt.x);
     const y = Math.round(pt.y);
     const urgency = (4 - turnsLeft) / 3; // 0.33 -> 0.66 -> 1.0
@@ -521,6 +537,10 @@ window.Duskwood = window.Duskwood || {};
 
     ctx.drawImage(staticTableCanvas, 0, 0);
 
+    // Draw Seat-1-anchored 12-hour Roman clock dial (XII always in front of Seat 1 for EVERY player's POV!)
+    const clockOff = animState ? (animState.clockPerspectiveOffset || 0) : 0;
+    ctx.drawImage(ensureClockDialSprite(clockOff), 0, 0);
+
     // Physically rotate the 3D pixel-art outer wooden table rim ring (annulus outside the clock groove)!
     const rimOff = animState ? (animState.rimAngleOffset || 0) : 0;
     const g = TABLE_GEO;
@@ -571,7 +591,7 @@ window.Duskwood = window.Duskwood || {};
       !matchState.harvesterSpawned &&
       matchState.harvesterDelayTurns > 0
     ) {
-      drawDormantFissureAtSpawn(ctx, timeSec, matchState.harvesterDelayTurns);
+      drawDormantFissureAtSpawn(ctx, timeSec, matchState.harvesterDelayTurns, clockOff);
     }
 
     const pRise = animState ? animState.playerRise : 1;
@@ -579,8 +599,8 @@ window.Duskwood = window.Duskwood || {};
     const hRise = animState ? animState.harvesterRise : 0;
     const hMin = animState ? animState.visualHarvesterMinutes : 0;
 
-    const pPt = getGroovePointFromMinutes(pMin);
-    const hPt = getGroovePointFromMinutes(hMin);
+    const pPt = getGroovePointFromMinutes(pMin, clockOff);
+    const hPt = getGroovePointFromMinutes(hMin, clockOff);
 
     const harvVisible = hRise > 0.001;
     const rawDelta = Math.abs((pMin % 720) - (hMin % 720));
@@ -784,12 +804,21 @@ window.Duskwood = window.Duskwood || {};
     return getWorldAngleForSeatId(getLocalSeatId());
   }
 
+  function getSeat1ClockPerspectiveOffset() {
+    if (!isMultiplayerCoop()) return 0;
+    const seats = getActiveSeats();
+    const seat1World = getWorldAngleForSeatId(seats[0] || 0);
+    return normalizeAngle(seat1World - getMyWorldSeatAngle());
+  }
+
   function syncDisplayRimAngleFromWorld() {
     const worldA = normalizeAngle(anim.worldRimAngle || 0);
     if (isMultiplayerCoop()) {
       anim.rimAngleOffset = normalizeAngle(worldA - getMyWorldSeatAngle());
+      anim.clockPerspectiveOffset = getSeat1ClockPerspectiveOffset();
     } else {
       anim.rimAngleOffset = anim.worldRimAngle || 0;
+      anim.clockPerspectiveOffset = 0;
     }
     if (matchStateRef) {
       matchStateRef.rimAngleOffset = worldA;
@@ -848,9 +877,10 @@ window.Duskwood = window.Duskwood || {};
     // Sequential Turn Animation Queue (Slow Notch-by-Notch Pawn Glides -> Deal -> Rim Turn)
     stepQueue: [],
     activeStep: null,
-    // Outer Rim Turntable Rotation (worldRimAngle = canonical world angle; rimAngleOffset = local POV angle)
+    // Outer Rim Turntable Rotation & Seat-1-anchored Clock Perspective Offset
     worldRimAngle: 0,
     rimAngleOffset: 0,
+    clockPerspectiveOffset: 0,
     rimRotating: false,
     rimPausedBySeat: false,
     rimElapsed: 0,
@@ -1188,6 +1218,7 @@ window.Duskwood = window.Duskwood || {};
     matchStateRef.persistentEventProps = {};
     anim.worldRimAngle = 0;
     anim.rimAngleOffset = 0;
+    anim.clockPerspectiveOffset = 0;
     anim.rimRotating = false;
     anim.rimPausedBySeat = false;
     anim.rimElapsed = 0;
@@ -2058,6 +2089,15 @@ window.Duskwood = window.Duskwood || {};
     if (harvBtn) {
       const showHarvBtn = !locked && phase === "TURN_2_HARVESTER" && turnStep === 2;
       harvBtn.classList.toggle("hidden", !showHarvBtn);
+      if (showHarvBtn) {
+        const g = App.TableCanvas.GEO;
+        const cOff = anim.clockPerspectiveOffset || 0;
+        const xiiAng = Math.PI / 2 + cOff;
+        const hxPct = ((g.cx + Math.cos(xiiAng) * (g.grooveInnerRx - 6)) / g.W) * 100;
+        const hyPct = ((g.cy + Math.sin(xiiAng) * (g.grooveInnerRy - 4)) / g.H) * 100;
+        harvBtn.style.left = `${hxPct.toFixed(2)}%`;
+        harvBtn.style.top = `${hyPct.toFixed(2)}%`;
+      }
     }
     updateRimElementsPosition();
   }
@@ -2469,6 +2509,7 @@ window.Duskwood = window.Duskwood || {};
     turnStep = 1;
 
     if (App.Audio.warmUpDrawCard) App.Audio.warmUpDrawCard();
+    if (App.Audio.warmUpEventAudio) App.Audio.warmUpEventAudio();
     triggerArchitectureFlicker();
     App.Audio.cardPlay();
 
@@ -4703,6 +4744,8 @@ window.Duskwood = window.Duskwood || {};
     onStandUpCallback = onStandUp;
     onStateChangeCallback = onStateChange;
     isOpen = true;
+    syncDisplayRimAngleFromWorld();
+    if (App.Audio && App.Audio.warmUpEventAudio) App.Audio.warmUpEventAudio();
 
     document.getElementById("table-fp-stage")?.classList.remove("hidden");
     document.getElementById("game-hud")?.classList.add("hidden");
@@ -4826,7 +4869,7 @@ window.Duskwood = window.Duskwood || {};
       App.Network.sendGameActionTo(targetPlayerId, "MP_FULL_STATE_SYNC", snap);
       return;
     }
-    const sig = `${snap.setupPhase}|${snap.turnCount}|${snap.activeSeatIdx}|${snap.clockMinutes}|${snap.harvesterMinutes}|${snap.roomsBuilt}|${snap.activeOmenId || ""}|${snap.candleTrayIds.join(",")}|${snap.rimPlayedCardIds.length}|${snap.activeEventKey || ""}|${snap.mpEventLockActive ? 1 : 0}|${snap.mpEventDeadIds.join(",")}|${snap.clueManifest ? (snap.clueManifest.fakeChickenHeadless ? "1:" : "0:") + JSON.stringify(snap.clueManifest.entries.map((e) => [e.roomId, e.revealed])) : ""}`;
+    const sig = `${snap.setupPhase}|${snap.turnCount}|${snap.activeSeatIdx}|${snap.clockMinutes}|${snap.harvesterMinutes}|${snap.roomsBuilt}|${snap.activeOmenId || ""}|${snap.candleTrayIds.join(",")}|${snap.rimPlayedCardIds.length}|${snap.activeEventKey || ""}|${snap.mpEventLockActive ? 1 : 0}|${snap.mpEventDeadIds.join(",")}|${JSON.stringify(snap.roomLightStates || {})}|${snap.clueManifest ? (snap.clueManifest.fakeChickenHeadless ? "1:" : "0:") + JSON.stringify(snap.clueManifest.entries.map((e) => [e.roomId, e.revealed])) : ""}`;
     if (!forceSend && sig === mpLastFullSyncHash) return;
     mpLastFullSyncHash = sig;
     App.Network.sendGameAction("MP_FULL_STATE_SYNC", snap);
@@ -5134,6 +5177,7 @@ window.Duskwood = window.Duskwood || {};
         if (typeof p.graveyardWipeDrawCount === "number") {
           matchStateRef.graveyardWipeDrawCount = Math.max(matchStateRef.graveyardWipeDrawCount || 0, p.graveyardWipeDrawCount);
         }
+        App.Audio.cardDraw();
         if (App.Audio.playEventDraw) App.Audio.playEventDraw();
         if (App.Events) App.Events.onEventCardDrawn(card, matchStateRef);
         if (card.id === "hx_corners" && App.Network && App.Network.isHost() && App.Events && App.Events.broadcastCuttingCornersNow) {
@@ -5309,6 +5353,7 @@ window.Duskwood = window.Duskwood || {};
 
   function renderFrame(timeSec, dt) {
     if (!isOpen) return;
+    anim.clockPerspectiveOffset = getSeat1ClockPerspectiveOffset();
     updateAnimations(dt || 0.016);
     App.TableCanvas.render(timeSec, matchStateRef, anim);
 

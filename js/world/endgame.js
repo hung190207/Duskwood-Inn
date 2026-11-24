@@ -746,6 +746,7 @@ window.Duskwood = window.Duskwood || {};
       truthEl.textContent = `THE TRUE EXIT ROOM WAS: ${trueObj ? trueObj.name : "UNKNOWN"}`;
     }
     if (stageEl) stageEl.classList.remove("hidden");
+    initRematchVoteState(matchState);
 
     App.Audio.hexAlert();
     if (App.Audio && App.Audio.startGameOverBgm) App.Audio.startGameOverBgm();
@@ -1286,6 +1287,7 @@ window.Duskwood = window.Duskwood || {};
       turnsEl.textContent = `${matchState.turnCount || 0} TURNS SURVIVED`;
     }
     if (modal) modal.classList.remove("hidden");
+    initRematchVoteState(matchState);
     App.Audio.clockChime();
   }
 
@@ -1565,6 +1567,7 @@ window.Duskwood = window.Duskwood || {};
       if (!eg.losePanelShown && eg.cutsceneElapsed >= 7.6) {
         eg.losePanelShown = true;
         document.getElementById("endgame-lose-overlay")?.classList.remove("hidden");
+        syncRematchUI(matchState);
       }
       return;
     }
@@ -1646,6 +1649,308 @@ window.Duskwood = window.Duskwood || {};
     return null;
   }
 
+  // ==================== 6b. MULTIPLAYER TRY AGAIN (0/N) VOTING & HOST MIGRATION ====================
+  let rematchMigrateLaunchTimer = null;
+
+  function randomRematchCode() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    let code = "";
+    for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    return code;
+  }
+
+  function initRematchVoteState(matchState) {
+    const eg = matchState && matchState.endgame;
+    if (!eg) return;
+    clearTimeout(rematchMigrateLaunchTimer);
+    rematchMigrateLaunchTimer = null;
+
+    if (!isMultiplayerMatch(matchState)) {
+      eg.rematch = null;
+      syncRematchUI(matchState);
+      return;
+    }
+
+    const seats = (App.Network && App.Network.getAllMatchSeats) ? App.Network.getAllMatchSeats() : [];
+    const eligibleIds = seats.map((s) => s.playerId).filter(Boolean);
+    const localPid = getLocalPid();
+    if (localPid && !eligibleIds.includes(localPid)) eligibleIds.push(localPid);
+
+    eg.rematch = {
+      active: true,
+      eligibleIds,
+      totalPlayers: Math.max(1, eligibleIds.length),
+      retryIds: new Set(),
+      lobbyIds: new Set(),
+      myChoice: null, // null | "retry" | "lobby"
+      migrating: false,
+      launched: false
+    };
+    syncRematchUI(matchState);
+  }
+
+  function syncRematchUI(matchState) {
+    const eg = matchState && matchState.endgame;
+    const isMp = Boolean(eg && eg.rematch && eg.rematch.active && isMultiplayerMatch(matchState));
+    const rm = isMp ? eg.rematch : null;
+
+    const loseRetryBtn = document.getElementById("endgame-lose-retry-btn");
+    const loseStatusEl = document.getElementById("endgame-lose-vote-status");
+    const credRetryBtn = document.getElementById("endgame-credits-retry-btn");
+    const credStatusEl = document.getElementById("endgame-credits-vote-status");
+
+    if (!rm) {
+      if (loseRetryBtn) {
+        loseRetryBtn.textContent = "[ TRY AGAIN ]";
+        loseRetryBtn.disabled = false;
+        loseRetryBtn.classList.remove("is-voted");
+      }
+      if (loseStatusEl) loseStatusEl.classList.add("hidden");
+      if (credRetryBtn) {
+        credRetryBtn.textContent = "[ PLAY AGAIN ]";
+        credRetryBtn.disabled = false;
+        credRetryBtn.classList.remove("is-voted");
+      }
+      if (credStatusEl) credStatusEl.classList.add("hidden");
+      return;
+    }
+
+    const yesCount = rm.retryIds.size;
+    const total = rm.totalPlayers;
+    const decidedCount = rm.retryIds.size + rm.lobbyIds.size;
+    const waitingCount = Math.max(0, total - decidedCount);
+    const votedRetry = rm.myChoice === "retry";
+
+    const btnText = votedRetry
+      ? `[ TRY AGAIN (${yesCount}/${total}) ✓ ]`
+      : `[ TRY AGAIN (${yesCount}/${total}) ]`;
+
+    [loseRetryBtn, credRetryBtn].forEach((btn) => {
+      if (!btn) return;
+      btn.textContent = btnText;
+      btn.disabled = votedRetry || rm.launched;
+      btn.classList.toggle("is-voted", votedRetry);
+    });
+
+    let statusMsg = "";
+    if (rm.launched) {
+      statusMsg = `STARTING NEW MATCH WITH ${yesCount} PLAYER${yesCount === 1 ? "" : "S"}...`;
+    } else if (rm.migrating) {
+      statusMsg = `TRANSFERRING TABLE HOST... (${yesCount}/${total} READY)`;
+    } else if (votedRetry && waitingCount > 0) {
+      statusMsg = `WAITING FOR ${waitingCount} MORE PLAYER${waitingCount === 1 ? "" : "S"} TO CHOOSE...`;
+    } else if (rm.lobbyIds.size > 0 && waitingCount > 0) {
+      statusMsg = `${rm.lobbyIds.size} RETURNED TO LOBBY • WAITING FOR ${waitingCount} PLAYER${waitingCount === 1 ? "" : "S"}...`;
+    } else if (waitingCount > 0) {
+      statusMsg = `VOTE TRY AGAIN OR RETURN TO LOBBY (${decidedCount}/${total} DECIDED)`;
+    }
+
+    [loseStatusEl, credStatusEl].forEach((el) => {
+      if (!el) return;
+      el.textContent = statusMsg;
+      el.classList.toggle("hidden", !statusMsg);
+    });
+  }
+
+  function evaluateRematchLaunch(matchState) {
+    const eg = matchState && matchState.endgame;
+    const rm = eg && eg.rematch;
+    if (!rm || !rm.active || rm.launched) return;
+
+    const allDecided = rm.eligibleIds.every((pid) => rm.retryIds.has(pid) || rm.lobbyIds.has(pid));
+    if (!allDecided) {
+      syncRematchUI(matchState);
+      return;
+    }
+
+    const orderedRetries = rm.eligibleIds.filter((pid) => rm.retryIds.has(pid));
+    const localPid = getLocalPid();
+    if (!orderedRetries.includes(localPid)) {
+      syncRematchUI(matchState);
+      return;
+    }
+
+    // Only 1 player chose Try Again (everyone else returned to Lobby) -> immediately launch solo match!
+    if (orderedRetries.length <= 1) {
+      rm.launched = true;
+      syncRematchUI(matchState);
+      setTimeout(() => {
+        cleanup(matchState);
+        if (App.GameWorld && App.GameWorld.startSingleplayer) {
+          App.GameWorld.startSingleplayer();
+        }
+      }, 220);
+      return;
+    }
+
+    // 2+ players chose Try Again -> Host launches new match strictly for `orderedRetries`!
+    if (App.Network && App.Network.isHost && App.Network.isHost()) {
+      // Wait until all non-host retry peers are connected (important right after host migration)
+      const connectedIds = new Set(
+        App.Network.getConnectedSeatPlayerIds ? App.Network.getConnectedSeatPlayerIds() : []
+      );
+      const allConnected = orderedRetries.every((pid) => connectedIds.has(pid));
+      if (!allConnected && rm.migrating) {
+        syncRematchUI(matchState);
+        clearTimeout(rematchMigrateLaunchTimer);
+        rematchMigrateLaunchTimer = setTimeout(() => {
+          if (!rm.launched) {
+            rm.migrating = false;
+            const liveSet = new Set(
+              App.Network.getConnectedSeatPlayerIds ? App.Network.getConnectedSeatPlayerIds() : []
+            );
+            const liveRetries = orderedRetries.filter((pid) => liveSet.has(pid));
+            rm.launched = true;
+            syncRematchUI(matchState);
+            if (liveRetries.length <= 1) {
+              cleanup(matchState);
+              if (App.GameWorld && App.GameWorld.startSingleplayer) App.GameWorld.startSingleplayer();
+            } else {
+              cleanup(matchState);
+              App.Network.startRematchWithPlayerIds(liveRetries);
+            }
+          }
+        }, 3200);
+        return;
+      }
+
+      clearTimeout(rematchMigrateLaunchTimer);
+      rematchMigrateLaunchTimer = null;
+      rm.migrating = false;
+      rm.launched = true;
+      syncRematchUI(matchState);
+      setTimeout(() => {
+        cleanup(matchState);
+        if (App.Network && App.Network.startRematchWithPlayerIds) {
+          App.Network.startRematchWithPlayerIds(orderedRetries);
+        } else if (App.Network && App.Network.startMatch) {
+          App.Network.startMatch();
+        }
+      }, 240);
+    } else {
+      // Guest who voted Try Again waits briefly for Host's MATCH_START
+      syncRematchUI(matchState);
+    }
+  }
+
+  function voteTryAgain(matchState) {
+    const eg = matchState && matchState.endgame;
+    if (!eg || !isMultiplayerMatch(matchState) || !eg.rematch || !eg.rematch.active) {
+      cleanup(matchState);
+      if (App.GameWorld && App.GameWorld.startSingleplayer) {
+        App.GameWorld.startSingleplayer();
+      }
+      return true;
+    }
+
+    const rm = eg.rematch;
+    if (rm.myChoice === "retry" || rm.launched) return true;
+
+    const localPid = getLocalPid();
+    rm.myChoice = "retry";
+    rm.lobbyIds.delete(localPid);
+    rm.retryIds.add(localPid);
+    App.Audio.click();
+
+    if (App.Network && App.Network.sendGameAction) {
+      App.Network.sendGameAction("MP_REMATCH_VOTE", {
+        playerId: localPid,
+        vote: "retry"
+      });
+    }
+    syncRematchUI(matchState);
+    evaluateRematchLaunch(matchState);
+    return true;
+  }
+
+  function voteReturnToLobby(matchState) {
+    const eg = matchState && matchState.endgame;
+    if (!eg || !isMultiplayerMatch(matchState) || !eg.rematch || !eg.rematch.active) {
+      return false; // Let caller perform standard immediate exitToLobby
+    }
+
+    const rm = eg.rematch;
+    const localPid = getLocalPid();
+    rm.myChoice = "lobby";
+    rm.retryIds.delete(localPid);
+    rm.lobbyIds.add(localPid);
+
+    const isHostNow = Boolean(App.Network && App.Network.isHost && App.Network.isHost());
+    const remainingOthers = rm.eligibleIds.filter((pid) => pid !== localPid && !rm.lobbyIds.has(pid));
+
+    if (isHostNow && remainingOthers.length > 0) {
+      // Elect next Host among remaining Guests (prefer one who already clicked TRY AGAIN)
+      const newHostId = remainingOthers.find((pid) => rm.retryIds.has(pid)) || remainingOthers[0];
+      const rematchCode = randomRematchCode();
+      const diff = (App.Network.getState && App.Network.getState().difficulty) || matchState.difficulty || "NORMAL";
+
+      App.Network.sendGameAction("MP_REMATCH_HOST_MIGRATE", {
+        leavingHostId: localPid,
+        newHostId,
+        rematchCode,
+        difficulty: diff,
+        eligibleIds: rm.eligibleIds.slice(),
+        retryIds: Array.from(rm.retryIds),
+        lobbyIds: Array.from(rm.lobbyIds)
+      });
+
+      setTimeout(() => {
+        if (App.Network && App.Network.leaveTable) {
+          App.Network.leaveTable(true, { suppressHostClosed: true });
+        }
+        if (App.GameWorld && App.GameWorld.exitToLobby) {
+          App.GameWorld.exitToLobby();
+        }
+      }, 150);
+      return true;
+    }
+
+    // Guest (or Host with nobody left): notify peers & immediately return to Lobby!
+    if (App.Network && App.Network.sendGameAction) {
+      App.Network.sendGameAction("MP_REMATCH_VOTE", {
+        playerId: localPid,
+        vote: "lobby"
+      });
+    }
+    setTimeout(() => {
+      if (App.GameWorld && App.GameWorld.exitToLobby) {
+        App.GameWorld.exitToLobby();
+      }
+    }, 90);
+    return true;
+  }
+
+  function onRematchPlayerLeft(playerId, matchState) {
+    const eg = matchState && matchState.endgame;
+    const rm = eg && eg.rematch;
+    if (!rm || !rm.active || !playerId) return;
+    rm.retryIds.delete(playerId);
+    rm.lobbyIds.add(playerId);
+    syncRematchUI(matchState);
+    evaluateRematchLaunch(matchState);
+  }
+
+  function onRematchPeerJoined(playerId, matchState) {
+    const eg = matchState && matchState.endgame;
+    const rm = eg && eg.rematch;
+    if (!rm || !rm.active) return;
+    // Sync current vote tallies to the newly connected rematch peer & check launch!
+    if (App.Network && App.Network.isHost && App.Network.isHost() && App.Network.sendGameAction) {
+      App.Network.sendGameAction("MP_REMATCH_SYNC", {
+        eligibleIds: rm.eligibleIds.slice(),
+        retryIds: Array.from(rm.retryIds),
+        lobbyIds: Array.from(rm.lobbyIds)
+      });
+    }
+    syncRematchUI(matchState);
+    evaluateRematchLaunch(matchState);
+  }
+
+  function isRematchVotingActive(matchState) {
+    const eg = matchState && matchState.endgame;
+    return Boolean(eg && eg.active && eg.rematch && eg.rematch.active && (eg.stage === "LOSE_CUTSCENE" || eg.stage === "WIN_CREDITS"));
+  }
+
   function handleNetworkMessage(action, payload, matchState, player) {
     if (!matchState || !action) return;
     const p = payload || {};
@@ -1702,10 +2007,86 @@ window.Duskwood = window.Duskwood || {};
         enterForestExitMap(matchState, player, true);
       }
       launchCarDriveNow(matchState, player, true);
+      return;
+    }
+
+    if (action === "MP_REMATCH_VOTE" && p.playerId) {
+      if (!eg.rematch) initRematchVoteState(matchState);
+      const rm = eg.rematch;
+      if (!rm || !rm.active) return;
+      if (p.vote === "retry") {
+        rm.lobbyIds.delete(p.playerId);
+        rm.retryIds.add(p.playerId);
+        App.Audio.click();
+      } else if (p.vote === "lobby") {
+        rm.retryIds.delete(p.playerId);
+        rm.lobbyIds.add(p.playerId);
+      }
+      syncRematchUI(matchState);
+      evaluateRematchLaunch(matchState);
+      return;
+    }
+
+    if (action === "MP_REMATCH_SYNC") {
+      if (!eg.rematch) initRematchVoteState(matchState);
+      const rm = eg.rematch;
+      if (!rm || !rm.active) return;
+      if (Array.isArray(p.eligibleIds)) {
+        rm.eligibleIds = p.eligibleIds.slice();
+        rm.totalPlayers = Math.max(1, rm.eligibleIds.length);
+      }
+      if (Array.isArray(p.retryIds)) p.retryIds.forEach((id) => rm.retryIds.add(id));
+      if (Array.isArray(p.lobbyIds)) {
+        p.lobbyIds.forEach((id) => {
+          rm.retryIds.delete(id);
+          rm.lobbyIds.add(id);
+        });
+      }
+      syncRematchUI(matchState);
+      evaluateRematchLaunch(matchState);
+      return;
+    }
+
+    if (action === "MP_REMATCH_HOST_MIGRATE" && p.rematchCode) {
+      if (!eg.rematch) initRematchVoteState(matchState);
+      const rm = eg.rematch;
+      if (!rm || !rm.active) return;
+      if (Array.isArray(p.eligibleIds)) {
+        rm.eligibleIds = p.eligibleIds.slice();
+        rm.totalPlayers = Math.max(1, rm.eligibleIds.length);
+      }
+      rm.retryIds = new Set(Array.isArray(p.retryIds) ? p.retryIds : []);
+      rm.lobbyIds = new Set(Array.isArray(p.lobbyIds) ? p.lobbyIds : []);
+      if (p.leavingHostId) {
+        rm.retryIds.delete(p.leavingHostId);
+        rm.lobbyIds.add(p.leavingHostId);
+      }
+      const localPid = getLocalPid();
+      if (rm.myChoice === "retry") {
+        rm.lobbyIds.delete(localPid);
+        rm.retryIds.add(localPid);
+      }
+      rm.migrating = true;
+      syncRematchUI(matchState);
+
+      if (localPid === p.newHostId) {
+        if (App.Network && App.Network.adoptRematchHost) {
+          App.Network.adoptRematchHost(p.rematchCode, p.difficulty || matchState.difficulty || "NORMAL");
+        }
+        evaluateRematchLaunch(matchState);
+      } else {
+        setTimeout(() => {
+          if (App.Network && App.Network.rejoinRematchRoom) {
+            App.Network.rejoinRematchRoom(p.rematchCode);
+          }
+        }, 420);
+      }
     }
   }
 
   function cleanup(matchState) {
+    clearTimeout(rematchMigrateLaunchTimer);
+    rematchMigrateLaunchTimer = null;
     if (App.Audio && App.Audio.stopEndGameAlarm) App.Audio.stopEndGameAlarm();
     if (App.Audio && App.Audio.stopLightBreak) App.Audio.stopLightBreak();
     if (App.Audio && App.Audio.stopGoodEndBgm) App.Audio.stopGoodEndBgm();
@@ -1741,6 +2122,11 @@ window.Duskwood = window.Duskwood || {};
     isInForestExit,
     isCutsceneBlocking,
     isRoomShattered,
+    voteTryAgain,
+    voteReturnToLobby,
+    onRematchPlayerLeft,
+    onRematchPeerJoined,
+    isRematchVotingActive,
     cleanup
   };
 })(window.Duskwood);

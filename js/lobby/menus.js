@@ -376,6 +376,7 @@ window.Duskwood = window.Duskwood || {};
     const unlockOnce = () => {
       if (App.Audio.warmUpPageTurn) App.Audio.warmUpPageTurn();
       if (App.Audio.warmUpDrawCard) App.Audio.warmUpDrawCard();
+      if (App.Audio.warmUpEventAudio) App.Audio.warmUpEventAudio();
       if (App.Audio.warmUpNeighborAudio) App.Audio.warmUpNeighborAudio();
       if (App.Audio.warmUpAtticAudio) App.Audio.warmUpAtticAudio();
       if (App.Audio.warmUpJumpscare) App.Audio.warmUpJumpscare();

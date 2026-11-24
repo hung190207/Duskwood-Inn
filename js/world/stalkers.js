@@ -1890,9 +1890,29 @@ window.Duskwood = window.Duskwood || {};
         ctx.fillRect(fs.train.x - 30, fs.train.y - 36, 60, 60);
       }
 
-      // Draw held wooden shape block right next to the player so they always see what they carry!
-      if (fs.heldShape && player) {
-        drawShapeBlock(ctx, player.x - player.facing * 8, player.y - 10, fs.heldShape.shapeId, 0.9);
+      // Draw held wooden shape block right next to the local (or spectated) player AND all teammates in this room!
+      if (player) {
+        if (player.spectatePlayerId) {
+          const specHeld = fs.shapes.find((s) => s.heldByPlayerId === player.spectatePlayerId && !s.delivered);
+          if (specHeld) {
+            drawShapeBlock(ctx, player.x - (player.facing || 1) * 8, player.y - 10, specHeld.shapeId, 0.9);
+          }
+        } else if (fs.heldShape) {
+          drawShapeBlock(ctx, player.x - (player.facing || 1) * 8, player.y - 10, fs.heldShape.shapeId, 0.9);
+        }
+      }
+      if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && App.Network.getRemotePlayersInRoom) {
+        const parts = String(roomKey || "0,0").split(",");
+        const rX = Number(parts[0]) || 0;
+        const rY = Number(parts[1]) || 0;
+        App.Network.getRemotePlayersInRoom(rX, rY).forEach((rp) => {
+          if (!rp || rp.deadInEvent || rp.deadSpectator || rp.inAttic || rp.inBasement) return;
+          if (player && player.spectatePlayerId && rp.playerId === player.spectatePlayerId) return;
+          const rHeld = fs.shapes.find((s) => s.heldByPlayerId === rp.playerId && !s.delivered);
+          if (rHeld) {
+            drawShapeBlock(ctx, rp.x - (rp.facing || 1) * 8, rp.y - 10, rHeld.shapeId, 0.9);
+          }
+        });
       }
     }
   }

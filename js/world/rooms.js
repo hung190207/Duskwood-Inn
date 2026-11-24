@@ -896,11 +896,14 @@ window.Duskwood = window.Duskwood || {};
     const medY = isVert ? 20 : 66;
     drawMedicineCabinet(c, medX, medY);
 
-    const swX = isVert ? 80 : 34;
-    const swY = isVert ? 34 : 78;
+    // Wall Light Switch positioned cleanly clear of mirror, wall clues & doors
+    const swX = doorDir === "N" ? 71 : doorDir === "S" ? 71 : doorDir === "W" ? 78 : 104;
+    const swY = doorDir === "N" ? 150 : doorDir === "S" ? 146 : 151;
+    const swIntX = isVert ? 80 : (doorDir === "W" ? 80 : 106);
+    const swIntY = doorDir === "N" ? 152 : doorDir === "S" ? 148 : 146;
     drawWallLightSwitch(c, swX, swY, false);
     interactables.push({
-      id: "room_light_switch", x: swX + 2, y: isVert ? 58 : 104, r: 20,
+      id: "room_light_switch", x: swIntX, y: swIntY, r: 17,
       type: "light_switch",
       swX: swX, swY: swY,
       prompt: "[E] TURN LIGHT ON"
@@ -1034,11 +1037,14 @@ window.Duskwood = window.Duskwood || {};
     const fBrkX = isVert ? (doorDir === "N" ? 64 : 134) : 120;
     const fBrkY = isVert ? 58 : 90;
 
-    const fSwX = isVert ? (doorDir === "N" ? 80 : 120) : 138;
-    const fSwY = isVert ? 34 : 62;
+    // Wall Light Switch positioned cleanly clear of wall clues, clock & doors
+    const fSwX = doorDir === "N" ? 47 : doorDir === "S" ? 122 : doorDir === "W" ? 80 : 158;
+    const fSwY = doorDir === "N" ? 78 : doorDir === "S" ? 34 : 167;
+    const fSwIntX = doorDir === "N" ? 58 : doorDir === "S" ? 124 : doorDir === "W" ? 82 : 160;
+    const fSwIntY = doorDir === "N" ? 82 : doorDir === "S" ? 58 : 160;
     drawWallLightSwitch(c, fSwX, fSwY, false);
     interactables.push({
-      id: "room_light_switch", x: fSwX + 2, y: isVert ? 58 : 90, r: 20,
+      id: "room_light_switch", x: fSwIntX, y: fSwIntY, r: 17,
       type: "light_switch",
       swX: fSwX, swY: fSwY,
       prompt: "[E] TURN LIGHT ON"
@@ -1195,11 +1201,14 @@ window.Duskwood = window.Duskwood || {};
       paintingId: "kitchen_carriage",
       roomId: room.id
     });
-    const kSwX = (d.N && d.E) ? 136 : (d.W && d.N) ? 72 : 122;
-    const kSwY = (d.N && d.E) || (d.W && d.N) ? 32 : 66;
+    // Wall Light Switch positioned cleanly on clear side wall away from painting, clues & doors
+    const kSwX = (d.N && d.E) ? 49 : (d.E && d.S) ? 49 : (d.S && d.W) ? 154 : 154;
+    const kSwY = (d.N && d.E) ? 100 : (d.E && d.S) ? 156 : (d.S && d.W) ? 156 : 98;
+    const kSwIntX = (d.N && d.E) || (d.E && d.S) ? 60 : 146;
+    const kSwIntY = (d.N && d.E) ? 102 : (d.E && d.S) ? 158 : (d.S && d.W) ? 158 : 100;
     drawWallLightSwitch(c, kSwX, kSwY, false);
     interactables.push({
-      id: "room_light_switch", x: kSwX + 2, y: kSwY + 26, r: 20,
+      id: "room_light_switch", x: kSwIntX, y: kSwIntY, r: 17,
       type: "light_switch",
       swX: kSwX, swY: kSwY,
       prompt: "[E] TURN LIGHT ON"
@@ -1370,11 +1379,14 @@ window.Duskwood = window.Duskwood || {};
     px(c, hatX - 6, hatY - 6, 12, 12, "rgba(25, 16, 12, 0.35)");
     px(c, hatX - 1, hatY - 4, 2, 7, "#c9b389");
 
-    const bSwX = (d.N && d.E) ? 132 : (d.W && d.N) ? 74 : 138;
-    const bSwY = (d.N && d.E) || (d.W && d.N) ? 34 : 66;
+    // Wall Light Switch positioned cleanly on clear side wall away from portrait, clues & doors
+    const bSwX = (d.N && d.E) ? 49 : (d.E && d.S) ? 49 : (d.S && d.W) ? 154 : 154;
+    const bSwY = (d.N && d.E) ? 94 : (d.E && d.S) ? 156 : (d.S && d.W) ? 156 : 94;
+    const bSwIntX = (d.N && d.E) || (d.E && d.S) ? 60 : 146;
+    const bSwIntY = (d.N && d.E) ? 96 : (d.E && d.S) ? 158 : (d.S && d.W) ? 158 : 96;
     drawWallLightSwitch(c, bSwX, bSwY, false);
     interactables.push({
-      id: "room_light_switch", x: bSwX + 2, y: bSwY + 24, r: 20,
+      id: "room_light_switch", x: bSwIntX, y: bSwIntY, r: 17,
       type: "light_switch",
       swX: bSwX, swY: bSwY,
       prompt: "[E] TURN LIGHT ON"
@@ -1508,11 +1520,11 @@ window.Duskwood = window.Duskwood || {};
         paintingId: "study_gloves",
         roomId: room.id
       });
-      drawWallLightSwitch(c, 84, 34, false);
+      drawWallLightSwitch(c, 45, 162, false);
       interactables.push({
-        id: "room_light_switch", x: 86, y: 58, r: 20,
+        id: "room_light_switch", x: 56, y: 164, r: 17,
         type: "light_switch",
-        swX: 84, swY: 34,
+        swX: 45, swY: 162,
         prompt: "[E] TURN LIGHT ON"
       });
     } else {
@@ -1522,11 +1534,11 @@ window.Duskwood = window.Duskwood || {};
         paintingId: "study_gloves",
         roomId: room.id
       });
-      drawWallLightSwitch(c, 74, 56, false);
+      drawWallLightSwitch(c, 68, 56, false);
       interactables.push({
-        id: "room_light_switch", x: 76, y: 84, r: 20,
+        id: "room_light_switch", x: 70, y: 84, r: 17,
         type: "light_switch",
-        swX: 74, swY: 56,
+        swX: 68, swY: 56,
         prompt: "[E] TURN LIGHT ON"
       });
     }
@@ -1669,11 +1681,14 @@ window.Duskwood = window.Duskwood || {};
     px(c, radX + 9, radY + 5, 1, 1, "#d9b45a");
     colliders.push({ x: radX, y: radY + 1, w: 12, h: 9 });
 
-    const lSwX = !d.N ? 126 : 118;
-    const lSwY = !d.N ? 54 : 34;
+    // Wall Light Switch positioned cleanly away from painting, clues & doors in all 4 T-orientations
+    const lSwX = !d.W ? 39 : !d.N ? 34 : !d.E ? 164 : 40;
+    const lSwY = !d.W ? 166 : !d.N ? 161 : !d.E ? 166 : 171;
+    const lSwIntX = !d.W ? 50 : !d.N ? 36 : !d.E ? 156 : 42;
+    const lSwIntY = !d.W ? 168 : !d.N ? 154 : !d.E ? 168 : 164;
     drawWallLightSwitch(c, lSwX, lSwY, false);
     interactables.push({
-      id: "room_light_switch", x: lSwX + 2, y: lSwY + 24, r: 20,
+      id: "room_light_switch", x: lSwIntX, y: lSwIntY, r: 17,
       type: "light_switch",
       swX: lSwX, swY: lSwY,
       prompt: "[E] TURN LIGHT ON"
@@ -1783,13 +1798,16 @@ window.Duskwood = window.Duskwood || {};
         roomId: room.id
       });
 
-      // Wall Light Switch
-      const swX = Math.min(rightBound - 28, midX + 26);
-      drawWallLightSwitch(c, swX, 82, false);
+      // Wall Light Switch placed cleanly on opposite/stem wall away from portraits, clues & doors
+      const hSwX = d.S ? (d.E ? 77 : 126) : 98;
+      const hSwY = d.S ? (d.E ? 164 : 158) : 148;
+      const hSwIntX = d.S ? (d.E ? 86 : 118) : 100;
+      const hSwIntY = d.S ? (d.E ? 166 : 160) : 144;
+      drawWallLightSwitch(c, hSwX, hSwY, false);
       interactables.push({
-        id: "room_light_switch", x: swX + 2, y: 110, r: 20,
+        id: "room_light_switch", x: hSwIntX, y: hSwIntY, r: 17,
         type: "light_switch",
-        swX: swX, swY: 82,
+        swX: hSwX, swY: hSwY,
         prompt: "[E] TURN LIGHT ON"
       });
 
@@ -1820,10 +1838,13 @@ window.Duskwood = window.Duskwood || {};
       if (d.E || d.W) {
         const armX = d.E ? 174 : 16;
         const scX  = d.E ? 133 : 75;
-        const swX  = d.E ? 165 : 38;
+        const swX  = (d.S && d.E) ? 77 : (d.S && d.W) ? 126 : 102;
+        const swY  = d.S ? 162 : 148;
+        const swIntX = (d.S && d.E) ? 86 : (d.S && d.W) ? 118 : 104;
+        const swIntY = d.S ? 164 : 144;
         drawWallPortrait(c, armX, 68, 18, 16, isVariant2 ? "#3d464f" : "#4a3832");
         drawWallSconce(c, scX, 76);
-        drawWallLightSwitch(c, swX, 82, false);
+        drawWallLightSwitch(c, swX, swY, false);
         lights.push({ x: scX, y: 84, r: 62, color: "255, 208, 132", strength: 0.74, halo: 0.16 });
         interactables.push({
           id: "hall_portrait", x: armX + 9, y: 112, r: 26,
@@ -1832,20 +1853,20 @@ window.Duskwood = window.Duskwood || {};
           roomId: room.id
         });
         interactables.push({
-          id: "room_light_switch", x: swX + 2, y: 110, r: 20,
+          id: "room_light_switch", x: swIntX, y: swIntY, r: 17,
           type: "light_switch",
-          swX: swX, swY: 82,
+          swX: swX, swY: swY,
           prompt: "[E] TURN LIGHT ON"
         });
       } else {
         // Pure vertical Straight Hallway (N & S doors only; x: 78..130)
-        // Put Framed Portrait on West/East wall edge (hanging on vertical wall lip) + Wall Sconce + Switch!
+        // Put Framed Portrait on West/East wall edge (hanging on vertical wall lip) + Wall Sconce + Lower-East Switch!
         px(c, 74, 108, 4, 18, "#2b1a0e");
         px(c, 75, 110, 2, 14, "#a68544"); // Side-profile framed portrait mounted on West wall!
         px(c, 130, 108, 4, 18, "#2b1a0e");
         px(c, 131, 110, 2, 14, "#a68544"); // Opposite framed portrait on East wall!
         drawWallSconce(c, 84, 30);
-        drawWallLightSwitch(c, 120, 32, false);
+        drawWallLightSwitch(c, 128, 162, false);
         lights.push({ x: 104, y: 120, r: 74, color: "255, 208, 132", strength: 0.74, halo: 0.16 });
         interactables.push({
           id: "hall_portrait", x: 86, y: 118, r: 24,
@@ -1860,9 +1881,9 @@ window.Duskwood = window.Duskwood || {};
           roomId: room.id
         });
         interactables.push({
-          id: "room_light_switch", x: 120, y: 58, r: 20,
+          id: "room_light_switch", x: 120, y: 164, r: 17,
           type: "light_switch",
-          swX: 120, swY: 32,
+          swX: 128, swY: 162,
           prompt: "[E] TURN LIGHT ON"
         });
       }

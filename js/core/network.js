@@ -17,7 +17,7 @@
 window.Duskwood = window.Duskwood || {};
 
 (function (App) {
-  const PROTOCOL_VERSION = "v60";
+  const PROTOCOL_VERSION = "v61";
   // 4 clear corner spawn points inside The Dining Room (verified against all Parlor colliders)
   const CORNER_SPAWNS = [
     { x: 32,  y: 182, facing: 1  }, // Seat 1 (SW corner)
@@ -76,6 +76,9 @@ window.Duskwood = window.Duskwood || {};
   // Remote in-cabin players map: playerId -> interpolated live state
   const remotePlayers = new Map();
 
+  let suppressCloseHostClosed = false;
+  let rematchAcceptingJoins = false;
+
   // Event listeners
   const listeners = {
     lobbyChange: [],
@@ -84,7 +87,9 @@ window.Duskwood = window.Duskwood || {};
     hostClosed: [],
     gameMessage: [],
     chatMessage: [],
-    toast: []
+    toast: [],
+    playerLeft: [],
+    rematchPeerJoined: []
   };
 
   function emit(eventName, payload) {
@@ -327,6 +332,7 @@ window.Duskwood = window.Duskwood || {};
       broadcastFromHost({ type: "CHAT_MSG", entry: sysEntry });
       emit("chatMessage", sysEntry);
       broadcastFromHost({ type: "PLAYER_LEFT", playerId, name: leaving.name });
+      emit("playerLeft", { playerId, name: leaving.name });
       emit("toast", `${leaving.name} disconnected from the table.`);
     }
   }
@@ -358,7 +364,7 @@ window.Duskwood = window.Duskwood || {};
         return;
       }
 
-      if (session.inMatch) {
+      if (session.inMatch && !(rematchAcceptingJoins && msg.rematchJoin)) {
         const reject = { type: "JOIN_REJECT", reason: "This table has already entered the cabin." };
         if (transport === "P2P" && conn && conn.open) conn.send(reject);
         else sendLocalBus(session.roomCode, fromId, reject);
@@ -402,7 +408,11 @@ window.Duskwood = window.Duskwood || {};
         state: buildLobbySnapshot()
       });
       broadcastLobbyState();
-      if (App.Audio && App.Audio.open) App.Audio.open();
+      if (msg.rematchJoin && rematchAcceptingJoins) {
+        emit("rematchPeerJoined", { playerId: fromId, seatIdx: openIdx });
+      } else if (App.Audio && App.Audio.open) {
+        App.Audio.open();
+      }
       return;
     }
 
@@ -591,6 +601,9 @@ window.Duskwood = window.Duskwood || {};
 
     if (msg.type === "PLAYER_LEFT") {
       remotePlayers.delete(msg.playerId);
+      const sIdx = session.seats.findIndex((s) => s && s.playerId === msg.playerId);
+      if (sIdx >= 0) session.seats[sIdx] = null;
+      emit("playerLeft", { playerId: msg.playerId, name: msg.name });
       if (msg.name) emit("toast", `${msg.name} left the cabin.`);
       return;
     }
@@ -735,6 +748,7 @@ window.Duskwood = window.Duskwood || {};
         facingCorner: false,
         inForest: false,
         inCar: false,
+        holdingPopcorn: false,
         deadSpectator: false
       });
     });
@@ -768,6 +782,7 @@ window.Duskwood = window.Duskwood || {};
         inCar: Boolean(st.inCar),
         inAttic: Boolean(st.inAttic),
         inBasement: Boolean(st.inBasement),
+        holdingPopcorn: Boolean(st.holdingPopcorn),
         deadInEvent: Boolean(st.deadInEvent),
         deadSpectator: Boolean(st.deadSpectator)
       };
@@ -797,6 +812,7 @@ window.Duskwood = window.Duskwood || {};
     rp.inCar = Boolean(st.inCar);
     rp.inAttic = Boolean(st.inAttic);
     rp.inBasement = Boolean(st.inBasement);
+    rp.holdingPopcorn = Boolean(st.holdingPopcorn);
     rp.deadInEvent = Boolean(st.deadInEvent);
     rp.deadSpectator = Boolean(st.deadSpectator);
     if (seat && seat.name) rp.name = seat.name;
@@ -1073,6 +1089,7 @@ window.Duskwood = window.Duskwood || {};
           });
 
           conn.on("close", () => {
+            if (suppressCloseHostClosed) return;
             if (session.role === "GUEST" && session.transport === "P2P") {
               leaveTable(true);
               emit("hostClosed", "Connection to Host lost.");
@@ -1110,13 +1127,15 @@ window.Duskwood = window.Duskwood || {};
     }, 9000);
   }
 
-  function leaveTable(silent) {
-    if (session.role === "HOST" && session.roomCode) {
+  function leaveTable(silent, opts) {
+    const suppressHostClosed = Boolean(opts && opts.suppressHostClosed);
+    if (session.role === "HOST" && session.roomCode && !suppressHostClosed) {
       broadcastFromHost({ type: "HOST_CLOSED" });
-    } else if (session.role === "GUEST" && session.roomCode) {
+    } else if (session.role === "GUEST" && session.roomCode && !suppressHostClosed) {
       sendToHost({ type: "LEAVE" });
     }
 
+    rematchAcceptingJoins = false;
     cleanupTransports();
     remotePlayers.clear();
 
@@ -1199,8 +1218,119 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
+  function getConnectedSeatPlayerIds() {
+    return session.seats.filter(Boolean).map((s) => s.playerId);
+  }
+
+  function startRematchWithPlayerIds(selectedIds) {
+    if (session.role !== "HOST") return false;
+    rematchAcceptingJoins = false;
+    const allowSet = new Set(Array.isArray(selectedIds) ? selectedIds : []);
+    allowSet.add(localPlayerId);
+
+    const keptSeats = [];
+    session.seats.forEach((s) => {
+      if (!s) return;
+      if (allowSet.has(s.playerId)) {
+        keptSeats.push(Object.assign({}, s));
+      } else {
+        const c = guestConns.get(s.playerId);
+        if (c) {
+          try { c.close(); } catch (_) {}
+          guestConns.delete(s.playerId);
+        }
+        guestLastSeen.delete(s.playerId);
+        remotePlayers.delete(s.playerId);
+      }
+    });
+
+    const newSeats = [null, null, null, null];
+    keptSeats.slice(0, MAX_SEATS).forEach((s, idx) => {
+      s.seatIdx = idx;
+      s.isHost = idx === 0;
+      s.ready = true;
+      newSeats[idx] = s;
+    });
+    session.seats = newSeats;
+    session.localSeatIdx = 0;
+    broadcastLobbyState();
+    return startMatch();
+  }
+
+  function adoptRematchHost(roomCode, difficulty) {
+    const cleanCode = String(roomCode || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+    if (cleanCode.length < 4) return false;
+    suppressCloseHostClosed = true;
+    leaveTable(true, { suppressHostClosed: true });
+    suppressCloseHostClosed = false;
+
+    hostTable(cleanCode, difficulty || "NORMAL");
+    session.inMatch = true;
+    rematchAcceptingJoins = true;
+    return true;
+  }
+
+  function rejoinRematchRoom(roomCode) {
+    const cleanCode = String(roomCode || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+    if (cleanCode.length < 4) return false;
+    suppressCloseHostClosed = true;
+    leaveTable(true, { suppressHostClosed: true });
+    suppressCloseHostClosed = false;
+
+    session.role = "GUEST";
+    session.status = "CONNECTING";
+    session.roomCode = cleanCode;
+    session.inMatch = true;
+    session.transport = "NONE";
+    session.statusText = `MIGRATING REMATCH TABLE ${cleanCode}...`;
+    initLocalBus();
+
+    const prof = getLocalProfile();
+    sendLocalBus(cleanCode, "HOST", { type: "JOIN_REQ", protocolVersion: PROTOCOL_VERSION, profile: prof, rematchJoin: true });
+
+    loadPeerJS().then((PeerCtor) => {
+      if (session.role !== "GUEST" || session.roomCode !== cleanCode || session.status === "CONNECTED") return;
+      if (!PeerCtor) return;
+      try {
+        const peer = new PeerCtor(undefined, {
+          debug: 0,
+          config: {
+            iceServers: [
+              { urls: "stun:stun.l.google.com:19302" },
+              { urls: "stun:stun1.l.google.com:19302" }
+            ]
+          }
+        });
+        peerInstance = peer;
+        peer.on("open", () => {
+          if (peerInstance !== peer || session.role !== "GUEST" || session.status === "CONNECTED") return;
+          const conn = peer.connect(PEER_PREFIX + cleanCode, { reliable: true });
+          hostConn = conn;
+          conn.on("open", () => {
+            if (session.status === "CONNECTED" && session.transport === "LOCAL") {
+              try { conn.close(); } catch (_) {}
+              return;
+            }
+            conn.send({ type: "JOIN_REQ", protocolVersion: PROTOCOL_VERSION, profile: getLocalProfile(), rematchJoin: true });
+          });
+          conn.on("data", (data) => handleGuestIncoming(data, "P2P"));
+          conn.on("close", () => {
+            if (suppressCloseHostClosed) return;
+            if (session.role === "GUEST" && session.transport === "P2P") {
+              leaveTable(true);
+              emit("hostClosed", "Connection to Host lost.");
+            }
+          });
+        });
+      } catch (_) {}
+    });
+    startHeartbeat();
+    return true;
+  }
+
   function startMatch() {
     if (session.role !== "HOST") return false;
+    rematchAcceptingJoins = false;
     session.inMatch = true;
     session.matchSeed = Math.floor(Math.random() * 1000000000);
     seedInitialRemotePlayers();
@@ -1324,6 +1454,10 @@ window.Duskwood = window.Duskwood || {};
     sendChat,
     syncLocalProfile,
     startMatch,
+    startRematchWithPlayerIds,
+    adoptRematchHost,
+    rejoinRematchRoom,
+    getConnectedSeatPlayerIds,
     sendPlayerState,
     sendGameAction,
     sendGameActionTo,

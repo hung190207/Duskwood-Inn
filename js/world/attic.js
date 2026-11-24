@@ -1076,6 +1076,7 @@ window.Duskwood = window.Duskwood || {};
             alpha: Math.round((g.alpha || 0) * 100) / 100,
             burnTimer: g.burnTimer || 0,
             holdingCandle: Boolean(att.holdingCandle),
+            heldTotemType: (getHeldTotem(att) && getHeldTotem(att).id) || null,
             candleX: Math.round(att.candle.x * 10) / 10,
             candleY: Math.round(att.candle.y * 10) / 10
           });
@@ -1200,6 +1201,7 @@ window.Duskwood = window.Duskwood || {};
           alpha: Math.round((g.alpha || 0) * 100) / 100,
           burnTimer: g.burnTimer || 0,
           holdingCandle: Boolean(att.holdingCandle),
+          heldTotemType: (getHeldTotem(att) && getHeldTotem(att).id) || null,
           candleX: Math.round(att.candle.x * 10) / 10,
           candleY: Math.round(att.candle.y * 10) / 10
         });
@@ -1282,6 +1284,9 @@ window.Duskwood = window.Duskwood || {};
       if (typeof p.holdingCandle === "boolean") {
         att.remoteHoldingCandle = p.holdingCandle;
         att.candle.held = p.holdingCandle;
+      }
+      if ("heldTotemType" in p) {
+        att.remoteHeldTotemType = p.heldTotemType || null;
       }
       if (typeof p.candleX === "number") att.candle.x = p.candleX;
       if (typeof p.candleY === "number") att.candle.y = p.candleY;
@@ -1436,8 +1441,11 @@ window.Duskwood = window.Duskwood || {};
             drawCandleSprite(ctx, pxView + player.facing * 7, pyView - 7, timeSec);
           }
           const heldT = getHeldTotem(att);
-          if (heldT) {
-            drawTotemSprite(ctx, pxView - player.facing * 6, pyView - 7, heldT.id);
+          const drawTotemId = isSpecView
+            ? (att.remoteHeldTotemType || (heldT && heldT.id) || null)
+            : (heldT && heldT.id) || null;
+          if (drawTotemId) {
+            drawTotemSprite(ctx, pxView - (player.facing || 1) * 6, pyView - 7, drawTotemId);
           }
         }
       }

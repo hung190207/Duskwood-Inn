@@ -18,9 +18,9 @@
   />
 
   <!-- Structured Stylesheets -->
-  <link rel="stylesheet" href="css/theme.css?v=60" />
-  <link rel="stylesheet" href="css/lobby.css?v=60" />
-  <link rel="stylesheet" href="css/gameplay.css?v=60" />
+  <link rel="stylesheet" href="css/theme.css?v=61" />
+  <link rel="stylesheet" href="css/lobby.css?v=61" />
+  <link rel="stylesheet" href="css/gameplay.css?v=61" />
 </head>
 <body>
   <!-- Fullscreen Pixel-Art Dead Forest & Cabin Background (Lobby) -->
@@ -514,9 +514,10 @@
           <div class="eg-lose-title">YOU DIED</div>
           <p id="endgame-lose-reason" class="eg-lose-sub">YOU CHOSE THE WRONG EXIT ROOM AT MIDNIGHT.</p>
           <div id="endgame-true-room-reveal" class="eg-true-room">THE TRUE EXIT ROOM WAS: ???</div>
+          <div id="endgame-lose-vote-status" class="eg-vote-status hidden"></div>
           <div class="action-row" style="width:100%;">
-            <button type="button" class="silver-btn mini-btn subtle-btn" data-game-action="exit-to-lobby">[ LOBBY ]</button>
-            <button type="button" class="silver-btn mini-btn primary-btn" data-game-action="retry-endgame">[ TRY AGAIN ]</button>
+            <button type="button" class="silver-btn mini-btn subtle-btn" data-game-action="exit-to-lobby">[ RETURN TO LOBBY ]</button>
+            <button type="button" id="endgame-lose-retry-btn" class="silver-btn mini-btn primary-btn" data-game-action="retry-endgame">[ TRY AGAIN ]</button>
           </div>
         </div>
       </div>
@@ -573,9 +574,10 @@
           </div>
         </div>
 
+        <div id="endgame-credits-vote-status" class="eg-vote-status hidden"></div>
         <div class="action-row" style="width:100%;">
           <button type="button" class="silver-btn mini-btn subtle-btn" data-game-action="exit-to-lobby">[ RETURN TO LOBBY ]</button>
-          <button type="button" class="silver-btn mini-btn primary-btn" data-game-action="retry-endgame">[ PLAY AGAIN ]</button>
+          <button type="button" id="endgame-credits-retry-btn" class="silver-btn mini-btn primary-btn" data-game-action="retry-endgame">[ PLAY AGAIN ]</button>
         </div>
       </div>
     </div>
@@ -623,6 +625,18 @@
 
   <!-- Fullscreen Blackout Fade Curtain -->
   <div id="fade-curtain" class="fade-curtain" aria-hidden="true"></div>
+
+  <!-- Pixel Art Match Loading Screen (runs before flickering bulb intro) -->
+  <div id="loading-screen" class="loading-screen hidden" aria-live="polite" aria-label="Loading Match">
+    <div class="loading-tip-wrap">
+      <div class="loading-tip-kicker">DUSKWOOD INN</div>
+      <p id="loading-tip-text" class="loading-tip-text">TIME IS VALUABLE. CONSIDER NOT DYING.</p>
+    </div>
+    <div class="loading-runner-wrap">
+      <canvas id="loading-runner-canvas" class="loading-runner-canvas" width="216" height="46"></canvas>
+      <div id="loading-label-text" class="loading-label-text">Loading...</div>
+    </div>
+  </div>
 
   <!-- ==================== MODAL: PLAY MODE SELECT ==================== -->
   <div id="modal-play" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="play-title">
@@ -964,33 +978,33 @@
   </div>
 
   <!-- Structured Game Scripts (classic defer so index.html runs directly via file://) -->
-  <script defer src="js/data/config.js?v=60"></script>
-  <script defer src="js/data/cards.js?v=60"></script>
-  <script defer src="js/data/paintings.js?v=60"></script>
-  <script defer src="js/core/audio.js?v=60"></script>
-  <script defer src="js/core/character.js?v=60"></script>
-  <script defer src="js/core/network.js?v=60"></script>
-  <script defer src="js/lobby/background.js?v=60"></script>
-  <script defer src="js/lobby/customizer.js?v=60"></script>
-  <script defer src="js/lobby/tome.js?v=60"></script>
-  <script defer src="js/world/intro.js?v=60"></script>
-  <script defer src="js/world/parlor.js?v=60"></script>
-  <script defer src="js/world/rooms.js?v=60"></script>
-  <script defer src="js/world/book.js?v=60"></script>
-  <script defer src="js/world/clues.js?v=60"></script>
-  <script defer src="js/world/attic.js?v=60"></script>
-  <script defer src="js/world/stalkers.js?v=60"></script>
-  <script defer src="js/world/musical.js?v=60"></script>
-  <script defer src="js/world/basement.js?v=60"></script>
-  <script defer src="js/world/staylit.js?v=60"></script>
-  <script defer src="js/world/knight.js?v=60"></script>
-  <script defer src="js/world/thief.js?v=60"></script>
-  <script defer src="js/world/endgame.js?v=60"></script>
-  <script defer src="js/world/jumpscare.js?v=60"></script>
-  <script defer src="js/world/events.js?v=60"></script>
-  <script defer src="js/world/table-view.js?v=60"></script>
-  <script defer src="js/world/game.js?v=60"></script>
-  <script defer src="js/lobby/menus.js?v=60"></script>
-  <script defer src="js/main.js?v=60"></script>
+  <script defer src="js/data/config.js?v=61"></script>
+  <script defer src="js/data/cards.js?v=61"></script>
+  <script defer src="js/data/paintings.js?v=61"></script>
+  <script defer src="js/core/audio.js?v=61"></script>
+  <script defer src="js/core/character.js?v=61"></script>
+  <script defer src="js/core/network.js?v=61"></script>
+  <script defer src="js/lobby/background.js?v=61"></script>
+  <script defer src="js/lobby/customizer.js?v=61"></script>
+  <script defer src="js/lobby/tome.js?v=61"></script>
+  <script defer src="js/world/intro.js?v=61"></script>
+  <script defer src="js/world/parlor.js?v=61"></script>
+  <script defer src="js/world/rooms.js?v=61"></script>
+  <script defer src="js/world/book.js?v=61"></script>
+  <script defer src="js/world/clues.js?v=61"></script>
+  <script defer src="js/world/attic.js?v=61"></script>
+  <script defer src="js/world/stalkers.js?v=61"></script>
+  <script defer src="js/world/musical.js?v=61"></script>
+  <script defer src="js/world/basement.js?v=61"></script>
+  <script defer src="js/world/staylit.js?v=61"></script>
+  <script defer src="js/world/knight.js?v=61"></script>
+  <script defer src="js/world/thief.js?v=61"></script>
+  <script defer src="js/world/endgame.js?v=61"></script>
+  <script defer src="js/world/jumpscare.js?v=61"></script>
+  <script defer src="js/world/events.js?v=61"></script>
+  <script defer src="js/world/table-view.js?v=61"></script>
+  <script defer src="js/world/game.js?v=61"></script>
+  <script defer src="js/lobby/menus.js?v=61"></script>
+  <script defer src="js/main.js?v=61"></script>
 </body>
 </html>

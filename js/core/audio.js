@@ -91,8 +91,13 @@ window.Duskwood = window.Duskwood || {};
   let gfClockFadeInterval = null;
   let gfClockFallbackTimers = [];
 
-  // Event Card Drawn SFX state (audio/event_draw.mp3 — 4.0 seconds)
+  // Event Card Drawn SFX state (audio/event_draw.mp3 — 4.0 seconds, zero-latency WebAudio buffer + preloaded HTMLAudio)
   let eventDrawEl = null;
+  let eventDrawBuffer = null;
+  let eventDrawBufLoading = false;
+  let eventDrawBufSource = null;
+  let eventDrawBufGain = null;
+  let eventDrawTrimSec = 0;
   let eventDrawFailed = false;
   let eventDrawActive = false;
   let eventDrawStopTimer = null;
@@ -1542,6 +1547,9 @@ window.Duskwood = window.Duskwood || {};
     if (eventDrawEl && !eventDrawFailed && eventDrawActive) {
       eventDrawEl.volume = Math.max(0, Math.min(1, getSfxVol()));
     }
+    if (eventDrawBufGain && eventDrawActive) {
+      try { eventDrawBufGain.gain.value = Math.max(0, Math.min(1, getSfxVol())); } catch (_) {}
+    }
     if (typingEl && !typingFailed && typingActive) {
       typingEl.volume = Math.max(0, Math.min(1, getSfxVol()));
     }
@@ -1609,12 +1617,73 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
-  // ==================== EVENT CARD DRAW SFX (audio/event_draw.mp3 — 4.0s) ====================
+  // ==================== EVENT CARD DRAW SFX (audio/event_draw.mp3 — 4.0s, ZERO-DELAY PRELOAD) ====================
   function playEventDrawFallback() {
     playTone(98, 1.4, "sawtooth", 0.13, 68);
     setTimeout(() => playTone(138.6, 1.6, "triangle", 0.12, 116.5), 140);
     setTimeout(() => playTone(207.6, 1.8, "sine", 0.10, 174.6), 340);
     setTimeout(() => playTone(73.4, 1.4, "sawtooth", 0.11, 55.0), 1100);
+  }
+
+  function ensureEventDrawPreloaded() {
+    if (!eventDrawEl && !eventDrawFailed) {
+      eventDrawEl = new Audio("audio/event_draw.mp3");
+      eventDrawEl.preload = "auto";
+      eventDrawEl.addEventListener("error", () => {
+        if (!eventDrawFailed) {
+          eventDrawFailed = true;
+          console.warn("[Duskwood Audio] 'audio/event_draw.mp3' not found. Using eerie event chord synth.");
+          if (eventDrawActive) playEventDrawFallback();
+        }
+      });
+      try { eventDrawEl.load(); } catch (_) {}
+    }
+
+    // Also decode into WebAudio AudioBuffer (when served over HTTP/HTTPS) for guaranteed 0ms instant trigger on Host & Guest!
+    if (!eventDrawBuffer && !eventDrawBufLoading && !eventDrawFailed && typeof fetch === "function" && location.protocol !== "file:") {
+      const audio = ensureContext();
+      if (audio && typeof audio.decodeAudioData === "function") {
+        eventDrawBufLoading = true;
+        fetch("audio/event_draw.mp3")
+          .then((res) => (res.ok ? res.arrayBuffer() : null))
+          .then((arr) => (arr ? audio.decodeAudioData(arr) : null))
+          .then((decoded) => {
+            eventDrawBufLoading = false;
+            if (!decoded) return;
+            eventDrawBuffer = decoded;
+            // Trim any leading silence (> 60ms) so the sting hits the exact frame the Event card is drawn!
+            const ch0 = decoded.getChannelData(0);
+            const sr = decoded.sampleRate || 44100;
+            let firstIdx = 0;
+            for (let i = 0; i < ch0.length; i += 48) {
+              if (Math.abs(ch0[i]) >= 0.012) {
+                firstIdx = Math.max(0, i - Math.floor(sr * 0.015));
+                break;
+              }
+            }
+            const trimSec = firstIdx / sr;
+            if (trimSec > 0.06 && decoded.duration - trimSec > 0.6) {
+              eventDrawTrimSec = trimSec;
+              if (eventDrawEl && eventDrawEl.paused && eventDrawEl.readyState >= 1) {
+                try { eventDrawEl.currentTime = trimSec; } catch (_) {}
+              }
+            }
+          })
+          .catch(() => {
+            eventDrawBufLoading = false;
+          });
+      }
+    }
+  }
+
+  function warmUpEventAudio() {
+    ensureEventDrawPreloaded();
+    if (eventDrawEl && !eventDrawEl._warmed) {
+      eventDrawEl._warmed = true;
+      try {
+        if (eventDrawEl.readyState === 0) eventDrawEl.load();
+      } catch (_) {}
+    }
   }
 
   function stopEventDraw() {
@@ -1623,9 +1692,18 @@ window.Duskwood = window.Duskwood || {};
     eventDrawStopTimer = null;
     clearInterval(eventDrawFadeInterval);
     eventDrawFadeInterval = null;
+    if (eventDrawBufSource) {
+      try { eventDrawBufSource.stop(); } catch (_) {}
+      try { eventDrawBufSource.disconnect(); } catch (_) {}
+      eventDrawBufSource = null;
+    }
+    if (eventDrawBufGain) {
+      try { eventDrawBufGain.disconnect(); } catch (_) {}
+      eventDrawBufGain = null;
+    }
     if (eventDrawEl && !eventDrawEl.paused) {
       eventDrawEl.pause();
-      try { eventDrawEl.currentTime = 0; } catch (_) {}
+      try { eventDrawEl.currentTime = eventDrawTrimSec || 0; } catch (_) {}
     }
   }
 
@@ -1640,48 +1718,84 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
 
-    if (!eventDrawEl) {
-      eventDrawEl = new Audio("audio/event_draw.mp3");
-      eventDrawEl.preload = "auto";
-      eventDrawEl.addEventListener("error", () => {
-        if (!eventDrawFailed) {
-          eventDrawFailed = true;
-          console.warn("[Duskwood Audio] 'audio/event_draw.mp3' not found. Using eerie event chord synth.");
-          if (eventDrawActive) playEventDrawFallback();
+    ensureEventDrawPreloaded();
+
+    // 1. Instant 0ms WebAudio Buffer playback (eliminates HTMLAudio seek/network buffering delay completely!)
+    if (eventDrawBuffer) {
+      const audio = ensureContext();
+      if (audio) {
+        try {
+          const src = audio.createBufferSource();
+          const gain = audio.createGain();
+          src.buffer = eventDrawBuffer;
+          const offset = Math.max(0, Math.min(eventDrawBuffer.duration - 0.1, eventDrawTrimSec || 0));
+          const maxDur = Math.min(4.0, Math.max(0.2, eventDrawBuffer.duration - offset));
+          const now = audio.currentTime;
+          gain.gain.setValueAtTime(vol, now);
+          if (maxDur > 0.35) {
+            gain.gain.setValueAtTime(vol, now + maxDur - 0.28);
+            gain.gain.linearRampToValueAtTime(0.0005, now + maxDur);
+          }
+          src.connect(gain);
+          gain.connect(audio.destination);
+          eventDrawBufSource = src;
+          eventDrawBufGain = gain;
+          src.onended = () => {
+            if (eventDrawBufSource === src) {
+              eventDrawBufSource = null;
+              eventDrawBufGain = null;
+              eventDrawActive = false;
+            }
+          };
+          src.start(now, offset, maxDur);
+          return;
+        } catch (_) {
+          // Fall through cleanly to preloaded HTMLAudioElement
         }
-      });
+      }
     }
 
+    // 2. Preloaded HTMLAudioElement playback (schedules 4.0s stop timer AFTER playback actually begins!)
     try {
-      eventDrawEl.currentTime = 0;
+      const startPos = eventDrawTrimSec || 0;
+      eventDrawEl.muted = false;
       eventDrawEl.volume = vol;
-      const p = eventDrawEl.play();
-      if (p && typeof p.catch === "function") {
-        p.catch(() => {
-          if (!eventDrawFailed) {
-            eventDrawFailed = true;
-            if (eventDrawActive) playEventDrawFallback();
-          }
-        });
+      if (eventDrawEl.readyState >= 1) {
+        try { eventDrawEl.currentTime = startPos; } catch (_) {}
       }
 
-      const fadeMs = 280;
-      const clipMs = 4000; // Exact 4.0 seconds!
-      eventDrawStopTimer = setTimeout(() => {
-        if (!eventDrawEl || eventDrawEl.paused) {
-          stopEventDraw();
-          return;
-        }
-        const startVol = eventDrawEl.volume;
-        const t0 = performance.now();
-        eventDrawFadeInterval = setInterval(() => {
-          const frac = Math.min(1, (performance.now() - t0) / fadeMs);
-          if (eventDrawEl) eventDrawEl.volume = Math.max(0, startVol * (1 - frac));
-          if (frac >= 1) stopEventDraw();
-        }, 24);
-      }, Math.max(0, clipMs - fadeMs));
+      const scheduleFade = () => {
+        if (!eventDrawActive) return;
+        clearTimeout(eventDrawStopTimer);
+        const fadeMs = 280;
+        const clipMs = 4000;
+        eventDrawStopTimer = setTimeout(() => {
+          if (!eventDrawEl || eventDrawEl.paused) {
+            stopEventDraw();
+            return;
+          }
+          const startVol = eventDrawEl.volume;
+          const t0 = performance.now();
+          eventDrawFadeInterval = setInterval(() => {
+            const frac = Math.min(1, (performance.now() - t0) / fadeMs);
+            if (eventDrawEl) eventDrawEl.volume = Math.max(0, startVol * (1 - frac));
+            if (frac >= 1) stopEventDraw();
+          }, 24);
+        }, Math.max(0, clipMs - fadeMs));
+      };
+
+      const p = eventDrawEl.play();
+      if (p && typeof p.then === "function") {
+        p.then(scheduleFade).catch((err) => {
+          if (err && err.name === "NotSupportedError") {
+            eventDrawFailed = true;
+          }
+          if (eventDrawActive) playEventDrawFallback();
+        });
+      } else {
+        scheduleFade();
+      }
     } catch (_) {
-      eventDrawFailed = true;
       playEventDrawFallback();
     }
   }
@@ -4012,7 +4126,8 @@ window.Duskwood = window.Duskwood || {};
     warmUpDrawCard,
     warmUpPageTurn,
     warmUpNeighborAudio,
-    warmUpAtticAudio
+    warmUpAtticAudio,
+    warmUpEventAudio
   };
 
   App.Audio = SFX;

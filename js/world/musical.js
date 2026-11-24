@@ -648,6 +648,15 @@ window.Duskwood = window.Duskwood || {};
       mr.holdingPopcornId = best.id;
       mr.justPickedWithF = true;
       mr.charging = false;
+      if (isMultiplayerMatch(matchState)) {
+        App.Network.sendGameAction("MP_MUSICAL_POP_STATE", {
+          popId: best.id,
+          collected: true,
+          roomKey: best.roomKey,
+          x: best.x,
+          y: best.y
+        });
+      }
       App.Audio.open();
       mr.notice = "GOT POPCORN! HOLD & RELEASE [F] IN THE DINING ROOM TO THROW INTO THE BOX!";
       mr.noticeTimer = 2.6;
@@ -908,6 +917,15 @@ window.Duskwood = window.Duskwood || {};
               popObj.roomKey = proj.roomKey;
               popObj.x = proj.landX;
               popObj.y = proj.landY;
+              if (isMultiplayerMatch(matchState)) {
+                App.Network.sendGameAction("MP_MUSICAL_POP_STATE", {
+                  popId: popObj.id,
+                  collected: false,
+                  roomKey: popObj.roomKey,
+                  x: Math.round(popObj.x),
+                  y: Math.round(popObj.y)
+                });
+              }
             }
             App.Audio.click();
             mr.notice = "MISSED THE BOX! PICK IT UP [F] AND ADJUST YOUR THROW POWER!";
@@ -1166,9 +1184,25 @@ window.Duskwood = window.Duskwood || {};
       });
     }
 
-    // 3. Held popcorn sprite next to player
-    if (mr.holdingPopcornId && player) {
-      drawPopcornSprite(ctx, player.x + player.facing * 7, player.y - 8, 0);
+    // 3. Held popcorn sprite next to local (or spectated) player AND all remote teammates in this room!
+    if (player) {
+      if (player.spectatePlayerId) {
+        if (player.holdingPopcorn) {
+          drawPopcornSprite(ctx, player.x + (player.facing || 1) * 7, player.y - 8, 0);
+        }
+      } else if (mr.holdingPopcornId) {
+        drawPopcornSprite(ctx, player.x + (player.facing || 1) * 7, player.y - 8, 0);
+      }
+    }
+    if (App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch() && App.Network.getRemotePlayersInRoom) {
+      const parts = String(roomKey || "0,0").split(",");
+      const rX = Number(parts[0]) || 0;
+      const rY = Number(parts[1]) || 0;
+      App.Network.getRemotePlayersInRoom(rX, rY).forEach((rp) => {
+        if (!rp || !rp.holdingPopcorn || rp.deadInEvent || rp.deadSpectator || rp.inAttic || rp.inBasement) return;
+        if (player && player.spectatePlayerId && rp.playerId === player.spectatePlayerId) return;
+        drawPopcornSprite(ctx, rp.x + (rp.facing || 1) * 7, rp.y - 8, 0);
+      });
     }
 
     // 4. OBLIQUE PARABOLIC THROW TRAJECTORY + POWER TENSION BAR (while holding [F]!)
@@ -1355,6 +1389,17 @@ window.Duskwood = window.Duskwood || {};
 
     const mr = matchState && matchState.musicalEvent;
     if (!mr || !mr.active) return;
+
+    if (action === "MP_MUSICAL_POP_STATE" && p.popId) {
+      const popObj = mr.popcorns.find((x) => x.id === p.popId);
+      if (popObj && !popObj.delivered) {
+        popObj.collected = Boolean(p.collected);
+        if (p.roomKey) popObj.roomKey = p.roomKey;
+        if (typeof p.x === "number") popObj.x = p.x;
+        if (typeof p.y === "number") popObj.y = p.y;
+      }
+      return;
+    }
 
     if (action === "MP_MUSICAL_SCORE") {
       if (p.popId) {
