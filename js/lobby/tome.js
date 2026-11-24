@@ -607,7 +607,7 @@ window.Duskwood = window.Duskwood || {};
                </div>
                <div class="inspector-box">
                  <span class="inspector-label">EFFECT</span>
-                 <p class="inspector-lore">Advances ONLY the player piece by ${card.meta.deltaMinutes} minutes (Hollow Harvester stays still).</p>
+                 <p class="inspector-lore">${card.meta && card.meta.action ? card.effect : `Advances ONLY the player piece by ${card.meta.deltaMinutes} minutes (Hollow Harvester stays still).`}</p>
                </div>`
             : `<div class="inspector-box">
                  <span class="inspector-label">CARD EFFECT</span>

@@ -18,9 +18,9 @@
   />
 
   <!-- Structured Stylesheets -->
-  <link rel="stylesheet" href="css/theme.css?v=56" />
-  <link rel="stylesheet" href="css/lobby.css?v=56" />
-  <link rel="stylesheet" href="css/gameplay.css?v=56" />
+  <link rel="stylesheet" href="css/theme.css?v=59" />
+  <link rel="stylesheet" href="css/lobby.css?v=59" />
+  <link rel="stylesheet" href="css/gameplay.css?v=59" />
 </head>
 <body>
   <!-- Fullscreen Pixel-Art Dead Forest & Cabin Background (Lobby) -->
@@ -376,28 +376,20 @@
       </div>
     </div>
 
-    <!-- THE BASEMENT: First-Person Electrical / Fuse Box Repair Modal (HOLD [F]) -->
-    <div id="basement-breaker-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Breaker Box Repair">
-      <div class="silver-panel bm-breaker-shell">
-        <div class="panel-header">
-          <h2>FUSE / BREAKER BOX</h2>
-          <button type="button" class="icon-close-btn" data-game-action="close-breaker-modal" aria-label="Close">X</button>
+    <!-- THE BASEMENT: Full-Screen First-Person Electrical / Fuse Box Repair View (HOLD [F]) -->
+    <div id="basement-breaker-modal" class="bm-fp-fullscreen hidden" role="dialog" aria-modal="true" aria-label="Breaker Box Repair">
+      <div class="bm-fp-stage" id="bm-breaker-art"></div>
+      <div class="bm-fp-hud-top">
+        <span class="bm-fp-title" id="bm-fp-box-title">FUSE / BREAKER BOX</span>
+        <span class="bm-fp-pct" id="bm-progress-pct">0%</span>
+      </div>
+      <div class="bm-fp-hud-bottom">
+        <div class="bm-progress-track bm-fp-track">
+          <div class="bm-progress-fill" id="bm-progress-fill"></div>
         </div>
-        <div class="bm-breaker-body">
-          <div class="bm-breaker-frame" id="bm-breaker-art"></div>
-          <div class="bm-progress-wrap">
-            <div class="bm-progress-head">
-              <span>REPAIR PROGRESS</span>
-              <span id="bm-progress-pct">0%</span>
-            </div>
-            <div class="bm-progress-track">
-              <div class="bm-progress-fill" id="bm-progress-fill"></div>
-            </div>
-          </div>
-          <p class="bm-repair-hint" id="bm-repair-hint">HOLD [F] TO REPAIR FUSE BOX &bull; [E / ESC] STEP BACK &amp; HIDE</p>
-        </div>
-        <div class="panel-footer">
-          <button type="button" class="silver-btn mini-btn subtle-btn" data-game-action="close-breaker-modal">[ STEP BACK ]</button>
+        <p class="bm-repair-hint" id="bm-repair-hint">HOLD [F] TO REPAIR FUSE BOX &bull; [E / ESC] STEP BACK &amp; HIDE</p>
+        <div class="bm-fp-actions">
+          <button type="button" class="silver-btn mini-btn subtle-btn" data-game-action="close-breaker-modal">[E / ESC] STEP BACK</button>
           <button type="button" class="silver-btn mini-btn primary-btn" id="bm-hold-repair-btn">[ HOLD F TO REPAIR ]</button>
         </div>
       </div>
@@ -947,33 +939,33 @@
   </div>
 
   <!-- Structured Game Scripts (classic defer so index.html runs directly via file://) -->
-  <script defer src="js/data/config.js?v=56"></script>
-  <script defer src="js/data/cards.js?v=56"></script>
-  <script defer src="js/data/paintings.js?v=56"></script>
-  <script defer src="js/core/audio.js?v=56"></script>
-  <script defer src="js/core/character.js?v=56"></script>
-  <script defer src="js/core/network.js?v=56"></script>
-  <script defer src="js/lobby/background.js?v=56"></script>
-  <script defer src="js/lobby/customizer.js?v=56"></script>
-  <script defer src="js/lobby/tome.js?v=56"></script>
-  <script defer src="js/world/intro.js?v=56"></script>
-  <script defer src="js/world/parlor.js?v=56"></script>
-  <script defer src="js/world/rooms.js?v=56"></script>
-  <script defer src="js/world/book.js?v=56"></script>
-  <script defer src="js/world/clues.js?v=56"></script>
-  <script defer src="js/world/attic.js?v=56"></script>
-  <script defer src="js/world/stalkers.js?v=56"></script>
-  <script defer src="js/world/musical.js?v=56"></script>
-  <script defer src="js/world/basement.js?v=56"></script>
-  <script defer src="js/world/staylit.js?v=56"></script>
-  <script defer src="js/world/knight.js?v=56"></script>
-  <script defer src="js/world/thief.js?v=56"></script>
-  <script defer src="js/world/endgame.js?v=56"></script>
-  <script defer src="js/world/jumpscare.js?v=56"></script>
-  <script defer src="js/world/events.js?v=56"></script>
-  <script defer src="js/world/table-view.js?v=56"></script>
-  <script defer src="js/world/game.js?v=56"></script>
-  <script defer src="js/lobby/menus.js?v=56"></script>
-  <script defer src="js/main.js?v=56"></script>
+  <script defer src="js/data/config.js?v=59"></script>
+  <script defer src="js/data/cards.js?v=59"></script>
+  <script defer src="js/data/paintings.js?v=59"></script>
+  <script defer src="js/core/audio.js?v=59"></script>
+  <script defer src="js/core/character.js?v=59"></script>
+  <script defer src="js/core/network.js?v=59"></script>
+  <script defer src="js/lobby/background.js?v=59"></script>
+  <script defer src="js/lobby/customizer.js?v=59"></script>
+  <script defer src="js/lobby/tome.js?v=59"></script>
+  <script defer src="js/world/intro.js?v=59"></script>
+  <script defer src="js/world/parlor.js?v=59"></script>
+  <script defer src="js/world/rooms.js?v=59"></script>
+  <script defer src="js/world/book.js?v=59"></script>
+  <script defer src="js/world/clues.js?v=59"></script>
+  <script defer src="js/world/attic.js?v=59"></script>
+  <script defer src="js/world/stalkers.js?v=59"></script>
+  <script defer src="js/world/musical.js?v=59"></script>
+  <script defer src="js/world/basement.js?v=59"></script>
+  <script defer src="js/world/staylit.js?v=59"></script>
+  <script defer src="js/world/knight.js?v=59"></script>
+  <script defer src="js/world/thief.js?v=59"></script>
+  <script defer src="js/world/endgame.js?v=59"></script>
+  <script defer src="js/world/jumpscare.js?v=59"></script>
+  <script defer src="js/world/events.js?v=59"></script>
+  <script defer src="js/world/table-view.js?v=59"></script>
+  <script defer src="js/world/game.js?v=59"></script>
+  <script defer src="js/lobby/menus.js?v=59"></script>
+  <script defer src="js/main.js?v=59"></script>
 </body>
 </html>

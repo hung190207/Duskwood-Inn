@@ -325,7 +325,7 @@ window.Duskwood = window.Duskwood || {};
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
-        "THE GAME HAS ENDED.\nCHOOSE THE EXIT ROOM WITHIN 20 SECONDS (SIT AT THE TABLE [E] TO CHECK YOUR MAP)...",
+        "THE GAME HAS ENDED.\nCHOOSE THE EXIT ROOM WITHIN 20 SECONDS (PRESS [E] AT THE TABLE TO VIEW MAP)...",
         {
           subtag: "12:00 AM — FINAL CHOICE",
           countdown: 20,

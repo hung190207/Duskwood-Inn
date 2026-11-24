@@ -127,11 +127,18 @@ window.Duskwood = window.Duskwood || {};
     currentRoomCoord: { x: 0, y: 0 }
   };
 
+  const DEFAULT_CORNER_SPAWNS = [
+    { x: 32,  y: 182, facing: 1  }, // Seat 1 (SW corner)
+    { x: 176, y: 182, facing: -1 }, // Seat 2 (SE corner)
+    { x: 44,  y: 74,  facing: 1  }, // Seat 3 (NW corner)
+    { x: 180, y: 74,  facing: -1 }  // Seat 4 (NE corner)
+  ];
+
   const player = {
-    x: 68,
-    y: 128,
+    x: 32,
+    y: 182,
     facing: 1,
-    seated: true,
+    seated: false,
     chairId: 0,
     facingCorner: false,
     cornerLock: null,
@@ -564,7 +571,7 @@ window.Duskwood = window.Duskwood || {};
   function onNeighborDoorOpened(doorDir) {
     const dirNames = { S: "South", N: "North", W: "West", E: "East" };
     showDialogue(
-      `Knock, knock, knock... (+30 min) Someone is knocking at the Cellar door (${dirNames[doorDir] || "South"})! Walk over and press [E] to open it.`
+      `Knock-knock-knock, who could it be? (+60 min) Someone is knocking at the Cellar door (${dirNames[doorDir] || "South"})! Walk over and press [E] to open it.`
     );
   }
 
@@ -793,14 +800,28 @@ window.Duskwood = window.Duskwood || {};
       }
       return;
     }
-    if (App.Endgame && App.Endgame.isEndgameActive(gameState)) {
-      if (!App.Endgame.canInspectTableMap || !App.Endgame.canInspectTableMap(gameState)) {
-        showDialogue("12:00 AM — The game has ended. Find your way out!");
-        return;
-      }
+    const egMidnightInspect = Boolean(
+      App.Endgame &&
+      App.Endgame.isEndgameActive(gameState) &&
+      App.Endgame.canInspectTableMap &&
+      App.Endgame.canInspectTableMap(gameState)
+    );
+    if (App.Endgame && App.Endgame.isEndgameActive(gameState) && !egMidnightInspect) {
+      showDialogue("12:00 AM — The game has ended. Find your way out!");
+      return;
     }
     if (!isInDiningRoom()) {
-      showDialogue("Return to The Dining Room and sit at the round table first.");
+      showDialogue(egMidnightInspect ? "Return to The Dining Room to view the table map." : "Return to The Dining Room and sit at the round table first.");
+      return;
+    }
+    if (egMidnightInspect) {
+      clearAllHeldKeys();
+      closeDialogue();
+      App.TableView.open(
+        gameState,
+        () => {},
+        () => syncHud()
+      );
       return;
     }
     if (!player.seated) {
@@ -817,6 +838,7 @@ window.Duskwood = window.Duskwood || {};
       () => standUp(),
       () => syncHud()
     );
+    pushNetworkPlayerState(true);
   }
 
   function setPaused(val) {
@@ -847,7 +869,46 @@ window.Duskwood = window.Duskwood || {};
     else { player.x = chair.x; player.y = chair.y + 14; }
 
     App.Audio.chairCreak();
+    pushNetworkPlayerState(true);
     syncHud();
+  }
+
+  function clearCornerLock() {
+    player.facingCorner = false;
+    player.cornerLock = null;
+  }
+
+  function pushNetworkPlayerState(forceNow) {
+    if (!(App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch())) return;
+    const inForestNow = Boolean(App.Endgame && App.Endgame.isInForestExit(gameState));
+    const inAtticNow = Boolean(App.Attic && App.Attic.isPlayerInAttic(gameState));
+    const inBasementNow = Boolean(App.Basement && (App.Basement.isLocalInBasementView ? App.Basement.isLocalInBasementView(gameState) : App.Basement.isActive(gameState)));
+    const localDeadSpec = Boolean(App.Endgame && App.Endgame.isLocalDeadSpectator && App.Endgame.isLocalDeadSpectator(gameState));
+    const localDeadEvent = Boolean(App.Events && App.Events.isLocalLockedInCellar && App.Events.isLocalLockedInCellar(gameState));
+    const localInCar = Boolean(App.Endgame && App.Endgame.isLocalInCar && App.Endgame.isLocalInCar(gameState));
+    const tableOpenNow = Boolean(App.TableView && App.TableView.isOpen());
+
+    App.Network.sendPlayerState({
+      x: player.x,
+      y: player.y,
+      facing: player.facing,
+      roomX: gameState.currentRoomCoord.x,
+      roomY: gameState.currentRoomCoord.y,
+      seated: player.seated,
+      inTableView: tableOpenNow,
+      chairId: player.chairId,
+      moving: tableOpenNow ? false : player.moving,
+      sprinting: tableOpenNow ? false : player.sprinting,
+      crouching: tableOpenNow ? false : player.crouching,
+      lanternOn: player.lanternOn,
+      facingCorner: tableOpenNow ? false : player.facingCorner,
+      inForest: inForestNow,
+      inCar: localInCar,
+      inAttic: inAtticNow,
+      inBasement: inBasementNow,
+      deadInEvent: localDeadEvent,
+      deadSpectator: localDeadSpec
+    }, Boolean(forceNow));
   }
 
   function forceStandUpForEvent() {
@@ -1028,7 +1089,17 @@ window.Duskwood = window.Duskwood || {};
     if (isInDiningRoom()) {
       const egActive = Boolean(App.Endgame && App.Endgame.isEndgameActive(gameState));
       const egCanMap = Boolean(App.Endgame && App.Endgame.canInspectTableMap && App.Endgame.canInspectTableMap(gameState));
-      if (!egActive || egCanMap) {
+      if (egActive && egCanMap) {
+        // After TIME IS UP..., all players are out of their seats, but pressing [E] near the table opens Read-Only Table View!
+        const distTable = Math.hypot(player.x - App.GameRoom.TABLE.cx, player.y - App.GameRoom.TABLE.cy);
+        const nearAnyChair = App.GameRoom.CHAIRS.some((ch) => Math.hypot(player.x - ch.x, player.y - ch.y) <= 22);
+        if (distTable <= 48 || nearAnyChair) {
+          return {
+            type: "midnight_table_view",
+            prompt: "[E] VIEW TABLE (READ-ONLY)"
+          };
+        }
+      } else if (!egActive) {
         const isMp = gameState.mode === "MULTIPLAYER";
         const myChairId = typeof gameState.localChairId === "number" ? gameState.localChairId : 0;
         const mySeatNum = (gameState.localSeatIdx || 0) + 1;
@@ -1049,11 +1120,9 @@ window.Duskwood = window.Duskwood || {};
           return {
             type: "chair",
             chair,
-            prompt: egCanMap
-              ? `[E] CHECK ROOM MAP (SEAT ${mySeatNum})`
-              : isMp
-                ? `[E] SIT AT YOUR CHAIR (SEAT ${mySeatNum})`
-                : `[E] SIT AT TABLE (${chair.label})`
+            prompt: isMp
+              ? `[E] SIT AT YOUR CHAIR (SEAT ${mySeatNum})`
+              : `[E] SIT AT TABLE (${chair.label})`
           };
         }
       }
@@ -1189,6 +1258,14 @@ window.Duskwood = window.Duskwood || {};
       enterMatchedRoom(target.dir);
     } else if (target.type === "chair_locked") {
       showDialogue(`Every guest has a fixed seat! Walk to your assigned chair (SEAT ${(gameState.localSeatIdx || 0) + 1}).`);
+    } else if (target.type === "midnight_table_view") {
+      clearAllHeldKeys();
+      closeDialogue();
+      App.TableView.open(
+        gameState,
+        () => {},
+        () => syncHud()
+      );
     } else if (target.type === "chair") {
       if (App.Events && App.Events.isCuttingCornersActive(gameState)) return;
       sitAtChair(target.chair, true);
@@ -1281,6 +1358,10 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function updateMovement(dt) {
+    // Auto-clear corner lock if Cutting Corners is no longer active (prevents Guest stuck facing wall!)
+    if (player.facingCorner && !(App.Events && App.Events.isCuttingCornersActive(gameState))) {
+      clearCornerLock();
+    }
     const ccStage = gameState.events && gameState.events.cuttingCorners && gameState.events.cuttingCorners.stage;
     if (
       player.seated ||
@@ -1426,6 +1507,7 @@ window.Duskwood = window.Duskwood || {};
           roomX: gameState.currentRoomCoord.x,
           roomY: gameState.currentRoomCoord.y,
           seated: player.seated,
+          inTableView: true,
           chairId: player.chairId,
           moving: false,
           sprinting: false,
@@ -1459,9 +1541,10 @@ window.Duskwood = window.Duskwood || {};
       App.Endgame.renderNeighborPixelCanvas(document.getElementById("neighbor-fp-canvas"), timeSec, nbHandsOpenProgress);
     }
 
-    // Auto-trigger Midnight 12:00 AM Endgame if clock reaches 720 (wait if a Death Penalty table glide is pending so player watches the pieces advance to XII first!)
+    // Auto-trigger Midnight 12:00 AM Endgame ONLY after TIME IS UP... has been played (setupPhase === "MIDNIGHT")!
     if (
       gameState.clockMinutes >= 720 &&
+      gameState.setupPhase === "MIDNIGHT" &&
       gameState.tableIntroDone &&
       !gameState.pendingPenaltyAnim &&
       App.Endgame &&
@@ -1604,6 +1687,7 @@ window.Duskwood = window.Duskwood || {};
         roomX: gameState.currentRoomCoord.x,
         roomY: gameState.currentRoomCoord.y,
         seated: player.seated,
+        inTableView: false,
         chairId: player.chairId,
         moving: player.moving,
         sprinting: player.sprinting,
@@ -1685,15 +1769,17 @@ window.Duskwood = window.Duskwood || {};
       ? App.Network.getChairIdForSeat(gameState.localSeatIdx, gameState.playerSeats)
       : Math.max(0, Math.min(App.GameRoom.CHAIRS.length - 1, gameState.localSeatIdx));
     const startChair = App.GameRoom.CHAIRS[chairIdx] || App.GameRoom.CHAIRS[0];
+    const spawns = (App.Network && App.Network.CORNER_SPAWNS) || DEFAULT_CORNER_SPAWNS;
+    const spawnPt = spawns[(gameState.localSeatIdx || 0) % spawns.length] || spawns[0];
     gameState.localChairId = startChair.id;
     gameState.seatLabel = `SEAT ${(gameState.localSeatIdx || 0) + 1}`;
-    player.seated = true;
+    player.seated = false;
     player.chairId = startChair.id;
     player.facingCorner = false;
     player.cornerLock = null;
-    player.x = startChair.seatX;
-    player.y = startChair.seatY;
-    player.facing = startChair.facing;
+    player.x = spawnPt.x;
+    player.y = spawnPt.y;
+    player.facing = spawnPt.facing;
     player.moving = false;
     player.sprinting = false;
     player.crouching = false;
@@ -1878,7 +1964,8 @@ window.Duskwood = window.Duskwood || {};
         if (App.TableView.isBusy()) return;
         if (e.code === "KeyE") {
           e.preventDefault();
-          standUp();
+          if (player.seated) standUp();
+          else App.TableView.close(false);
         } else if (e.code === "KeyT") {
           e.preventDefault();
           App.TableView.close(false);
@@ -2280,6 +2367,8 @@ window.Duskwood = window.Duskwood || {};
     startMultiplayer,
     exitToLobby,
     forceStandUpForEvent,
+    clearCornerLock,
+    pushNetworkPlayerState,
     respawnInCellar,
     onNeighborDoorOpened,
     startMusicalRooms,
@@ -2288,6 +2377,7 @@ window.Duskwood = window.Duskwood || {};
     renderFrame,
     getLocalSeatedInfo: () => ({
       seated: Boolean(player.seated),
+      inTableView: Boolean(App.TableView && App.TableView.isOpen()),
       roomCoord: gameState.currentRoomCoord || { x: 0, y: 0 }
     }),
     isActive: () => active

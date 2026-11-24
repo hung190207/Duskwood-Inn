@@ -899,6 +899,15 @@ window.Duskwood = window.Duskwood || {};
     return humanIntroFailed;
   }
 
+  function syncHumanIntroTime(targetSec) {
+    if (!humanIntroActive || humanIntroFailed || !humanIntroEl) return;
+    if (humanIntroEl.readyState < 2) return;
+    const clamped = Math.max(0, Math.min(getHumanIntroDuration() - 0.1, targetSec || 0));
+    if (Math.abs((humanIntroEl.currentTime || 0) - clamped) > 0.35) {
+      try { humanIntroEl.currentTime = clamped; } catch (_) {}
+    }
+  }
+
   // ==================== CARD DRAW SFX: audio/draw_card.mp3 (ROCK-SOLID 4-CHANNEL POOL) ====================
   function playDrawCardSynthFallback() {
     playTone(320, 0.06, "triangle", 0.09, 540);
@@ -4014,6 +4023,7 @@ window.Duskwood = window.Duskwood || {};
     playHumanIntro,
     stopHumanIntro,
     getHumanIntroTime,
+    syncHumanIntroTime,
     getHumanIntroDuration,
     getRimClipDuration,
     isHumanIntroUsingFallback,

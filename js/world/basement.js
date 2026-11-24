@@ -1,19 +1,27 @@
 /* ==========================================================================
-   DUSKWOOD INN - THE BASEMENT (`hx_cellar_breakers`) Event Engine
+   DUSKWOOD INN - THE BASEMENT (`hx_cellar_breakers`) Event Engine (v0.59)
    - Trigger: Exits Table View + violent earthquake shake in The Dining Room!
      The Dining Room gradually slides DOWN underground into the Basement Map
      over 14 seconds synced to `audio/basement_start_sfx.mp3`!
    - 5 seconds after landing underground (`PRE_START_5S`): Event begins!
-   - Basement Map (`25x21` concrete maze, 208x208 follow-camera):
-       * Thick industrial concrete/brick walls with 10 TRUE 3-walled recessed
-         hiding alcoves (`A`) placed right near every breaker/fuse box!
+   - Dynamic Basement Layout mirrored from the upstairs Cabin (`matchState.roomMap`):
+       * Mirrors the exact room grid & doorway layout arranged upstairs, with
+         The Dining Room (0,0) as the central hydraulic lift shaft ('H').
+       * Pitch-dark weathered brick basement corridors (`rgba(2,2,4,0.968)`).
+       * Small recessed Hiding Rooms / Alcoves ('A') fitted with glowing warm
+         lamps that spill light into the corridor so players can spot them in
+         the dark to hide and break the Chainsaw Monster's chase!
        * 5 Electrical / Fuse Boxes glowing bright RED with crackling electric
-         leakage arcs in the dark -> turn bright GREEN once repaired!
-       * Press [F] near a box -> opens First-Person Close-Up Repair View facing
-         the fuse box; HOLD [F] to fill the repair progress bar!
-       * Monster: Tall Chainsaw-Head Monster patrolling a predefined closed-loop
-         corridor route at moderate speed (`40 px/s`) with spatial
-         `audio/chainsaw_sfx.mp3` (11s)! Duck into recessed wall alcoves to evade!
+         leakage arcs -> turn bright GREEN once repaired!
+       * Press [F] near a box -> opens FULL-SCREEN First-Person Close-Up Repair
+         View facing the open brick-mounted fuse cabinet; HOLD [F] to fill the
+         yellow progress bar!
+       * Monster: Tall Chainsaw-Head Monster roaming completely RANDOMLY along
+         basement paths (`WANDER`) — NEVER follows a fixed loop! Detects and
+         CHASES players who stand close enough (BFS pathfinding); if TOO CLOSE
+         (`<= 44px`), revs into an un-outrunnable frenzy (`102 px/s` > `88 px/s`
+         sprint)! Duck into a lit hiding room ('A') to evade & break chase!
+       * Keeps exact spatial near/far `audio/chainsaw_sfx.mp3` (11s) SFX!
    - Victory (5/5 boxes repaired): Reverses the descent — violently shakes &
      slides the Basement/Dining Room back UPWARD over 14 seconds with
      `audio/basement_start_sfx.mp3`, returning to normal cabin gameplay!
@@ -23,10 +31,8 @@ window.Duskwood = window.Duskwood || {};
 
 (function (App) {
   const TILE = 16;
-  const COLS = 25;
-  const ROWS = 21;
-  const WORLD_W = COLS * TILE; // 400
-  const WORLD_H = ROWS * TILE; // 336
+  const CELL_STEP = 6; // Each upstairs room (rx, ry) occupies a 6-tile stride (5x5 interior + 1-tile shared brick wall)
+  const PAD_TILES = 3; // Outer brick margin so exterior lit hiding alcoves can be recessed cleanly
   const VIEW_W = 208;
   const VIEW_H = 208;
 
@@ -34,63 +40,16 @@ window.Duskwood = window.Duskwood || {};
   const PRE_START_DELAY = 5.0;   // 5 seconds after sliding down finishes!
   const REPAIR_DURATION = 4.2;   // Seconds of holding [F] per breaker box
 
-  // 100% BFS-Verified 25x21 Basement Maze:
-  // '#' = Concrete/brick wall
-  // '.' = Walkable industrial corridor
-  // 'A' = TRUE 3-walled recessed hiding alcove indented into wall (10 total, right next to breakers!)
-  // 'H' = Central hydraulic lift platform where The Dining Room lands!
-  const MAZE_LINES = [
-    "#########################", // 0
-    "#####A#####A#######A#####", // 1  North wall recessed alcoves: (5,1), (11,1), (19,1)
-    "#.......................#", // 2  North corridor (Breakers NW & NE)
-    "#.###.#####.#.#####.###.#", // 3
-    "#.#...#...#.#.#...#...#.#", // 4
-    "#.#.#.#.#.#...#.#.#.#.#.#", // 5
-    "#.....#.#.##.##.#.#.....#", // 6
-    "###.###.#.......#.###.###", // 7
-    "##A.#...#.HHHHH.#...#.A##", // 8  West/East recessed alcoves (2,8) & (22,8)
-    "###.#.###.HHHHH.###.#.###", // 9
-    "###.......HHHHH.......###", // 10 Central Shaft Hub (10..14, 8..12) + Breakers W & E!
-    "###.#.###.HHHHH.###.#.###", // 11
-    "##A.#...#.HHHHH.#...#.A##", // 12 West/East recessed alcoves (2,12) & (22,12)
-    "###.###.#.......#.###.###", // 13
-    "#.....#.#.##.##.#.#.....#", // 14
-    "#.#.#.#.#.#...#.#.#.#.#.#", // 15
-    "#.#...#...#.#.#...#...#.#", // 16
-    "#.###.#####.#.#####.###.#", // 17
-    "#.......................#", // 18 South corridor (Breaker S)
-    "#####A#####A#####A#######", // 19 South wall recessed alcoves: (5,19), (11,19), (17,19)
-    "#########################"  // 20
-  ];
+  // Chainsaw Monster AI speeds (compared to player walk 54 / sprint 88 / crouch 32 in game.js)
+  const SAW_WANDER_SPEED = 42;       // Random corridor wandering speed
+  const SAW_CHASE_SPEED = 80;        // Mid-range chase speed (player can sprint at 88 to reach a lit hiding room)
+  const SAW_NO_ESCAPE_SPEED = 102;   // Too close -> faster than player sprint (88), CANNOT OUTRUN!
+  const SAW_DETECT_LOS_RADIUS = 78;  // Sight detection radius down dark corridors
+  const SAW_DETECT_NEAR_RADIUS = 50; // Proximity detection radius (even around a tight corner)
+  const SAW_NO_ESCAPE_RADIUS = 44;   // Un-outrunnable close-range lunge radius!
+  const SAW_LOSE_RADIUS = 136;       // Distance to lose chase if LOS is broken
 
-  const HUB_CENTER = { x: 12 * TILE + 8, y: 10 * TILE + 8 }; // (200, 168)
-
-  // 5 Breaker / Fuse Boxes mounted cleanly on corridor walls, each 2-3 steps from a recessed hiding alcove!
-  const BREAKER_SPECS = [
-    { id: "brk_nw", label: "NW FUSE BOX",    col: 3,  row: 2,  wall: "N" },
-    { id: "brk_ne", label: "NE FUSE BOX",    col: 21, row: 2,  wall: "N" },
-    { id: "brk_w",  label: "WEST BREAKER",   col: 3,  row: 10, wall: "W" },
-    { id: "brk_e",  label: "EAST BREAKER",   col: 21, row: 10, wall: "E" },
-    { id: "brk_s",  label: "SOUTH FUSE BOX", col: 12, row: 18, wall: "S" }
-  ];
-
-  // Predefined closed-loop corridor patrol route for the Tall Chainsaw-Head Monster
-  // Sweeps right past ALL 5 Breaker Boxes while NEVER entering any recessed 'A' wall alcove!
-  const PATROL_WAYPOINTS = [
-    { col: 1,  row: 2  },
-    { col: 23, row: 2  },
-    { col: 23, row: 6  },
-    { col: 21, row: 6  },
-    { col: 21, row: 14 },
-    { col: 23, row: 14 },
-    { col: 23, row: 18 },
-    { col: 1,  row: 18 },
-    { col: 1,  row: 14 },
-    { col: 3,  row: 14 },
-    { col: 3,  row: 6  },
-    { col: 1,  row: 6  }
-  ];
-
+  let activeLayout = null;
   let staticMazeCanvas = null;
 
   const maskCanvas = document.createElement("canvas");
@@ -123,8 +82,9 @@ window.Duskwood = window.Duskwood || {};
   function isMpGuest(m) { return Boolean(App.Events && App.Events.isMpGuest && App.Events.isMpGuest(m)); }
 
   function tileChar(col, row) {
-    if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return "#";
-    return MAZE_LINES[row][col];
+    if (!activeLayout) return "#";
+    if (col < 0 || col >= activeLayout.cols || row < 0 || row >= activeLayout.rows) return "#";
+    return activeLayout.grid[row][col];
   }
 
   function isWallTile(col, row) {
@@ -135,8 +95,14 @@ window.Duskwood = window.Duskwood || {};
     return tileChar(col, row) === "A";
   }
 
+  function isMonsterWalkable(col, row) {
+    const ch = tileChar(col, row);
+    // Monster walks freely on corridors ('.') & hub ('H'), NEVER enters lit hiding rooms ('A') or walls ('#')!
+    return ch === "." || ch === "H";
+  }
+
   function isPlayerInAlcove(player) {
-    if (!player) return false;
+    if (!player || !activeLayout) return false;
     const col = Math.floor(player.x / TILE);
     const row = Math.floor((player.y - 3) / TILE);
     return isAlcoveTile(col, row);
@@ -165,46 +131,450 @@ window.Duskwood = window.Duskwood || {};
     });
   }
 
-  // ==================== 1. BUILD STATIC INDUSTRIAL CONCRETE BASEMENT MAZE ====================
-  function buildStaticBasementMaze() {
+  // ==================== 1. DYNAMIC BASEMENT LAYOUT FROM UPSTAIRS ROOM MAP ====================
+  function computeRoomMapSignature(roomMap) {
+    const keys = Object.keys(roomMap || {}).sort();
+    return keys.map((k) => {
+      const r = roomMap[k];
+      const d = (r && r.doors) || {};
+      return `${k}:${r ? r.id : ""}:${d.N ? 1 : 0}${d.E ? 1 : 0}${d.S ? 1 : 0}${d.W ? 1 : 0}`;
+    }).join("|");
+  }
+
+  function buildBasementLayoutFromRoomMap(roomMap) {
+    const sig = computeRoomMapSignature(roomMap);
+    if (activeLayout && activeLayout.sig === sig) return activeLayout;
+
+    // 1. Copy & sort rooms deterministically so Host & Guests generate 100% identical basement geometry
+    const rawList = Object.values(roomMap || {})
+      .filter((r) => r && typeof r.x === "number" && typeof r.y === "number")
+      .map((r) => ({
+        x: r.x,
+        y: r.y,
+        id: r.id || "room",
+        name: r.shortName || r.name || "BASEMENT",
+        doors: {
+          N: Boolean(r.doors && r.doors.N),
+          E: Boolean(r.doors && r.doors.E),
+          S: Boolean(r.doors && r.doors.S),
+          W: Boolean(r.doors && r.doors.W)
+        }
+      }))
+      .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+
+    const byCoord = new Map();
+    rawList.forEach((r) => byCoord.set(`${r.x},${r.y}`, r));
+    if (!byCoord.has("0,0")) {
+      const hub = { x: 0, y: 0, id: "dining_room", name: "DINING", doors: { N: true, E: true, S: true, W: true } };
+      rawList.push(hub);
+      byCoord.set("0,0", hub);
+    }
+
+    // If very early in the match (< 4 rooms built upstairs), attach subtle foundation wing stubs around (0,0)
+    // so the player still sees their exact upstairs layout while having enough space for 5 fuse boxes & hiding nooks!
+    if (rawList.length < 4) {
+      const stubs = [
+        { x: 0, y: -1, opp: "N", doors: { N: false, E: true, S: true, W: true } },
+        { x: 1, y: 0,  opp: "E", doors: { N: true, E: false, S: true, W: true } },
+        { x: 0, y: 1,  opp: "S", doors: { N: true, E: true, S: false, W: true } },
+        { x: -1, y: 0, opp: "W", doors: { N: true, E: true, S: true, W: false } }
+      ];
+      const origin = byCoord.get("0,0");
+      stubs.forEach((s) => {
+        if (rawList.length >= 4) return;
+        const k = `${s.x},${s.y}`;
+        if (!byCoord.has(k)) {
+          const stubRoom = { x: s.x, y: s.y, id: "basement_annex", name: "FOUNDATION", doors: Object.assign({}, s.doors) };
+          rawList.push(stubRoom);
+          byCoord.set(k, stubRoom);
+          origin.doors[s.opp] = true;
+        }
+      });
+    }
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    rawList.forEach((r) => {
+      if (r.x < minX) minX = r.x;
+      if (r.x > maxX) maxX = r.x;
+      if (r.y < minY) minY = r.y;
+      if (r.y > maxY) maxY = r.y;
+    });
+
+    const cols = (maxX - minX + 1) * CELL_STEP + 1 + PAD_TILES * 2;
+    const rows = (maxY - minY + 1) * CELL_STEP + 1 + PAD_TILES * 2;
+    const grid = Array.from({ length: rows }, () => Array(cols).fill("#"));
+
+    const toOriginCol = (rx) => PAD_TILES + (rx - minX) * CELL_STEP;
+    const toOriginRow = (ry) => PAD_TILES + (ry - minY) * CELL_STEP;
+
+    const carveRect = (c1, r1, c2, r2, ch) => {
+      for (let r = r1; r <= r2; r++) {
+        for (let c = c1; c <= c2; c++) {
+          if (r > 0 && r < rows - 1 && c > 0 && c < cols - 1) {
+            grid[r][c] = ch;
+          }
+        }
+      }
+    };
+
+    const DIRS = [
+      ["N", 0, -1, "S"],
+      ["E", 1,  0, "W"],
+      ["S", 0,  1, "N"],
+      ["W", -1, 0, "E"]
+    ];
+
+    // 2. Carve every upstairs room into matching basement geometry + connected archways
+    rawList.forEach((room) => {
+      const oc = toOriginCol(room.x);
+      const or = toOriginRow(room.y);
+      const isHub = room.x === 0 && room.y === 0;
+      const d = room.doors;
+      const isNarrowHall = room.id === "bp_hallway_1" || room.id === "bp_hallway_2" || room.id === "bp_l_hallway" || room.id === "bp_t_hallway_1" || room.id === "bp_t_hallway_2";
+      const isTightRoom = room.id === "bp_bathroom";
+
+      if (isHub) {
+        // Dining Room hydraulic lift shaft at exact (0,0) coordinate
+        carveRect(oc + 1, or + 1, oc + 5, or + 5, "H");
+      } else if (isNarrowHall) {
+        // Narrow 3-tile wide corridor branches matching exact door directions (I, L, or T hallway)
+        carveRect(oc + 2, or + 2, oc + 4, or + 4, ".");
+        if (d.N) carveRect(oc + 2, or + 1, oc + 4, or + 2, ".");
+        if (d.S) carveRect(oc + 2, or + 4, oc + 4, or + 5, ".");
+        if (d.W) carveRect(oc + 1, or + 2, oc + 2, or + 4, ".");
+        if (d.E) carveRect(oc + 4, or + 2, oc + 5, or + 4, ".");
+      } else if (isTightRoom) {
+        // Narrow elongated chamber like Bathroom upstairs
+        if (d.N || d.S) carveRect(oc + 2, or + 1, oc + 4, or + 5, ".");
+        else carveRect(oc + 1, or + 2, oc + 5, or + 4, ".");
+      } else {
+        // Spacious 5x5 basement chamber mirroring Kitchen/Bedroom/Living/Study/Furnace/Cellar
+        carveRect(oc + 1, or + 1, oc + 5, or + 5, ".");
+        // Add a single structural brick pillar in the center of large rooms to create tense kiting/stealth corners
+        if (room.id === "bp_living_room" || room.id === "bp_kitchen" || room.id === "bp_bedroom" || room.id === "bp_cellar") {
+          grid[or + 3][oc + 3] = "#";
+        }
+      }
+
+      // Open brick doorway archways wherever two adjacent upstairs rooms share a matching door
+      DIRS.forEach(([dir, dx, dy, opp]) => {
+        const nb = byCoord.get(`${room.x + dx},${room.y + dy}`);
+        if (!nb) return;
+        const matched = Boolean(d[dir] && nb.doors[opp]);
+        if (!matched) return;
+        if (dir === "N") carveRect(oc + 2, or,     oc + 4, or + 1, ".");
+        if (dir === "S") carveRect(oc + 2, or + 5, oc + 4, or + 6, ".");
+        if (dir === "W") carveRect(oc,     or + 2, oc + 1, or + 4, ".");
+        if (dir === "E") carveRect(oc + 5, or + 2, oc + 6, or + 4, ".");
+      });
+    });
+
+    const hubCol = toOriginCol(0) + 3;
+    const hubRow = toOriginRow(0) + 3;
+    const hubCenter = { x: hubCol * TILE + 8, y: hubRow * TILE + 8 };
+
+    // 3. BFS Connectivity Verification: ensure EVERY upstairs room is reachable from (0,0)
+    //    (e.g., if a room's door was placed oddly or Cellar wasn't linked, punch a doorway to its visited neighbor)
+    const getVisited = () => {
+      const vis = new Set([`${hubCol},${hubRow}`]);
+      const q = [{ c: hubCol, r: hubRow }];
+      while (q.length > 0) {
+        const cur = q.shift();
+        const steps = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        for (let i = 0; i < steps.length; i++) {
+          const nc = cur.c + steps[i][0];
+          const nr = cur.r + steps[i][1];
+          if (nc < 0 || nc >= cols || nr < 0 || nr >= rows) continue;
+          const ch = grid[nr][nc];
+          if (ch !== "." && ch !== "H") continue;
+          const k = `${nc},${nr}`;
+          if (!vis.has(k)) {
+            vis.add(k);
+            q.push({ c: nc, r: nr });
+          }
+        }
+      }
+      return vis;
+    };
+
+    for (let pass = 0; pass < rawList.length; pass++) {
+      const vis = getVisited();
+      let bridged = false;
+      for (let i = 0; i < rawList.length; i++) {
+        const rm = rawList[i];
+        const oc = toOriginCol(rm.x);
+        const or = toOriginRow(rm.y);
+        const cx = oc + 2;
+        const cy = or + 2;
+        if (vis.has(`${cx},${cy}`)) continue;
+        // Find an adjacent room that IS visited and punch a doorway between them
+        for (let di = 0; di < DIRS.length; di++) {
+          const [dir, dx, dy] = DIRS[di];
+          const nb = byCoord.get(`${rm.x + dx},${rm.y + dy}`);
+          if (!nb) continue;
+          const ncx = toOriginCol(nb.x) + 2;
+          const ncy = toOriginRow(nb.y) + 2;
+          if (!vis.has(`${ncx},${ncy}`)) continue;
+          if (dir === "N") carveRect(oc + 2, or,     oc + 4, or + 1, ".");
+          if (dir === "S") carveRect(oc + 2, or + 5, oc + 4, or + 6, ".");
+          if (dir === "W") carveRect(oc,     or + 2, oc + 1, or + 4, ".");
+          if (dir === "E") carveRect(oc + 5, or + 2, oc + 6, or + 4, ".");
+          bridged = true;
+          break;
+        }
+      }
+      if (!bridged) break;
+    }
+
+    const reachableSet = getVisited();
+
+    // 4. Carve SMALL LIT HIDING ROOMS / ALCOVES ('A') recessed into solid brick walls!
+    //    Each hiding room has a glowing warm lamp mounted inside so players can spot them in pitch dark
+    //    and duck inside to avoid / break chase from the Chainsaw Monster!
+    const alcoveLights = [];
+    const targetAlcoves = Math.max(5, Math.min(11, rawList.length + 2));
+    const alcoveCandidates = [];
+
+    for (let r = 2; r < rows - 2; r++) {
+      for (let c = 2; c < cols - 2; c++) {
+        if (grid[r][c] !== "." || !reachableSet.has(`${c},${r}`)) continue;
+        const nDirs = [[-1, 0, "N"], [1, 0, "S"], [0, -1, "W"], [0, 1, "E"]];
+        for (let di = 0; di < nDirs.length; di++) {
+          const [dr, dc, side] = nDirs[di];
+          const r1 = r + dr, c1 = c + dc;
+          const r2 = r + dr * 2, c2 = c + dc * 2;
+          if (r2 <= 0 || r2 >= rows - 1 || c2 <= 0 || c2 >= cols - 1) continue;
+          if (grid[r1][c1] !== "#" || grid[r2][c2] !== "#") continue;
+          // Ensure side walls around the recessed nook are solid brick '#' so it is a TRUE enclosed hiding cubby!
+          const pdr = dc !== 0 ? 1 : 0;
+          const pdc = dr !== 0 ? 1 : 0;
+          if (
+            grid[r1 + pdr][c1 + pdc] !== "#" ||
+            grid[r1 - pdr][c1 - pdc] !== "#" ||
+            grid[r2 + pdr][c2 + pdc] !== "#" ||
+            grid[r2 - pdr][c2 - pdc] !== "#"
+          ) continue;
+          alcoveCandidates.push({
+            corridorCol: c,
+            corridorRow: r,
+            entryCol: c1,
+            entryRow: r1,
+            deepCol: c2,
+            deepRow: r2,
+            side
+          });
+        }
+      }
+    }
+
+    // Spread lit hiding rooms evenly across the entire basement (farthest-point spacing)
+    const minAlcoveSpacingPx = TILE * 4.8;
+    for (let i = 0; i < alcoveCandidates.length && alcoveLights.length < targetAlcoves; i++) {
+      // Pick candidate maximizing min distance to existing alcoves
+      let bestIdx = -1;
+      let bestDist = -1;
+      for (let j = 0; j < alcoveCandidates.length; j++) {
+        const cand = alcoveCandidates[j];
+        if (grid[cand.entryRow][cand.entryCol] !== "#" || grid[cand.deepRow][cand.deepCol] !== "#") continue;
+        const cx = cand.entryCol * TILE + 8;
+        const cy = cand.entryRow * TILE + 8;
+        const minD = alcoveLights.length === 0
+          ? Math.hypot(cx - hubCenter.x, cy - hubCenter.y)
+          : Math.min(...alcoveLights.map((a) => Math.hypot(cx - a.entryX, cy - a.entryY)));
+        if (alcoveLights.length > 0 && minD < minAlcoveSpacingPx) continue;
+        if (minD > bestDist) {
+          bestDist = minD;
+          bestIdx = j;
+        }
+      }
+      if (bestIdx < 0) break;
+      const pick = alcoveCandidates[bestIdx];
+      // Verify side walls are still intact before carving
+      const dr = pick.deepRow - pick.entryRow;
+      const dc = pick.deepCol - pick.entryCol;
+      const pdr = dc !== 0 ? 1 : 0;
+      const pdc = dr !== 0 ? 1 : 0;
+      if (
+        grid[pick.entryRow + pdr][pick.entryCol + pdc] !== "#" ||
+        grid[pick.entryRow - pdr][pick.entryCol - pdc] !== "#" ||
+        grid[pick.deepRow + pdr][pick.deepCol + pdc] !== "#" ||
+        grid[pick.deepRow - pdr][pick.deepCol - pdc] !== "#"
+      ) continue;
+
+      grid[pick.entryRow][pick.entryCol] = "A";
+      grid[pick.deepRow][pick.deepCol] = "A";
+      alcoveLights.push({
+        col: pick.deepCol,
+        row: pick.deepRow,
+        entryCol: pick.entryCol,
+        entryRow: pick.entryRow,
+        side: pick.side,
+        x: pick.deepCol * TILE + 8,
+        y: pick.deepRow * TILE + 8,
+        entryX: pick.entryCol * TILE + 8,
+        entryY: pick.entryRow * TILE + 8
+      });
+    }
+
+    // Fallback: if fewer than 3 deep 2-tile alcoves fit on a super compact grid, carve 1-tile lit niches
+    if (alcoveLights.length < 3) {
+      for (let r = 2; r < rows - 2 && alcoveLights.length < 4; r++) {
+        for (let c = 2; c < cols - 2 && alcoveLights.length < 4; c++) {
+          if (grid[r][c] !== "." || !reachableSet.has(`${c},${r}`)) continue;
+          const nDirs = [[-1, 0, "N"], [1, 0, "S"], [0, -1, "W"], [0, 1, "E"]];
+          for (let di = 0; di < nDirs.length; di++) {
+            const [dr, dc, side] = nDirs[di];
+            const r1 = r + dr, c1 = c + dc;
+            if (r1 <= 0 || r1 >= rows - 1 || c1 <= 0 || c1 >= cols - 1) continue;
+            if (grid[r1][c1] !== "#") continue;
+            const pdr = dc !== 0 ? 1 : 0;
+            const pdc = dr !== 0 ? 1 : 0;
+            if (grid[r1 + pdr][c1 + pdc] !== "#" || grid[r1 - pdr][c1 - pdc] !== "#") continue;
+            const cx = c1 * TILE + 8;
+            const cy = r1 * TILE + 8;
+            if (alcoveLights.some((a) => Math.hypot(cx - a.x, cy - a.y) < TILE * 3.5)) continue;
+            grid[r1][c1] = "A";
+            alcoveLights.push({ col: c1, row: r1, entryCol: c1, entryRow: r1, side, x: cx, y: cy, entryX: cx, entryY: cy });
+            break;
+          }
+        }
+      }
+    }
+
+    // 5. Place 5 Red Breaker / Fuse Boxes mounted on reachable corridor walls, evenly spread across the layout
+    const breakerCandidates = [];
+    for (let r = 1; r < rows - 1; r++) {
+      for (let c = 1; c < cols - 1; c++) {
+        if (grid[r][c] !== "." || !reachableSet.has(`${c},${r}`)) continue;
+        // Keep a little breathing room away from hub center
+        if (Math.hypot(c - hubCol, r - hubRow) < 3.0) continue;
+        const wallDir =
+          grid[r - 1][c] === "#" ? "N" :
+          grid[r][c - 1] === "#" ? "W" :
+          grid[r][c + 1] === "#" ? "E" :
+          grid[r + 1][c] === "#" ? "S" : null;
+        if (!wallDir) continue;
+        // Avoid placing directly inside an alcove mouth
+        if (grid[r - 1][c] === "A" || grid[r + 1][c] === "A" || grid[r][c - 1] === "A" || grid[r][c + 1] === "A") continue;
+        breakerCandidates.push({ col: c, row: r, wall: wallDir });
+      }
+    }
+
+    // Fallback if very tight map
+    if (breakerCandidates.length < 5) {
+      for (let r = 1; r < rows - 1; r++) {
+        for (let c = 1; c < cols - 1; c++) {
+          if (grid[r][c] === "." && reachableSet.has(`${c},${r}`)) {
+            if (!breakerCandidates.some((b) => b.col === c && b.row === r)) {
+              breakerCandidates.push({ col: c, row: r, wall: "N" });
+            }
+          }
+        }
+      }
+    }
+
+    const breakerLabels = ["FUSE BOX A", "FUSE BOX B", "FUSE BOX C", "FUSE BOX D", "FUSE BOX E"];
+    const breakerSpecs = [];
+    for (let i = 0; i < 5 && breakerCandidates.length > 0; i++) {
+      let best = breakerCandidates[0];
+      let bestScore = -1;
+      for (let j = 0; j < breakerCandidates.length; j++) {
+        const cand = breakerCandidates[j];
+        if (breakerSpecs.some((b) => b.col === cand.col && b.row === cand.row)) continue;
+        const score = breakerSpecs.length === 0
+          ? Math.hypot(cand.col - hubCol, cand.row - hubRow)
+          : Math.min(...breakerSpecs.map((b) => Math.hypot(cand.col - b.col, cand.row - b.row)));
+        if (score > bestScore) {
+          bestScore = score;
+          best = cand;
+        }
+      }
+      breakerSpecs.push({
+        id: `brk_${i + 1}`,
+        label: breakerLabels[i],
+        col: best.col,
+        row: best.row,
+        wall: best.wall
+      });
+    }
+
+    // 6. Monster Spawn Tile: farthest reachable corridor tile from the central Dining Room shaft
+    let spawnTile = { col: hubCol, row: Math.max(1, hubRow - 4) };
+    let maxSpawnDist = -1;
+    reachableSet.forEach((k) => {
+      const parts = k.split(",");
+      const c = Number(parts[0]);
+      const r = Number(parts[1]);
+      if (grid[r][c] !== ".") return;
+      const d = Math.hypot(c - hubCol, r - hubRow);
+      if (d > maxSpawnDist) {
+        maxSpawnDist = d;
+        spawnTile = { col: c, row: r };
+      }
+    });
+
+    activeLayout = {
+      sig,
+      cols,
+      rows,
+      worldW: cols * TILE,
+      worldH: rows * TILE,
+      grid,
+      hubCenter,
+      alcoveLights,
+      breakerSpecs,
+      spawnTile
+    };
+    staticMazeCanvas = null;
+    return activeLayout;
+  }
+
+  // ==================== 2. BUILD STATIC WEATHERED BRICK BASEMENT MAP ====================
+  function buildStaticBasementMaze(matchState) {
+    if (!activeLayout) buildBasementLayoutFromRoomMap(matchState && matchState.roomMap);
+    const L = activeLayout;
     staticMazeCanvas = document.createElement("canvas");
-    staticMazeCanvas.width = WORLD_W;
-    staticMazeCanvas.height = WORLD_H;
+    staticMazeCanvas.width = L.worldW;
+    staticMazeCanvas.height = L.worldH;
     const c = staticMazeCanvas.getContext("2d");
     c.imageSmoothingEnabled = false;
 
-    // 1. Cold damp basement concrete slabs
-    const slabCols = ["#2e3034", "#292b2f", "#33363b", "#26282c"];
-    for (let r = 0; r < ROWS; r++) {
-      for (let col = 0; col < COLS; col++) {
-        const ch = tileChar(col, r);
+    const slabCols = ["#272320", "#221e1c", "#2b2622", "#1f1c1a"];
+    for (let r = 0; r < L.rows; r++) {
+      for (let col = 0; col < L.cols; col++) {
+        const ch = L.grid[r][col];
         const x = col * TILE;
         const y = r * TILE;
 
         if (ch === "#") {
-          // Heavy concrete/cinderblock subterranean basement wall
-          px(c, x, y, TILE, TILE, "#121316");
-          px(c, x + 1, y + 1, TILE - 2, TILE - 2, "#3a3d42");
-          px(c, x + 1, y + 1, TILE - 2, 3, "#4e5259"); // Top concrete wall bevel
-          // Cinderblock seam lines
-          px(c, x + 1, y + 8, TILE - 2, 1, "#222429");
-          px(c, x + 8, y + 2, 1, 6, "#222429");
-          px(c, x + 4, y + 9, 1, 6, "#222429");
+          // Aged industrial brown/umber basement brickwork (matching basement screenshots!)
+          px(c, x, y, TILE, TILE, "#0f0c0b");
+          px(c, x + 1, y + 1, TILE - 2, TILE - 2, "#3c3129");
+          px(c, x + 1, y + 1, TILE - 2, 3, "#4f4137"); // Upper bevel
+          // Brick mortar seams
+          px(c, x + 1, y + 6,  TILE - 2, 1, "#211a15");
+          px(c, x + 1, y + 11, TILE - 2, 1, "#211a15");
+          px(c, x + 7, y + 2,  1, 4, "#211a15");
+          px(c, x + 4, y + 7,  1, 4, "#211a15");
+          px(c, x + 11, y + 7, 1, 4, "#211a15");
+          px(c, x + 8, y + 12, 1, 3, "#211a15");
+          if ((col * 7 + r * 11) % 5 === 0) {
+            px(c, x + 3, y + 3, 3, 2, "#2f251f"); // Weathered brick patch
+          }
           // Cast dark vertical drop shadow onto south floor
           if (!isWallTile(col, r + 1)) {
-            c.fillStyle = "rgba(0,0,0,0.48)";
+            c.fillStyle = "rgba(0,0,0,0.56)";
             c.fillRect(x, y + TILE, TILE, 4);
           }
           continue;
         }
 
         if (ch === "H") {
-          // Central steel hydraulic lift platform where The Dining Room rests underground!
-          px(c, x, y, TILE, TILE, "#363330");
-          px(c, x + 1, y + 1, TILE - 2, TILE - 2, "#4a433d");
-          px(c, x + 2, y + 2, 2, 2, "#24211e"); // Floor bolts
-          px(c, x + 12, y + 12, 2, 2, "#24211e");
-          // Yellow/black industrial hazard rim around the 5x5 hydraulic platform edge!
+          // Central steel hydraulic lift platform where The Dining Room lands!
+          px(c, x, y, TILE, TILE, "#36312d");
+          px(c, x + 1, y + 1, TILE - 2, TILE - 2, "#4a423b");
+          px(c, x + 2, y + 2, 2, 2, "#231e1b");
+          px(c, x + 12, y + 12, 2, 2, "#231e1b");
           if (tileChar(col, r - 1) !== "H") px(c, x, y, TILE, 2, (col % 2 === 0) ? "#c79a2e" : "#1c1917");
           if (tileChar(col, r + 1) !== "H") px(c, x, y + TILE - 2, TILE, 2, (col % 2 === 0) ? "#c79a2e" : "#1c1917");
           if (tileChar(col - 1, r) !== "H") px(c, x, y, 2, TILE, (r % 2 === 0) ? "#c79a2e" : "#1c1917");
@@ -213,42 +583,34 @@ window.Duskwood = window.Duskwood || {};
         }
 
         if (ch === "A") {
-          // Recessed 3-walled Hiding Alcove indented into concrete wall!
-          px(c, x, y, TILE, TILE, "#1b1e24"); // Deep shadowy hiding niche
-          px(c, x + 1, y + 1, TILE - 2, TILE - 2, "#232730");
-          // Subtle blue-slate safety dashed floor border so players spot hiding nooks quickly!
-          px(c, x + 2, y + 2, TILE - 4, 1, "#4c6278");
-          px(c, x + 2, y + TILE - 3, TILE - 4, 1, "#4c6278");
-          px(c, x + 2, y + 2, 1, TILE - 4, "#4c6278");
-          px(c, x + TILE - 3, y + 2, 1, TILE - 4, "#4c6278");
+          // Lit Hiding Room / Recessed Safe Alcove! Warm timber/stone refuge floor
+          px(c, x, y, TILE, TILE, "#2d251d");
+          px(c, x + 1, y + 1, TILE - 2, TILE - 2, "#403427");
+          px(c, x + 2, y + 2, TILE - 4, 1, "#6b553b");
+          px(c, x + 2, y + TILE - 3, TILE - 4, 1, "#2a2118");
           continue;
         }
 
-        // Standard damp basement corridor floor slab
+        // Damp basement floor slabs
         const colIdx = (col * 3 + r * 5) % slabCols.length;
         px(c, x, y, TILE, TILE, slabCols[colIdx]);
-        px(c, x, y + TILE - 1, TILE, 1, "#1e2024");
-        px(c, x + TILE - 1, y, 1, TILE, "#1e2024");
+        px(c, x, y + TILE - 1, TILE, 1, "#171412");
+        px(c, x + TILE - 1, y, 1, TILE, "#171412");
         if ((col + r) % 4 === 0) {
-          px(c, x + 4, y + 5, 5, 2, "rgba(18, 22, 28, 0.35)"); // Damp floor stain
+          px(c, x + 4, y + 5, 5, 2, "rgba(12, 10, 9, 0.42)");
         }
       }
     }
-
-    // Rust-stained ceiling pipes running along main north/south corridors for basement atmosphere
-    for (let x = TILE; x < WORLD_W - TILE; x += 16) {
-      px(c, x, TILE * 2 - 2, 16, 2, "#593b29");
-      px(c, x, TILE * 18 + TILE, 16, 2, "#593b29");
-    }
   }
 
-  // ==================== 2. TALL CHAINSAW-HEAD MONSTER SPRITE (28x44) ====================
-  function drawChainsawMonsterSprite(ctx, x, y, timeSec, facing) {
-    const stride = Math.sin(timeSec * 8.2);
-    const revVib = Math.sin(timeSec * 48) > 0 ? 1 : 0;
-    const legL = Math.round(stride * 2.4);
+  // ==================== 3. TALL CHAINSAW-HEAD MONSTER SPRITE (28x44) ====================
+  function drawChainsawMonsterSprite(ctx, x, y, timeSec, facing, isChasing, isFrenzy) {
+    const walkRate = isFrenzy ? 16.5 : isChasing ? 12.2 : 8.0;
+    const stride = Math.sin(timeSec * walkRate);
+    const revVib = Math.sin(timeSec * (isFrenzy ? 78 : 48)) > 0 ? 1 : 0;
+    const legL = Math.round(stride * (isChasing ? 3.2 : 2.3));
     const legR = -legL;
-    const chainTick = Math.floor(timeSec * 24) % 2;
+    const chainTick = Math.floor(timeSec * (isFrenzy ? 36 : 24)) % 2;
 
     sctx.clearRect(0, 0, 28, 44);
 
@@ -261,15 +623,15 @@ window.Duskwood = window.Duskwood || {};
     px(sctx, 16, 29, 2, 11 + legR, "#242129");
     px(sctx, 15, 39 + legR, 5, 3,  "#141012");
 
-    // Towering hunched oil-stained coveralls & bloodied leather butcher apron!
+    // Towering hunched oil-stained coveralls & bloodied leather butcher apron
     px(sctx, 6,  14, 16, 16, "#0d0a0c");
-    px(sctx, 7,  15, 14, 14, "#24272c"); // Dark charcoal mechanic coveralls
-    px(sctx, 9,  16, 10, 13, "#3b231b"); // Heavy dark leather apron
-    px(sctx, 10, 19, 3,  4,  "#7a141c"); // Dried crimson stain on apron
+    px(sctx, 7,  15, 14, 14, "#24272c");
+    px(sctx, 9,  16, 10, 13, "#3b231b");
+    px(sctx, 10, 19, 3,  4,  "#7a141c");
     px(sctx, 15, 22, 3,  5,  "#630e15");
 
-    // Long muscular arms hanging by sides with stained gloves
-    const armSw = Math.round(stride * 2.0);
+    // Long muscular arms hanging by sides
+    const armSw = Math.round(stride * (isChasing ? 3.0 : 2.0));
     px(sctx, 3,  15, 4, 14 + armSw, "#121318");
     px(sctx, 4,  16, 2, 12 + armSw, "#2e3238");
     px(sctx, 3,  28 + armSw, 4, 3,  "#4f382e");
@@ -278,32 +640,28 @@ window.Duskwood = window.Duskwood || {};
     px(sctx, 22, 16, 2, 12 - armSw, "#2e3238");
     px(sctx, 21, 28 - armSw, 4, 3,  "#4f382e");
 
-    // === ICONIC CHAINSAW HEAD (Orange/Rust Industrial Engine Casing + Protruding Spinning Blade!) ===
-    // Thick mechanical neck collar + exhaust pipe puffing smoke
+    // Iconic Chainsaw Head
     px(sctx, 11, 12, 6, 3, "#1a1718");
     px(sctx, 12, 12, 4, 2, "#595e66");
-    // Rear chainsaw engine motor housing (head skull replacement!)
     px(sctx, 5,  4 + revVib, 11, 9, "#1a0e09");
-    px(sctx, 6,  5 + revVib, 9,  7, "#c94a1c"); // Rusted industrial orange chainsaw motor!
-    px(sctx, 7,  5 + revVib, 7,  2, "#eb7338"); // Top highlight
-    px(sctx, 7,  8 + revVib, 5,  3, "#26282e"); // Vented engine grill slats
-    px(sctx, 4,  6 + revVib, 2,  5, "#3a3e45"); // Top handle bar & starter pull-cord
-    // Glowing red vent eye-slit on motor casing
-    px(sctx, 13, 6 + revVib, 2,  2, "#ff2626");
+    px(sctx, 6,  5 + revVib, 9,  7, isFrenzy ? "#e0531f" : "#c94a1c");
+    px(sctx, 7,  5 + revVib, 7,  2, "#eb7338");
+    px(sctx, 7,  8 + revVib, 5,  3, "#26282e");
+    px(sctx, 4,  6 + revVib, 2,  5, "#3a3e45");
+    // Glowing crimson vent eye-slit (flares intensely during chase/frenzy!)
+    px(sctx, 13, 6 + revVib, 2,  2, isFrenzy ? "#ff6b35" : isChasing ? "#ff2626" : "#cc1f1f");
 
-    // Long protruding steel chainsaw guide bar jutting forward out of the head!
+    // Protruding steel chainsaw guide bar
     px(sctx, 16, 6 + revVib, 11, 5, "#17191d");
-    px(sctx, 16, 7 + revVib, 10, 3, "#9aa4b0"); // Steel guide bar
-    px(sctx, 17, 8 + revVib, 7,  1, "#8c141c"); // Crimson streak along bar!
-    // Animated spinning razor teeth along top & bottom edges of the chainsaw bar!
+    px(sctx, 16, 7 + revVib, 10, 3, "#9aa4b0");
+    px(sctx, 17, 8 + revVib, 7,  1, "#8c141c");
     for (let tx = 16 + chainTick; tx <= 26; tx += 2) {
       px(sctx, tx, 5 + revVib,  1, 1, "#f2f6fa");
       px(sctx, tx, 11 + revVib, 1, 1, "#f2f6fa");
     }
 
     ctx.save();
-    // Floor contact shadow
-    ctx.fillStyle = "rgba(0, 0, 0, 0.62)";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.68)";
     ctx.fillRect(Math.round(x - 10), Math.round(y - 2), 20, 5);
 
     const drawX = Math.round(x - 14);
@@ -315,27 +673,34 @@ window.Duskwood = window.Duskwood || {};
     } else {
       ctx.drawImage(sawBuf, drawX, drawY);
     }
+
+    // Revving orange sparks flying off blade when chasing!
+    if (isChasing && Math.sin(timeSec * 31) > 0) {
+      ctx.fillStyle = isFrenzy ? "#fff0a6" : "#ff8d3b";
+      const spX = Math.round(x + facing * 12);
+      const spY = Math.round(y - 33 + Math.sin(timeSec * 47) * 3);
+      ctx.fillRect(spX, spY, 2, 2);
+      ctx.fillRect(spX + facing * 3, spY - 2, 1, 1);
+    }
     ctx.restore();
   }
 
-  // ==================== 3. BREAKER / FUSE BOX SPRITES & ELECTRIC LEAK ARCS ====================
+  // ==================== 4. BREAKER / FUSE BOX SPRITES & ELECTRIC LEAK ARCS ====================
   function drawBreakerBoxInMaze(ctx, bx, by, fixed, timeSec) {
     const x = Math.round(bx);
     const y = Math.round(by);
-    // Heavy steel electrical wall cabinet
     px(ctx, x - 6, y - 8, 12, 14, "#14161a");
-    px(ctx, x - 5, y - 7, 10, 12, "#4a515c");
-    px(ctx, x - 4, y - 6, 8,  10, "#353b45");
-    // Glowing RED (faulty) or GREEN (fixed) indicator lamp & fuse window!
+    px(ctx, x - 5, y - 7, 10, 12, "#59544e");
+    px(ctx, x - 4, y - 6, 8,  10, "#3b3733");
+    // Top caged beacon lamp (matches image_bc96be.jpg!)
     const lampCol = fixed ? "#4df286" : (Math.sin(timeSec * 12) > -0.2 ? "#ff2e2e" : "#8f1414");
-    px(ctx, x - 2, y - 5, 4, 3, lampCol);
+    px(ctx, x - 2, y - 10, 4, 3, lampCol);
     px(ctx, x - 3, y - 1, 6, 4, fixed ? "#1f4d30" : "#4d1818");
     px(ctx, x - 2, y,     2, 2, fixed ? "#78ffaa" : "#ff6b6b");
     px(ctx, x + 1, y,     2, 2, fixed ? "#78ffaa" : "#ff6b6b");
   }
 
   function drawElectricLeakArcs(ctx, bx, by, timeSec, seed) {
-    // Crackling jagged cyan/amber electric leakage sparks (`hiệu ứng rỉ điện`)!
     const burst = Math.sin(timeSec * 14 + seed * 3.1);
     if (burst < -0.15) return;
     ctx.save();
@@ -356,60 +721,133 @@ window.Duskwood = window.Duskwood || {};
     ctx.restore();
   }
 
-  // ==================== 4. FIRST-PERSON BREAKER / FUSE BOX REPAIR MODAL ====================
-  function buildBreakerModalSVG(box, timeSec) {
-    const fixed = box.fixed;
-    const prog = Math.round((box.progress || 0) * 100);
-    const ledCol = fixed ? "#4df286" : "#ff3333";
-    const ledGlow = fixed ? "rgba(77,242,134,0.45)" : "rgba(255,48,48,0.52)";
-    const sparkVis = !fixed;
+  // ==================== 5. FULL-SCREEN FIRST-PERSON FUSE BOX VIEW (Matches image_bc9701.jpg!) ====================
+  function buildBreakerModalSVG(box) {
+    const fixed = Boolean(box.fixed);
+    const prog = Math.max(0, Math.min(100, Math.round((box.progress || 0) * 100)));
+    const barW = Math.round((prog / 100) * 636);
+    const glowRgb = fixed ? "64,242,126" : "255,34,34";
+    const beaconOuter = fixed ? "#28db6c" : "#e81b1b";
+    const beaconCore = fixed ? "#b8ffd4" : "#ff8a8a";
+    const leverY = fixed ? 550 : 614;
+    const leverCol = fixed ? "#5ef295" : "#783135";
 
-    // 4 Ceramic Fuses inside the open steel panel — light up GREEN sequentially as progress hits 25/50/75/100%!
-    const fuseHtml = [0, 1, 2, 3].map((i) => {
-      const fx = 66 + i * 48;
-      const lit = fixed || prog >= (i + 1) * 25;
-      const fCol = lit ? "#52f28d" : "#ff4545";
-      return `
-        <rect x="${fx}" y="114" width="30" height="58" rx="3" fill="#181c22" stroke="#596270" stroke-width="2"/>
-        <rect x="${fx + 6}" y="120" width="18" height="10" fill="#b89852"/>
-        <rect x="${fx + 6}" y="156" width="18" height="10" fill="#b89852"/>
-        <rect x="${fx + 8}" y="130" width="14" height="26" fill="${lit ? "#d9ffe6" : "#3a1b1e"}" stroke="#262a30" stroke-width="1.5"/>
-        <line x1="${fx + 15}" y1="130" x2="${fx + 15}" y2="156" stroke="${fCol}" stroke-width="3"/>
-        <circle cx="${fx + 15}" cy="186" r="5" fill="${fCol}"/>
+    // Full-screen textured brick basement wall behind the open fuse cabinet
+    let bricks = "";
+    for (let row = 0; row < 15; row++) {
+      const y = row * 52;
+      const offset = (row % 2) * 62;
+      for (let col = -1; col < 12; col++) {
+        const x = col * 124 + offset;
+        const shade = ((row * 5 + col * 3) & 3) === 0 ? "#2f1b1d" : "#261517";
+        bricks += `<rect x="${x + 4}" y="${y + 4}" width="116" height="44" rx="4" fill="${shade}" stroke="#12090a" stroke-width="4"/>`;
+      }
+    }
+
+    // Upper wire terminal blocks along the rail
+    let terminals = "";
+    [296, 336, 376, 416, 650, 690, 730].forEach((tx) => {
+      terminals += `
+        <rect x="${tx}" y="352" width="28" height="36" rx="2" fill="#2e181a" stroke="#14090b" stroke-width="3"/>
+        <circle cx="${tx + 14}" cy="368" r="5" fill="#5e3236"/>
+        <rect x="${tx}" y="440" width="28" height="30" rx="2" fill="#2e181a" stroke="#14090b" stroke-width="3"/>
       `;
-    }).join("");
+    });
 
     return `
-      <svg viewBox="0 0 320 240" class="bm-fp-svg" aria-hidden="true">
-        <rect width="320" height="240" fill="#14161a"/>
-        <!-- Concrete basement wall behind cabinet -->
-        <line x1="0" y1="60" x2="320" y2="60" stroke="#1f2228" stroke-width="2"/>
-        <line x1="0" y1="120" x2="320" y2="120" stroke="#1f2228" stroke-width="2"/>
-        <line x1="0" y1="180" x2="320" y2="180" stroke="#1f2228" stroke-width="2"/>
-        <!-- Steel electrical conduits -->
-        <rect x="148" y="0" width="24" height="26" fill="#464d57" stroke="#1b1e24" stroke-width="2"/>
-        <!-- Open Heavy Industrial Breaker Box Cabinet -->
-        <rect x="34" y="20" width="252" height="202" rx="6" fill="#3a404a" stroke="#121418" stroke-width="4"/>
-        <rect x="44" y="30" width="232" height="182" rx="3" fill="#23272e" stroke="#5b6370" stroke-width="2"/>
-        <!-- Top Status Header Plate & Red/Green Indicator Light -->
-        <rect x="56" y="42" width="208" height="46" rx="3" fill="#16191f" stroke="#454c57" stroke-width="2"/>
-        <circle cx="88" cy="65" r="15" fill="${ledGlow}"/>
-        <circle cx="88" cy="65" r="9" fill="${ledCol}" stroke="#121418" stroke-width="2"/>
-        <text x="180" y="61" text-anchor="middle" font-family="'Press Start 2P', monospace" font-size="9" fill="#e8eef7">${box.label}</text>
-        <text x="180" y="77" text-anchor="middle" font-family="'Pixelify Sans', monospace" font-size="12" font-weight="700" fill="${ledCol}">${fixed ? "POWER RESTORED" : "SHORT CIRCUIT — LEAKING"}</text>
-        <!-- 4 Ceramic Fuse Cartridges -->
-        ${fuseHtml}
-        <!-- Copper bus wires -->
-        <path d="M56,102 L264,102" stroke="#b5713c" stroke-width="4"/>
-        <path d="M56,202 L264,202" stroke="#46738c" stroke-width="3"/>
-        ${
-          sparkVis
-            ? `<g class="bm-spark-arcs" stroke="#8ceeff" stroke-width="2.4" fill="none" stroke-linecap="round">
-                 <polyline points="82,102 96,118 86,130 104,144"/>
-                 <polyline points="222,102 210,116 226,126 212,140"/>
-               </g>`
-            : ""
-        }
+      <svg viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid slice" class="bm-fp-svg" aria-hidden="true">
+        <defs>
+          <radialGradient id="bmSirenWash" cx="44%" cy="29%" r="72%">
+            <stop offset="0%" stop-color="rgba(${glowRgb},0.88)"/>
+            <stop offset="35%" stop-color="rgba(${glowRgb},0.46)"/>
+            <stop offset="72%" stop-color="rgba(${glowRgb},0.16)"/>
+            <stop offset="100%" stop-color="rgba(8,4,6,0.92)"/>
+          </radialGradient>
+          <linearGradient id="bmCabinetGlow" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="rgba(${glowRgb},0.55)"/>
+            <stop offset="60%" stop-color="rgba(${glowRgb},0.22)"/>
+            <stop offset="100%" stop-color="rgba(18,7,9,0.92)"/>
+          </linearGradient>
+        </defs>
+
+        <!-- 1. Full-screen aged basement brick wall drenched in red/green siren light -->
+        <rect width="1280" height="720" fill="#14090b"/>
+        <g opacity="0.95">${bricks}</g>
+        <rect width="1280" height="720" fill="url(#bmSirenWash)" class="bm-siren-pulse"/>
+
+        <!-- 2. Top Caged Emergency Beacon + Twin Mounting Bolts -->
+        <g transform="translate(526, 134)">
+          <rect x="-210" y="136" width="58" height="28" rx="12" fill="#180e10" stroke="#361c20" stroke-width="3"/>
+          <rect x="206"  y="136" width="58" height="28" rx="12" fill="#180e10" stroke="#361c20" stroke-width="3"/>
+          <rect x="-18"  y="132" width="104" height="32" rx="6" fill="#160c0e" stroke="#3a1e22" stroke-width="4"/>
+          <rect x="-6"   y="26"  width="80"  height="108" rx="38" fill="${beaconOuter}" opacity="0.92"/>
+          <ellipse cx="34" cy="78" rx="22" ry="38" fill="${beaconCore}" opacity="0.95"/>
+          <!-- Wire protective cage bars -->
+          <rect x="-10" y="22" width="88" height="114" rx="40" fill="none" stroke="#2c1518" stroke-width="5"/>
+          <line x1="12" y1="24" x2="12" y2="136" stroke="#2c1518" stroke-width="3.5"/>
+          <line x1="34" y1="22" x2="34" y2="136" stroke="#2c1518" stroke-width="3.5"/>
+          <line x1="56" y1="24" x2="56" y2="136" stroke="#2c1518" stroke-width="3.5"/>
+          <line x1="-8" y1="74" x2="76" y2="74" stroke="#2c1518" stroke-width="3.5"/>
+          <line x1="-6" y1="106" x2="74" y2="106" stroke="#2c1518" stroke-width="3"/>
+        </g>
+
+        <!-- 3. Open Heavy Steel Cabinet Door swung out to the far right edge -->
+        <g transform="translate(1038, 294)">
+          <rect x="-38" y="128" width="56" height="26" rx="5" fill="#2c1619" stroke="#100708" stroke-width="4"/>
+          <rect x="14"  y="0"   width="255" height="430" rx="14" fill="#2a1316" stroke="#0d0607" stroke-width="10"/>
+          <rect x="36"  y="24"  width="212" height="382" rx="8"  fill="none" stroke="#4d242a" stroke-width="5"/>
+        </g>
+
+        <!-- 4. Heavy Open Electrical Fuse Box Cabinet -->
+        <rect x="92"  y="286" width="908" height="436" rx="14" fill="#11090b" stroke="#060304" stroke-width="10"/>
+        <rect x="144" y="334" width="804" height="388" fill="url(#bmCabinetGlow)" stroke="#241114" stroke-width="6"/>
+
+        <!-- Interior curved feeder wires -->
+        <g fill="none" stroke="#180b0d" stroke-width="6">
+          <path d="M312,334 Q360,442 292,548"/>
+          <path d="M388,334 Q444,475 410,640"/>
+          <path d="M520,334 Q468,425 530,535"/>
+          <path d="M552,334 Q590,420 582,535"/>
+          <path d="M668,334 Q710,455 680,545"/>
+          <path d="M746,334 Q724,462 778,625"/>
+        </g>
+
+        <!-- Terminal Blocks -->
+        ${terminals}
+
+        <!-- Horizontal DIN Rail & Large Golden-Yellow Repair Progress Bar (Updated smoothly at 60fps!) -->
+        <rect x="196" y="388" width="698" height="54" fill="#170b0d" stroke="#30161a" stroke-width="4"/>
+        <rect x="228" y="399" width="636" height="32" rx="2" fill="#26190f" stroke="#0e0806" stroke-width="3"/>
+        <rect id="bm-svg-bar-fill" x="228" y="399" width="${barW}" height="32" rx="2" fill="${fixed ? "#58f291" : "#d6ba4e"}"/>
+
+        <!-- Lower DIN Rail -->
+        <rect x="190" y="534" width="712" height="22" fill="#1b0d10" stroke="#33181c" stroke-width="3"/>
+
+        <!-- Left Ceramic Fuse Cylinders -->
+        <g transform="translate(248, 536)">
+          <rect x="0"   y="12" width="28" height="156" rx="6" fill="#4f2225" stroke="#14080a" stroke-width="4"/>
+          <rect x="4"   y="28" width="20" height="124" rx="3" fill="${fixed ? "#7bf7aa" : "#80343a"}"/>
+          <rect x="82"  y="12" width="28" height="156" rx="6" fill="#4f2225" stroke="#14080a" stroke-width="4"/>
+          <rect x="86"  y="28" width="20" height="124" rx="3" fill="${fixed ? "#7bf7aa" : "#80343a"}"/>
+        </g>
+
+        <!-- Two Large Heavy Industrial Breaker Switches (Matches image_bc9701.jpg!) -->
+        <g>
+          <rect x="446" y="514" width="166" height="208" rx="16" fill="#180c0f" stroke="#3c1d22" stroke-width="5"/>
+          <rect x="488" y="546" width="82"  height="132" rx="6"  fill="#0e0608"/>
+          <rect x="502" y="${leverY}" width="54" height="44" rx="6" fill="${leverCol}" stroke="#0a0405" stroke-width="4"/>
+
+          <rect x="646" y="514" width="166" height="208" rx="16" fill="#180c0f" stroke="#3c1d22" stroke-width="5"/>
+          <rect x="688" y="546" width="82"  height="132" rx="6"  fill="#0e0608"/>
+          <rect x="702" y="${leverY}" width="54" height="44" rx="6" fill="${leverCol}" stroke="#0a0405" stroke-width="4"/>
+        </g>
+
+        <!-- Crackling electric leakage sparks when not yet repaired -->
+        ${!fixed ? `
+          <g class="bm-spark-arcs" stroke="#a6f4ff" stroke-width="4.5" fill="none" stroke-linecap="round">
+            <polyline points="320,432 356,472 332,504 374,536"/>
+            <polyline points="756,432 722,468 764,496 732,534"/>
+          </g>` : ""}
       </svg>`;
   }
 
@@ -420,11 +858,15 @@ window.Duskwood = window.Duskwood || {};
     if (!box) return;
 
     const artEl = document.getElementById("bm-breaker-art");
+    const titleEl = document.getElementById("bm-fp-box-title");
     const fillEl = document.getElementById("bm-progress-fill");
     const pctEl = document.getElementById("bm-progress-pct");
     const hintEl = document.getElementById("bm-repair-hint");
 
     const pct = Math.min(100, Math.round((box.progress || 0) * 100));
+    if (titleEl) {
+      titleEl.textContent = `${box.label}  •  ${box.fixed ? "POWER RESTORED" : "SHORT CIRCUIT"}`;
+    }
     if (fillEl) {
       fillEl.style.width = `${pct}%`;
       fillEl.classList.toggle("is-done", box.fixed);
@@ -438,10 +880,15 @@ window.Duskwood = window.Duskwood || {};
           : "HOLD [F] TO REPAIR FUSE BOX  •  [E / ESC] STEP BACK & HIDE";
     }
     if (artEl) {
-      const bucket = Math.floor(pct / 25);
-      if (artEl.dataset.lastBucket !== `${box.id}_${bucket}_${box.fixed}`) {
-        artEl.dataset.lastBucket = `${box.id}_${bucket}_${box.fixed}`;
-        artEl.innerHTML = buildBreakerModalSVG(box, performance.now() * 0.001);
+      const key = `${box.id}_${box.fixed ? 1 : 0}`;
+      if (artEl.dataset.lastKey !== key) {
+        artEl.dataset.lastKey = key;
+        artEl.innerHTML = buildBreakerModalSVG(box);
+      }
+      // Silky 60fps direct SVG bar width update without DOM rebuild flicker!
+      const svgBar = artEl.querySelector("#bm-svg-bar-fill");
+      if (svgBar) {
+        svgBar.setAttribute("width", String(Math.round((pct / 100) * 636)));
       }
     }
   }
@@ -450,10 +897,10 @@ window.Duskwood = window.Duskwood || {};
     const bm = matchState && matchState.basementEvent;
     if (!bm || !box || box.fixed) return false;
     bm.repairingBoxId = box.id;
-    bm.holdingRepairF = true; // Pressing & holding [F] seamlessly starts repairing right away!
+    bm.holdingRepairF = true;
     const modal = document.getElementById("basement-breaker-modal");
     const artEl = document.getElementById("bm-breaker-art");
-    if (artEl) artEl.dataset.lastBucket = "";
+    if (artEl) artEl.dataset.lastKey = "";
     syncBreakerModalUI(bm);
     if (modal) modal.classList.remove("hidden");
     App.Audio.open();
@@ -470,15 +917,193 @@ window.Duskwood = window.Duskwood || {};
     if (!silent) App.Audio.close();
   }
 
-  // ==================== 5. START / UPDATE / WIN / LOSE LIFECYCLE ====================
+  // ==================== 6. RANDOM PATHING + PROXIMITY CHASE CHAINSAW AI ====================
+  function hasClearCorridorLOS(x1, y1, x2, y2) {
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    const steps = Math.max(1, Math.ceil(dist / 5));
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      const col = Math.floor((x1 + (x2 - x1) * t) / TILE);
+      const row = Math.floor((y1 + (y2 - y1) * t) / TILE);
+      if (isWallTile(col, row)) return false;
+    }
+    return true;
+  }
+
+  function findNextBfsStep(startCol, startRow, goalCol, goalRow) {
+    if (startCol === goalCol && startRow === goalRow) return null;
+    const queue = [{ c: startCol, r: startRow, first: null }];
+    const visited = new Set([`${startCol},${startRow}`]);
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      for (let i = 0; i < dirs.length; i++) {
+        const nc = cur.c + dirs[i][0];
+        const nr = cur.r + dirs[i][1];
+        const k = `${nc},${nr}`;
+        if (visited.has(k) || !isMonsterWalkable(nc, nr)) continue;
+        const firstStep = cur.first || { col: nc, row: nr };
+        if (nc === goalCol && nr === goalRow) return firstStep;
+        visited.add(k);
+        queue.push({ c: nc, r: nr, first: firstStep });
+      }
+    }
+    return null;
+  }
+
+  function updateChainsawMonsterAI(dt, bm, matchState, localPlayer) {
+    const m = bm.monster;
+    if (!m || !m.active || !activeLayout) return;
+
+    // 1. Collect all living exposed players in the Basement (players inside lit hiding rooms 'A' are invisible/safe!)
+    const exposedTargets = [];
+    if (localPlayer && !bm.localDeadInCellar && !isPlayerInAlcove(localPlayer)) {
+      exposedTargets.push({ x: localPlayer.x, y: localPlayer.y });
+    }
+    if (isMpMode(matchState) && App.Events && App.Events.getAllLivingPlayers) {
+      App.Events.getAllLivingPlayers(matchState, null).forEach((lp) => {
+        if (!lp.isLocal && lp.inBasement && !isPlayerInAlcove(lp)) {
+          exposedTargets.push({ x: lp.x, y: lp.y });
+        }
+      });
+    }
+
+    let nearest = null;
+    let nearestDist = Infinity;
+    for (let i = 0; i < exposedTargets.length; i++) {
+      const t = exposedTargets[i];
+      const d = Math.hypot(t.x - m.x, t.y - m.y);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearest = t;
+      }
+    }
+
+    // 2. Chase detection / lose-aggro state machine
+    if (nearest) {
+      const seesTarget = nearestDist <= SAW_DETECT_LOS_RADIUS && hasClearCorridorLOS(m.x, m.y, nearest.x, nearest.y);
+      const sensesClose = nearestDist <= SAW_DETECT_NEAR_RADIUS;
+      if (seesTarget || sensesClose) {
+        m.chasing = true;
+        m.chaseMemory = 2.8;
+        m.lastKnownX = nearest.x;
+        m.lastKnownY = nearest.y;
+      } else if (m.chasing) {
+        m.chaseMemory = Math.max(0, (m.chaseMemory || 0) - dt);
+        if (nearestDist > SAW_LOSE_RADIUS || m.chaseMemory <= 0) {
+          m.chasing = false;
+          m.frenzy = false;
+        }
+      }
+    } else if (m.chasing) {
+      // Target hid inside a lit hiding room ('A') -> immediately break chase!
+      m.chasing = false;
+      m.frenzy = false;
+      m.targetTile = null;
+    }
+
+    // 3. Speed scaling: if player stands TOO CLOSE (<= 44px), monster surges to 102 px/s (CANNOT OUTRUN!)
+    if (m.chasing) {
+      m.frenzy = Boolean(nearest && nearestDist <= SAW_NO_ESCAPE_RADIUS);
+      m.speed = m.frenzy ? SAW_NO_ESCAPE_SPEED : SAW_CHASE_SPEED;
+    } else {
+      m.frenzy = false;
+      m.speed = SAW_WANDER_SPEED;
+    }
+
+    // 4. Direct lunge when extremely close with clear corridor LOS (cannot outrun!)
+    if (m.chasing && nearest && nearestDist <= SAW_NO_ESCAPE_RADIUS && hasClearCorridorLOS(m.x, m.y, nearest.x, nearest.y)) {
+      const dx = nearest.x - m.x;
+      const dy = nearest.y - m.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 0.5) {
+        const nx = m.x + (dx / d) * m.speed * dt;
+        const ny = m.y + (dy / d) * m.speed * dt;
+        if (isMonsterWalkable(Math.floor(nx / TILE), Math.floor(ny / TILE))) {
+          m.x = nx;
+          m.y = ny;
+          if (Math.abs(dx) > 0.2) m.facing = dx >= 0 ? 1 : -1;
+          m.targetTile = null;
+          return;
+        }
+      }
+    }
+
+    // 5. Grid navigation: BFS shortest path when CHASING, 100% RANDOM pathing when WANDERING
+    const curCol = Math.floor(m.x / TILE);
+    const curRow = Math.floor(m.y / TILE);
+    m.repathTimer = Math.max(0, (m.repathTimer || 0) - dt);
+
+    const arrived =
+      !m.targetTile ||
+      !isMonsterWalkable(m.targetTile.col, m.targetTile.row) ||
+      Math.hypot(m.targetTile.col * TILE + 8 - m.x, m.targetTile.row * TILE + 8 - m.y) <= 2.4;
+
+    if (arrived || (m.chasing && m.repathTimer <= 0)) {
+      if (arrived && m.targetTile) {
+        m.prevCol = curCol;
+        m.prevRow = curRow;
+      }
+
+      if (m.chasing && typeof m.lastKnownX === "number" && typeof m.lastKnownY === "number") {
+        m.repathTimer = 0.24;
+        const gCol = Math.floor(m.lastKnownX / TILE);
+        const gRow = Math.floor(m.lastKnownY / TILE);
+        const nextStep = findNextBfsStep(curCol, curRow, gCol, gRow);
+        if (nextStep) {
+          m.targetTile = nextStep;
+        } else {
+          // Reached last known tile & player is gone -> drop back to random wander
+          m.chasing = false;
+          m.frenzy = false;
+          m.targetTile = null;
+        }
+      }
+
+      if (!m.chasing || !m.targetTile) {
+        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        const neighbors = [];
+        for (let i = 0; i < dirs.length; i++) {
+          const nc = curCol + dirs[i][0];
+          const nr = curRow + dirs[i][1];
+          if (isMonsterWalkable(nc, nr)) neighbors.push({ col: nc, row: nr });
+        }
+        if (neighbors.length > 0) {
+          const nonBacktrack = neighbors.filter((n) => !(n.col === m.prevCol && n.row === m.prevRow));
+          // Completely random choice along walkable paths (10% chance to spontaneously reverse even in straight halls)
+          const pool = (nonBacktrack.length > 0 && Math.random() > 0.10) ? nonBacktrack : neighbors;
+          m.targetTile = pool[Math.floor(Math.random() * pool.length)];
+        }
+      }
+    }
+
+    if (m.targetTile) {
+      const tx = m.targetTile.col * TILE + 8;
+      const ty = m.targetTile.row * TILE + 8;
+      const dx = tx - m.x;
+      const dy = ty - m.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0.3) {
+        const step = Math.min(dist, m.speed * dt);
+        m.x += (dx / dist) * step;
+        m.y += (dy / dist) * step;
+        if (Math.abs(dx) > 0.25) m.facing = dx >= 0 ? 1 : -1;
+      }
+    }
+  }
+
+  // ==================== 7. START / UPDATE / WIN / LOSE LIFECYCLE ====================
   function startBasementEvent(matchState, player) {
     if (!matchState) return null;
     if (App.Events && App.Events.beginMpEventSession) App.Events.beginMpEventSession(matchState, "the_basement");
-    if (!staticMazeCanvas) buildStaticBasementMaze();
+
+    const layout = buildBasementLayoutFromRoomMap(matchState.roomMap);
+    buildStaticBasementMaze(matchState);
 
     const savedLights = snapshotRoomLights(matchState);
 
-    const breakers = BREAKER_SPECS.map((s, idx) => ({
+    const breakers = layout.breakerSpecs.map((s, idx) => ({
       id: s.id,
       label: s.label,
       col: s.col,
@@ -491,8 +1116,7 @@ window.Duskwood = window.Duskwood || {};
       seed: idx + 1
     }));
 
-    // Spawn Chainsaw-Head Monster at waypoint 0 (far NW corner away from center hub!)
-    const startWp = PATROL_WAYPOINTS[0];
+    const sp = layout.spawnTile;
 
     matchState.basementEvent = {
       active: true,
@@ -506,11 +1130,17 @@ window.Duskwood = window.Duskwood || {};
       holdingRepairF: false,
       monster: {
         active: false,
-        x: startWp.col * TILE + 8,
-        y: startWp.row * TILE + 8,
+        x: sp.col * TILE + 8,
+        y: sp.row * TILE + 8,
         facing: 1,
-        wpIdx: 1,
-        speed: 40 // Moderate patrol speed (slower than player's 54 walk / 88 sprint!)
+        prevCol: sp.col,
+        prevRow: sp.row,
+        targetTile: null,
+        chasing: false,
+        frenzy: false,
+        chaseMemory: 0,
+        repathTimer: 0,
+        speed: SAW_WANDER_SPEED
       },
       notice: "THE FLOOR IS SHAKING! THE DINING ROOM IS SINKING INTO THE BASEMENT...",
       noticeTimer: 6.0,
@@ -522,7 +1152,6 @@ window.Duskwood = window.Duskwood || {};
       broadcastStateNow(matchState);
     }
 
-    // Place player safely in The Dining Room during descent
     matchState.currentRoomCoord = { x: 0, y: 0 };
     if (player) {
       player.seated = false;
@@ -532,14 +1161,13 @@ window.Duskwood = window.Duskwood || {};
       player.facing = 1;
     }
 
-    // Play 14-second basement_start_sfx.mp3 during violent shaking descent!
     if (App.Audio && App.Audio.playBasementSlide) {
       App.Audio.playBasementSlide(SLIDE_DURATION);
     }
 
     if (App.Events && App.Events.showSmudgeBanner) {
       App.Events.showSmudgeBanner(
-        "THE BASEMENT\nTHE DINING ROOM IS SLIDING UNDERGROUND...\nREPAIR ALL 5 RED FUSE BOXES [HOLD F] & HIDE IN WALL ALCOVES!",
+        "THE BASEMENT\nTHE DINING ROOM IS SLIDING UNDERGROUND...\nREPAIR ALL 5 RED FUSE BOXES [HOLD F] & HIDE IN LIT ALCOVES!",
         { typingDurationSec: 4.5, showChoices: false }
       );
       setTimeout(() => {
@@ -555,13 +1183,12 @@ window.Duskwood = window.Duskwood || {};
     bm.preStartTimer = PRE_START_DELAY;
     if (App.Audio && App.Audio.stopBasementSlide) App.Audio.stopBasementSlide();
 
-    // Land player right in the center hydraulic shaft hub of the Basement Maze!
-    if (player) {
-      player.x = HUB_CENTER.x;
-      player.y = HUB_CENTER.y;
+    if (player && activeLayout) {
+      player.x = activeLayout.hubCenter.x;
+      player.y = activeLayout.hubCenter.y;
       player.facing = 1;
     }
-    bm.notice = "LANDED IN THE BASEMENT! EVENT BEGINS IN 5 SECONDS — LOOK FOR RED FUSE BOXES!";
+    bm.notice = "LANDED IN THE BASEMENT! 5 SECONDS — FIND THE LIT HIDING ROOMS & RED FUSE BOXES!";
     bm.noticeTimer = 5.0;
     App.Audio.clockChime();
   }
@@ -569,12 +1196,16 @@ window.Duskwood = window.Duskwood || {};
   function beginBasementHunt(bm) {
     bm.stage = "PLAYING";
     bm.monster.active = true;
-    const wp0 = PATROL_WAYPOINTS[0];
-    bm.monster.x = wp0.col * TILE + 8;
-    bm.monster.y = wp0.row * TILE + 8;
-    bm.monster.wpIdx = 1;
-    bm.notice = "THE CHAINSAW ROARS TO LIFE! FIX ALL 5 RED BOXES [HOLD F] & DUCK INTO WALL ALCOVES!";
-    bm.noticeTimer = 5.0;
+    const sp = activeLayout ? activeLayout.spawnTile : { col: 3, row: 3 };
+    bm.monster.x = sp.col * TILE + 8;
+    bm.monster.y = sp.row * TILE + 8;
+    bm.monster.prevCol = sp.col;
+    bm.monster.prevRow = sp.row;
+    bm.monster.targetTile = null;
+    bm.monster.chasing = false;
+    bm.monster.frenzy = false;
+    bm.notice = "THE CHAINSAW ROAMS THE DARK! STAY FAR OR DUCK INTO A LIT HIDING ROOM!";
+    bm.noticeTimer = 5.5;
     App.Audio.hexAlert();
   }
 
@@ -582,10 +1213,11 @@ window.Duskwood = window.Duskwood || {};
     closeBreakerModal(matchState, true);
     if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
     bm.monster.active = false;
+    bm.monster.chasing = false;
+    bm.monster.frenzy = false;
     bm.stage = "ASCENDING";
     bm.slideTimer = 0;
 
-    // Reverse slide upward + same violent shake + audio/basement_start_sfx.mp3 (14s)!
     if (App.Audio && App.Audio.playBasementSlide) {
       App.Audio.playBasementSlide(SLIDE_DURATION);
     }
@@ -636,7 +1268,6 @@ window.Duskwood = window.Duskwood || {};
       : { keepEventRunning: false };
 
     if (res.keepEventRunning) {
-      // Dead local player exits Basement maze to locked Cellar while teammates keep fixing fuse boxes!
       bm.localDeadInCellar = true;
     } else {
       restoreRoomLights(matchState, bm.savedLights);
@@ -649,6 +1280,7 @@ window.Duskwood = window.Duskwood || {};
     cleanup(matchState, opts);
   }
 
+  // Exact preserved near/far spatial SFX mechanism for audio/chainsaw_sfx.mp3!
   function syncChainsawSpatialAudio(bm, player) {
     if (!App.Audio || !App.Audio.setChainsawAttenuation) return;
     if (!bm || !bm.active || !bm.monster || !bm.monster.active) {
@@ -670,9 +1302,12 @@ window.Duskwood = window.Duskwood || {};
       if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
       return;
     }
+    if (!activeLayout) {
+      buildBasementLayoutFromRoomMap(matchState.roomMap);
+      buildStaticBasementMaze(matchState);
+    }
     if (bm.localDeadInCellar) {
       if (App.Audio && App.Audio.stopChainsawLoop) App.Audio.stopChainsawLoop();
-      // Guest returns early when dead; HOST MUST KEEP RUNNING Chainsaw patrol & breaker sync for living Guests!
       if (isMpGuest(matchState)) return;
     }
 
@@ -681,7 +1316,7 @@ window.Duskwood = window.Duskwood || {};
       if (bm.noticeTimer === 0) bm.notice = "";
     }
 
-    // GUEST: sends repair ticks to Host & follows Host's authoritative timers, breakers & Chainsaw position!
+    // GUEST: sends repair ticks to Host & tracks Host's authoritative Chainsaw position & near/far SFX
     if (isMpGuest(matchState)) {
       if (bm.stage === "DESCENDING" || bm.stage === "ASCENDING") {
         bm.slideTimer = Math.min(SLIDE_DURATION, bm.slideTimer + dt);
@@ -758,28 +1393,14 @@ window.Duskwood = window.Duskwood || {};
       return;
     }
 
-    // 4. PLAYING STAGE: Repair Progress + Predefined Chainsaw Patrol!
+    // 4. PLAYING STAGE: Repair Progress + Random-Wander & Proximity-Chase Chainsaw AI!
     if (!bm.localDeadInCellar && bm.repairingBoxId && bm.holdingRepairF) {
       applyHostBreakerDelta(matchState, player, bm.repairingBoxId, dt / REPAIR_DURATION, true);
     }
 
     const m = bm.monster;
     if (m.active) {
-      const wp = PATROL_WAYPOINTS[m.wpIdx % PATROL_WAYPOINTS.length];
-      const tx = wp.col * TILE + 8;
-      const ty = wp.row * TILE + 8;
-      const dx = tx - m.x;
-      const dy = ty - m.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist <= 3.0) {
-        m.x = tx;
-        m.y = ty;
-        m.wpIdx = (m.wpIdx + 1) % PATROL_WAYPOINTS.length;
-      } else {
-        m.x += (dx / dist) * m.speed * dt;
-        m.y += (dy / dist) * m.speed * dt;
-        if (Math.abs(dx) > 0.3) m.facing = dx >= 0 ? 1 : -1;
-      }
+      updateChainsawMonsterAI(dt, bm, matchState, player);
 
       if (!bm.localDeadInCellar) {
         syncChainsawSpatialAudio(bm, player);
@@ -788,7 +1409,6 @@ window.Duskwood = window.Duskwood || {};
         }
       }
 
-      // Host-authoritative Chainsaw catch check against ALL living remote Guests in the Basement!
       if (isMpMode(matchState) && App.Events && App.Events.getAllLivingPlayers && App.Events.hostKillRemotePlayer) {
         App.Events.getAllLivingPlayers(matchState, null).forEach((lp) => {
           if (lp.isLocal || !lp.inBasement) return;
@@ -809,7 +1429,7 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
-  // ==================== 6. CONTROLS, COLLISION & SHAKE ====================
+  // ==================== 8. CONTROLS, COLLISION & SHAKE ====================
   function onKeyFDown(matchState, player) {
     const bm = matchState && matchState.basementEvent;
     if (!bm || !bm.active || bm.stage !== "PLAYING") return false;
@@ -820,7 +1440,6 @@ window.Duskwood = window.Duskwood || {};
       return true;
     }
 
-    // Check nearby unrepaired breaker/fuse box!
     for (const box of bm.breakers) {
       if (box.fixed) continue;
       if (Math.hypot(player.x - box.x, player.y - box.y) <= 24) {
@@ -858,9 +1477,8 @@ window.Duskwood = window.Duskwood || {};
     const bm = matchState && matchState.basementEvent;
     if (!bm || !bm.active) return { x: 0, y: 0 };
     if (bm.stage !== "DESCENDING" && bm.stage !== "ASCENDING") return { x: 0, y: 0 };
-    // Violent subterranean hydraulic earthquake shake throughout the 14s slide!
     const frac = Math.min(1, bm.slideTimer / SLIDE_DURATION);
-    const ramp = Math.sin(frac * Math.PI); // Smooth violent swell peaking in middle of slide
+    const ramp = Math.sin(frac * Math.PI);
     const amp = 4.5 + ramp * 6.5;
     return {
       x: Math.round((Math.sin(timeSec * 61) + Math.cos(timeSec * 47)) * amp * 0.55),
@@ -879,25 +1497,45 @@ window.Duskwood = window.Duskwood || {};
       }
     }
     if (isPlayerInAlcove(player)) {
-      return { type: "basement_alcove", prompt: "HIDDEN IN WALL ALCOVE — SAFE FROM CHAINSAW" };
+      return { type: "basement_alcove", prompt: "HIDDEN IN LIT ALCOVE — SAFE FROM CHAINSAW" };
     }
     return null;
   }
 
-  // ==================== 7. RENDERER (DESCENT / MAZE / REVERSE ASCENT) ====================
+  // ==================== 9. RENDERER (DESCENT / PITCH-DARK MAZE + LIT HIDING ROOMS / ASCENT) ====================
   function renderBasementMazeTo(ctx, timeSec, player, charConfig, matchState, overrideCenter) {
     const bm = matchState && matchState.basementEvent;
-    if (!staticMazeCanvas) buildStaticBasementMaze();
+    if (!activeLayout) buildBasementLayoutFromRoomMap(matchState && matchState.roomMap);
+    if (!staticMazeCanvas) buildStaticBasementMaze(matchState);
+    const L = activeLayout;
 
     const focusX = overrideCenter ? overrideCenter.x : player.x;
     const focusY = overrideCenter ? overrideCenter.y : player.y;
-    const camX = Math.max(0, Math.min(WORLD_W - VIEW_W, Math.round(focusX - VIEW_W / 2)));
-    const camY = Math.max(0, Math.min(WORLD_H - VIEW_H, Math.round(focusY - VIEW_H / 2)));
+    const camX = Math.max(0, Math.min(Math.max(0, L.worldW - VIEW_W), Math.round(focusX - VIEW_W / 2)));
+    const camY = Math.max(0, Math.min(Math.max(0, L.worldH - VIEW_H), Math.round(focusY - VIEW_H / 2)));
 
-    // 1. Draw Basement Maze floor & concrete walls
-    ctx.drawImage(staticMazeCanvas, camX, camY, VIEW_W, VIEW_H, 0, 0, VIEW_W, VIEW_H);
+    // Fill outer background black in case world is smaller than viewport
+    ctx.fillStyle = "#060505";
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
-    // 2. Draw all 5 Breaker/Fuse Boxes mounted on their walls
+    // 1. Draw Basement Maze brick walls & damp floors
+    const drawW = Math.min(VIEW_W, L.worldW - camX);
+    const drawH = Math.min(VIEW_H, L.worldH - camY);
+    ctx.drawImage(staticMazeCanvas, camX, camY, drawW, drawH, 0, 0, drawW, drawH);
+
+    // 2. Draw glowing wall-mounted light fixtures inside every small hiding room ('A')
+    if (L.alcoveLights) {
+      L.alcoveLights.forEach((al) => {
+        const ax = Math.round(al.x - camX);
+        const ay = Math.round(al.y - camY);
+        if (ax < -20 || ax > VIEW_W + 20 || ay < -20 || ay > VIEW_H + 20) return;
+        px(ctx, ax - 3, ay - 7, 6, 2, "#382c20");
+        px(ctx, ax - 2, ay - 5, 4, 4, "#fff6cc");
+        px(ctx, ax - 1, ay - 4, 2, 2, "#ffffff");
+      });
+    }
+
+    // 3. Draw all 5 Breaker/Fuse Boxes mounted on corridor walls
     if (bm && bm.breakers) {
       bm.breakers.forEach((b) => {
         const sx = b.x - camX;
@@ -907,7 +1545,7 @@ window.Duskwood = window.Duskwood || {};
       });
     }
 
-    // 3. Depth-sort Local Player, Co-op Teammates in Basement & Tall Chainsaw-Head Monster
+    // 4. Depth-sort Local Player, Co-op Teammates & Tall Chainsaw-Head Monster
     const actors = [];
     const remoteBasementPlayers = [];
     if (player && !overrideCenter) {
@@ -954,28 +1592,28 @@ window.Duskwood = window.Duskwood || {};
       const m = bm.monster;
       actors.push({
         y: m.y,
-        draw: () => drawChainsawMonsterSprite(ctx, m.x - camX, m.y - camY, timeSec, m.facing)
+        draw: () => drawChainsawMonsterSprite(ctx, m.x - camX, m.y - camY, timeSec, m.facing, Boolean(m.chasing), Boolean(m.frenzy))
       });
     }
     actors.sort((a, b) => a.y - b.y);
     actors.forEach((a) => a.draw());
 
-    // 4. Deep Subterranean Darkness Mask
+    // 5. PITCH-DARK Subterranean Darkness Mask (Very dark basement!)
     mctx.globalCompositeOperation = "source-over";
     mctx.clearRect(0, 0, VIEW_W, VIEW_H);
-    mctx.fillStyle = "rgba(3, 4, 7, 0.92)";
+    mctx.fillStyle = "rgba(2, 2, 4, 0.968)";
     mctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
     mctx.globalCompositeOperation = "destination-out";
 
-    // (a) Local & Co-op teammate handheld lanterns / close-range halos
+    // (a) Tight handheld lantern halo so corridors stay oppressively dark
     if (player && !overrideCenter) {
       const pxv = player.x - camX;
       const pyv = player.y - camY - 8;
-      const rad = player.lanternOn ? 58 : 26;
-      const lg = mctx.createRadialGradient(pxv, pyv, 4, pxv, pyv, rad);
-      lg.addColorStop(0, player.lanternOn ? "rgba(0,0,0,0.96)" : "rgba(0,0,0,0.58)");
-      lg.addColorStop(0.55, player.lanternOn ? "rgba(0,0,0,0.62)" : "rgba(0,0,0,0.25)");
+      const rad = player.lanternOn ? 44 : 18;
+      const lg = mctx.createRadialGradient(pxv, pyv, 3, pxv, pyv, rad);
+      lg.addColorStop(0, player.lanternOn ? "rgba(0,0,0,0.95)" : "rgba(0,0,0,0.48)");
+      lg.addColorStop(0.55, player.lanternOn ? "rgba(0,0,0,0.46)" : "rgba(0,0,0,0.16)");
       lg.addColorStop(1, "rgba(0,0,0,0)");
       mctx.fillStyle = lg;
       mctx.fillRect(pxv - rad - 2, pyv - rad - 2, rad * 2 + 4, rad * 2 + 4);
@@ -983,56 +1621,98 @@ window.Duskwood = window.Duskwood || {};
     remoteBasementPlayers.forEach((rp) => {
       const rxv = rp.x - camX;
       const ryv = rp.y - camY - 8;
-      const rRad = rp.lanternOn ? 52 : 20;
+      const rRad = rp.lanternOn ? 40 : 16;
       if (rxv < -rRad || rxv > VIEW_W + rRad || ryv < -rRad || ryv > VIEW_H + rRad) return;
       const rlg = mctx.createRadialGradient(rxv, ryv, 3, rxv, ryv, rRad);
-      rlg.addColorStop(0, rp.lanternOn ? "rgba(0,0,0,0.90)" : "rgba(0,0,0,0.45)");
-      rlg.addColorStop(0.55, rp.lanternOn ? "rgba(0,0,0,0.50)" : "rgba(0,0,0,0.18)");
+      rlg.addColorStop(0, rp.lanternOn ? "rgba(0,0,0,0.88)" : "rgba(0,0,0,0.40)");
+      rlg.addColorStop(0.55, rp.lanternOn ? "rgba(0,0,0,0.40)" : "rgba(0,0,0,0.14)");
       rlg.addColorStop(1, "rgba(0,0,0,0)");
       mctx.fillStyle = rlg;
       mctx.fillRect(rxv - rRad - 2, ryv - rRad - 2, rRad * 2 + 4, rRad * 2 + 4);
     });
 
-    // (b) Central shaft hub overhead dim light
-    const hx = HUB_CENTER.x - camX;
-    const hy = HUB_CENTER.y - camY;
-    const hg = mctx.createRadialGradient(hx, hy, 6, hx, hy, 44);
-    hg.addColorStop(0, "rgba(0,0,0,0.72)");
+    // (b) Dim overhead shaft light at Dining Room landing hub
+    const hx = L.hubCenter.x - camX;
+    const hy = L.hubCenter.y - camY;
+    const hg = mctx.createRadialGradient(hx, hy, 4, hx, hy, 36);
+    hg.addColorStop(0, "rgba(0,0,0,0.58)");
     hg.addColorStop(1, "rgba(0,0,0,0)");
     mctx.fillStyle = hg;
-    mctx.fillRect(hx - 46, hy - 46, 92, 92);
+    mctx.fillRect(hx - 38, hy - 38, 76, 76);
 
-    // (c) Breaker Boxes punch clearly through darkness so RED/GREEN beacons shine across corridors!
+    // (c) LIT HIDING ROOMS / ALCOVES ('A'): bright warm refuge light punching through the darkness!
+    if (L.alcoveLights) {
+      L.alcoveLights.forEach((al) => {
+        const ax = al.x - camX;
+        const ay = al.y - camY;
+        const ex = al.entryX - camX;
+        const ey = al.entryY - camY;
+        if (ax < -48 || ax > VIEW_W + 48 || ay < -48 || ay > VIEW_H + 48) return;
+        const rad = 36;
+        const ag = mctx.createRadialGradient(ax, ay, 4, ax, ay, rad);
+        ag.addColorStop(0, "rgba(0,0,0,0.98)");
+        ag.addColorStop(0.55, "rgba(0,0,0,0.68)");
+        ag.addColorStop(1, "rgba(0,0,0,0)");
+        mctx.fillStyle = ag;
+        mctx.fillRect(ax - rad, ay - rad, rad * 2, rad * 2);
+
+        // Soft spill toward alcove mouth so players spot the hiding room from the dark corridor
+        const eg = mctx.createRadialGradient(ex, ey, 2, ex, ey, 26);
+        eg.addColorStop(0, "rgba(0,0,0,0.72)");
+        eg.addColorStop(1, "rgba(0,0,0,0)");
+        mctx.fillStyle = eg;
+        mctx.fillRect(ex - 26, ey - 26, 52, 52);
+      });
+    }
+
+    // (d) Breaker Boxes punch clearly through darkness so RED/GREEN beacons shine across corridors
     if (bm && bm.breakers) {
       bm.breakers.forEach((b) => {
         const sx = b.x - camX;
         const sy = b.y - camY - 2;
         if (sx < -40 || sx > VIEW_W + 40 || sy < -40 || sy > VIEW_H + 40) return;
-        const br = b.fixed ? 28 : 34;
+        const br = b.fixed ? 26 : 32;
         const bg = mctx.createRadialGradient(sx, sy, 3, sx, sy, br);
-        bg.addColorStop(0, "rgba(0,0,0,0.92)");
+        bg.addColorStop(0, "rgba(0,0,0,0.90)");
         bg.addColorStop(1, "rgba(0,0,0,0)");
         mctx.fillStyle = bg;
         mctx.fillRect(sx - br, sy - br, br * 2, br * 2);
       });
     }
 
-    // (d) Faint ominous reveal around Chainsaw Monster so its silhouette & chainsaw teeth gleam!
+    // (e) Faint eerie reveal around Chainsaw Monster (slightly brighter when chasing/frenzy!)
     if (bm && bm.monster && bm.monster.active) {
       const mx = bm.monster.x - camX;
       const my = bm.monster.y - camY - 18;
-      const mg = mctx.createRadialGradient(mx, my, 3, mx, my, 28);
-      mg.addColorStop(0, "rgba(0,0,0,0.72)");
+      const mRad = bm.monster.chasing ? 32 : 22;
+      const mg = mctx.createRadialGradient(mx, my, 2, mx, my, mRad);
+      mg.addColorStop(0, bm.monster.chasing ? "rgba(0,0,0,0.82)" : "rgba(0,0,0,0.56)");
       mg.addColorStop(1, "rgba(0,0,0,0)");
       mctx.fillStyle = mg;
-      mctx.fillRect(mx - 28, my - 28, 56, 56);
+      mctx.fillRect(mx - mRad, my - mRad, mRad * 2, mRad * 2);
     }
 
     ctx.drawImage(maskCanvas, 0, 0);
 
-    // 5. Post-darkness colored lighting:
-    //    - RED glow + crackling electric leak arcs (`rỉ điện`) on unrepaired boxes!
-    //    - Bright GREEN glow on repaired boxes!
+    // 6. Post-darkness colored glows:
+    //    (a) Warm amber-gold glow from every Lit Hiding Room ('A')
+    if (L.alcoveLights) {
+      const lampFlick = 0.90 + Math.sin(timeSec * 10.5) * 0.08;
+      L.alcoveLights.forEach((al) => {
+        const ax = al.x - camX;
+        const ay = al.y - camY - 2;
+        if (ax < -42 || ax > VIEW_W + 42 || ay < -42 || ay > VIEW_H + 42) return;
+        const rad = 32;
+        const glow = ctx.createRadialGradient(ax, ay, 2, ax, ay, rad);
+        glow.addColorStop(0, `rgba(255, 232, 166, ${(0.40 * lampFlick).toFixed(3)})`);
+        glow.addColorStop(0.55, `rgba(235, 180, 92, ${(0.17 * lampFlick).toFixed(3)})`);
+        glow.addColorStop(1, "rgba(200, 140, 50, 0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(ax - rad, ay - rad, rad * 2, rad * 2);
+      });
+    }
+
+    //    (b) RED glow + electric leakage arcs on unrepaired boxes; GREEN glow on repaired boxes
     if (bm && bm.breakers) {
       const pulse = 0.70 + Math.sin(timeSec * 6.0) * 0.30;
       bm.breakers.forEach((b) => {
@@ -1046,7 +1726,7 @@ window.Duskwood = window.Duskwood || {};
           glow.addColorStop(0, "rgba(74, 245, 134, 0.44)");
           glow.addColorStop(1, "rgba(40, 200, 95, 0)");
         } else {
-          glow.addColorStop(0, `rgba(255, 42, 42, ${(0.52 * pulse).toFixed(3)})`);
+          glow.addColorStop(0, `rgba(255, 42, 42, ${(0.54 * pulse).toFixed(3)})`);
           glow.addColorStop(0.55, `rgba(210, 22, 22, ${(0.22 * pulse).toFixed(3)})`);
           glow.addColorStop(1, "rgba(180, 0, 0, 0)");
         }
@@ -1059,15 +1739,26 @@ window.Duskwood = window.Duskwood || {};
       });
     }
 
-    // Subtle warm lantern tint
+    //    (c) Ominous red eye tint when Chainsaw Monster is actively CHASING!
+    if (bm && bm.monster && bm.monster.active && bm.monster.chasing) {
+      const mx = bm.monster.x - camX;
+      const my = bm.monster.y - camY - 24;
+      const rg = ctx.createRadialGradient(mx, my, 2, mx, my, bm.monster.frenzy ? 28 : 20);
+      rg.addColorStop(0, bm.monster.frenzy ? "rgba(255, 65, 25, 0.34)" : "rgba(255, 38, 38, 0.22)");
+      rg.addColorStop(1, "rgba(200, 0, 0, 0)");
+      ctx.fillStyle = rg;
+      ctx.fillRect(mx - 30, my - 30, 60, 60);
+    }
+
+    //    (d) Subtle warm handheld lantern tint
     if (player && !overrideCenter && player.lanternOn) {
       const lx = player.x - camX + player.facing * 7;
       const ly = player.y - camY - 8;
-      const wg = ctx.createRadialGradient(lx, ly, 2, lx, ly, 44);
-      wg.addColorStop(0, "rgba(255, 212, 128, 0.20)");
+      const wg = ctx.createRadialGradient(lx, ly, 2, lx, ly, 36);
+      wg.addColorStop(0, "rgba(255, 212, 128, 0.18)");
       wg.addColorStop(1, "rgba(255, 180, 80, 0)");
       ctx.fillStyle = wg;
-      ctx.fillRect(lx - 44, ly - 44, 88, 88);
+      ctx.fillRect(lx - 36, ly - 36, 72, 72);
     }
 
     return { camX, camY };
@@ -1076,24 +1767,18 @@ window.Duskwood = window.Duskwood || {};
   // Dramatic 14-Second Vertical Slide Transition (DESCENDING down into Basement OR ASCENDING back up!)
   function renderSlideCutscene(ctx, timeSec, player, charConfig, matchState) {
     const bm = matchState && matchState.basementEvent;
+    if (!activeLayout) buildBasementLayoutFromRoomMap(matchState && matchState.roomMap);
     const isAscending = bm && bm.stage === "ASCENDING";
     const rawFrac = bm ? Math.max(0, Math.min(1, bm.slideTimer / SLIDE_DURATION)) : 0;
     const ease = rawFrac < 0.5 ? 2 * rawFrac * rawFrac : 1 - Math.pow(-2 * rawFrac + 2, 2) / 2;
 
-    // 1. Render Dining Room into offscreen buffer
     const flick = 0.55 + Math.sin(timeSec * 29) * 0.35;
     App.GameRoom.render(dsctx, timeSec, Math.max(0.18, flick), player, charConfig, matchState);
 
-    // 2. Render Basement Hub directly underneath (or behind during reverse ascent!)
-    renderBasementMazeTo(ctx, timeSec, player, charConfig, matchState, HUB_CENTER);
+    renderBasementMazeTo(ctx, timeSec, player, charConfig, matchState, activeLayout.hubCenter);
 
-    // 3. Draw vertical subterranean shaft stripes & sliding Dining Room!
-    //    - DESCENDING: Dining Room starts at y=0 and gradually slides DOWN (y = 0 -> +208) shrinking slightly into the shaft,
-    //      then opens up into the Basement Hub as dust & concrete walls rush past!
-    //    - ASCENDING: Exact reverse! Dining Room slides UP from below / descends back into full frame (y = +208 -> 0)!
     const progressDown = isAscending ? (1 - ease) : ease;
 
-    // Sliding vertical shaft dust & rock strata moving past edges
     const wallShift = Math.floor((timeSec * (isAscending ? -130 : 130)) % 24);
     ctx.fillStyle = "rgba(18, 16, 15, 0.72)";
     ctx.fillRect(0, 0, 14, VIEW_H);
@@ -1102,20 +1787,17 @@ window.Duskwood = window.Duskwood || {};
       const sy = y + wallShift;
       px(ctx, 2, sy, 10, 4, "#3b3834");
       px(ctx, VIEW_W - 12, sy, 10, 4, "#3b3834");
-      px(ctx, 13, sy, 2, 24, "#6b5426"); // Steel elevator guide rail
+      px(ctx, 13, sy, 2, 24, "#6b5426");
       px(ctx, VIEW_W - 15, sy, 2, 24, "#6b5426");
     }
 
-    // Dining Room visibly slides vertically along the hydraulic shaft!
     const slideOffsetY = Math.round(progressDown * VIEW_H);
     const diningAlpha = Math.max(0, Math.min(1, 1 - Math.max(0, (progressDown - 0.68) / 0.32)));
 
     if (diningAlpha > 0.01) {
       ctx.save();
       ctx.globalAlpha = diningAlpha;
-      // Draw Dining Room sliding down out of frame (or rising back up into frame on reverse!)
       ctx.drawImage(diningSlideBuf, 0, slideOffsetY);
-      // Heavy iron hydraulic floor seam bar across top edge of sliding room
       px(ctx, 0, slideOffsetY - 4, VIEW_W, 5, "#262320");
       for (let hx = 0; hx < VIEW_W; hx += 16) {
         px(ctx, hx, slideOffsetY - 3, 8, 3, "#d4a238");
@@ -1123,7 +1805,6 @@ window.Duskwood = window.Duskwood || {};
       ctx.restore();
     }
 
-    // Falling dust motes during violent descent/ascent
     for (let i = 0; i < 16; i++) {
       const dx = (i * 37 + Math.floor(timeSec * 19)) % VIEW_W;
       const dy = ((i * 53 + Math.floor(timeSec * (isAscending ? -95 : 95))) % VIEW_H + VIEW_H) % VIEW_H;
@@ -1143,7 +1824,7 @@ window.Duskwood = window.Duskwood || {};
     return renderBasementMazeTo(ctx, timeSec, player, charConfig, matchState, null);
   }
 
-  // ==================== 8. HUD & STATE HELPERS ====================
+  // ==================== 10. HUD & STATE HELPERS ====================
   function getHudSummary(matchState, player) {
     const bm = matchState && matchState.basementEvent;
     if (!bm || !bm.active) return null;
@@ -1158,7 +1839,7 @@ window.Duskwood = window.Duskwood || {};
     if (bm.stage === "PRE_START_5S") {
       return {
         title: `THE BASEMENT • STARTING IN ${Math.max(1, Math.ceil(bm.preStartTimer))}S`,
-        sub: "LOCATE THE RED FUSE BOXES & NEARBY RECESSED WALL ALCOVES!",
+        sub: "LOCATE THE RED FUSE BOXES & LIT HIDING ROOMS!",
         notice: bm.notice || ""
       };
     }
@@ -1169,10 +1850,16 @@ window.Duskwood = window.Duskwood || {};
         notice: bm.notice || ""
       };
     }
-    const hiddenTag = isPlayerInAlcove(player) ? "HIDDEN IN WALL ALCOVE (SAFE)" : "IN CORRIDOR (WATCH FOR CHAINSAW!)";
+    const statusTag = isPlayerInAlcove(player)
+      ? "HIDDEN IN LIT ROOM (SAFE)"
+      : bm.monster && bm.monster.frenzy
+        ? "TOO CLOSE — CANNOT OUTRUN! DUCK INTO A LIT ROOM!"
+        : bm.monster && bm.monster.chasing
+          ? "CHAINSAW CHASING YOU! RUN TO A LIT HIDING ROOM!"
+          : "IN DARK CORRIDOR (LISTEN FOR CHAINSAW)";
     return {
       title: `THE BASEMENT • FUSE BOXES REPAIRED: ${bm.fixedCount} / ${bm.breakers.length}`,
-      sub: `${hiddenTag}  |  [F] REPAIR BOX`,
+      sub: `${statusTag}  |  [F] REPAIR BOX`,
       notice: bm.notice || ""
     };
   }
@@ -1258,12 +1945,23 @@ window.Duskwood = window.Duskwood || {};
       slideTimer: Math.round((bm.slideTimer || 0) * 10) / 10,
       preStartTimer: Math.round((bm.preStartTimer || 0) * 10) / 10,
       fixedCount: bm.fixedCount || 0,
-      breakers: bm.breakers.map((b) => ({ id: b.id, progress: Math.round((b.progress || 0) * 100) / 100, fixed: Boolean(b.fixed) })),
+      breakers: bm.breakers.map((b) => ({
+        id: b.id,
+        col: b.col,
+        row: b.row,
+        x: b.x,
+        y: b.y,
+        wall: b.wall,
+        progress: Math.round((b.progress || 0) * 100) / 100,
+        fixed: Boolean(b.fixed)
+      })),
       monster: {
         active: Boolean(bm.monster.active),
         x: Math.round(bm.monster.x * 10) / 10,
         y: Math.round(bm.monster.y * 10) / 10,
-        facing: bm.monster.facing
+        facing: bm.monster.facing,
+        chasing: Boolean(bm.monster.chasing),
+        frenzy: Boolean(bm.monster.frenzy)
       },
       notice: bm.notice || "",
       noticeTimer: bm.noticeTimer || 0
@@ -1297,6 +1995,10 @@ window.Duskwood = window.Duskwood || {};
         p.breakers.forEach((nb) => {
           const loc = bm.breakers.find((x) => x.id === nb.id);
           if (!loc) return;
+          if (typeof nb.x === "number") loc.x = nb.x;
+          if (typeof nb.y === "number") loc.y = nb.y;
+          if (typeof nb.col === "number") loc.col = nb.col;
+          if (typeof nb.row === "number") loc.row = nb.row;
           const wasFixed = loc.fixed;
           loc.progress = Math.max(loc.progress || 0, nb.progress || 0);
           if (nb.fixed) {
@@ -1341,6 +2043,8 @@ window.Duskwood = window.Duskwood || {};
     document.getElementById("basement-breaker-modal")?.classList.add("hidden");
     if (App.Jumpscare && !(opts && opts.keepJumpscare)) App.Jumpscare.stop();
     if (matchState) matchState.basementEvent = null;
+    activeLayout = null;
+    staticMazeCanvas = null;
   }
 
   App.Basement = {

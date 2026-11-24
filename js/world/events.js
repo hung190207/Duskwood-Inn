@@ -713,8 +713,13 @@ window.Duskwood = window.Duskwood || {};
     }
     if (matchState.events && matchState.events.cuttingCorners && matchState.events.cuttingCorners.stage !== "DONE") {
       matchState.events.cuttingCorners.stage = "DONE";
+      matchState.events.cuttingCorners.localStatus = "ALIVE";
+      matchState.events.cuttingCorners.localDeathTimer = 0;
       matchState.events.globalLightsOut = false;
       matchState.events.cuttingCornersNpc = null;
+    }
+    if (App.GameWorld && App.GameWorld.clearCornerLock) {
+      App.GameWorld.clearCornerLock();
     }
 
     turnAllLightsOn(matchState);
@@ -1059,8 +1064,18 @@ window.Duskwood = window.Duskwood || {};
     // CUTTING CORNERS: Spawn player-lookalike NPC facing NE wall corner in Main Parlor!
     // Triggers automatically once total rooms (incl. Main Parlor & Cellar) reach 5 or 6!
     if (card.id === "hx_corners") {
-      const baseChar = (App.Config && App.Config.state && App.Config.state.character)
-        ? Object.assign({}, App.Config.state.character)
+      let pickedChar = null;
+      if (isMpEventMode(matchState) && isMpHost(matchState) && App.Network && App.Network.getAllMatchSeats) {
+        const seats = App.Network.getAllMatchSeats().filter((s) => s && s.character);
+        if (seats.length > 0) {
+          pickedChar = seats[Math.floor(Math.random() * seats.length)].character;
+        }
+      }
+      if (!pickedChar && App.Config && App.Config.state && App.Config.state.character) {
+        pickedChar = App.Config.state.character;
+      }
+      const baseChar = pickedChar
+        ? Object.assign({}, pickedChar)
         : {
             skin: 0, hairStyle: 0, hairColor: 0, eyeColor: 0,
             outfit: 0, shirtColor: 0, underColor: 0, pantsColor: 0,
@@ -1094,8 +1109,10 @@ window.Duskwood = window.Duskwood || {};
         triggerImmediatelyAfterDraw: curRooms >= 6,
         timer: 0,
         questions: [],
+        questionsByPlayer: {},
         qIndex: 0,
         currentQ: null,
+        currentQByPlayer: {},
         playerTurnedAround: false,
         feedbackText: "",
         syncAccum: 0
@@ -1106,6 +1123,15 @@ window.Duskwood = window.Duskwood || {};
     }
 
     return monster;
+  }
+
+  function getLocalCuttingCornersQuestion(cc) {
+    if (!cc) return null;
+    const localPid = (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : "local";
+    if (cc.currentQByPlayer && cc.currentQByPlayer[localPid]) {
+      return cc.currentQByPlayer[localPid];
+    }
+    return cc.currentQ || null;
   }
 
   function broadcastCuttingCornersNow(matchState) {
@@ -1119,6 +1145,8 @@ window.Duskwood = window.Duskwood || {};
       questions: cc.questions || [],
       qIndex: cc.qIndex || 0,
       currentQ: cc.currentQ || null,
+      currentQByPlayer: cc.currentQByPlayer || null,
+      npcCharConfig: (matchState.events.cuttingCornersNpc && matchState.events.cuttingCornersNpc.charConfig) || null,
       headTwisted: Boolean(matchState.events.cuttingCornersNpc && matchState.events.cuttingCornersNpc.headTwisted),
       globalLightsOut: Boolean(matchState.events.globalLightsOut)
     });
@@ -1138,27 +1166,40 @@ window.Duskwood = window.Duskwood || {};
     cc.questions = Array.isArray(p.questions) ? p.questions : cc.questions;
     cc.qIndex = typeof p.qIndex === "number" ? p.qIndex : cc.qIndex;
     cc.currentQ = p.currentQ || null;
+    if (p.currentQByPlayer && typeof p.currentQByPlayer === "object") {
+      cc.currentQByPlayer = p.currentQByPlayer;
+    }
     cc.timer = typeof p.timer === "number" ? p.timer : cc.timer;
 
     if (matchState.events.cuttingCornersNpc) {
       matchState.events.cuttingCornersNpc.headTwisted = Boolean(p.headTwisted);
+      if (p.npcCharConfig) {
+        matchState.events.cuttingCornersNpc.charConfig = Object.assign({}, p.npcCharConfig, {
+          walking: false,
+          lantern: false,
+          facing: 1
+        });
+      }
     }
     matchState.events.globalLightsOut = Boolean(p.globalLightsOut);
+
+    // ALWAYS clear corner lock when Host reports DONE (even if MP_EVENT_END already set stage="DONE"!)
+    if (p.stage === "DONE") {
+      if (player) { player.facingCorner = false; player.cornerLock = null; }
+      if (App.GameWorld && App.GameWorld.clearCornerLock) App.GameWorld.clearCornerLock();
+      cc.stage = "DONE";
+      cc.localStatus = "ALIVE";
+      cc.localDeathTimer = 0;
+      matchState.events.globalLightsOut = false;
+      matchState.events.cuttingCornersNpc = null;
+      turnAllLightsOn(matchState);
+      hideSmudgeBanner();
+      return;
+    }
 
     const localDeadOrDying = cc.localStatus === "DYING" || cc.localStatus === "LOCKED_DEAD" || isLocalLockedInCellar(matchState);
 
     if (p.stage && p.stage !== prevStage) {
-      if (p.stage === "DONE") {
-        if (player) { player.facingCorner = false; player.cornerLock = null; }
-        cc.stage = "DONE";
-        cc.localStatus = "ALIVE";
-        matchState.events.globalLightsOut = false;
-        matchState.events.cuttingCornersNpc = null;
-        turnAllLightsOn(matchState);
-        hideSmudgeBanner();
-        return;
-      }
-
       if (p.stage === "SCRAMBLE") {
         // Host started Cutting Corners -> run local blackout + scramble banner!
         matchState.roomLightStates = {};
@@ -1199,8 +1240,9 @@ window.Duskwood = window.Duskwood || {};
         }
         cc.localStatus = "ALIVE";
         cc.playerTurnedAround = false;
-        if (cc.currentQ) {
-          showSmudgeBanner(cc.currentQ.text, {
+        const myQ = getLocalCuttingCornersQuestion(cc);
+        if (myQ) {
+          showSmudgeBanner(myQ.text, {
             subtag: `CONDITION ${(cc.qIndex || 0) + 1} / ${Math.max(1, (cc.questions || []).length)}`,
             countdown: Math.max(1, Math.ceil(cc.timer || 10)),
             typingDurationSec: 5.0,
@@ -1209,7 +1251,8 @@ window.Duskwood = window.Duskwood || {};
         }
       } else if (p.stage === "SURVIVED") {
         // If Guest never clicked Q/E before QUESTION timer ran out, auto-evaluate staying at corner (false)!
-        if (prevStage === "QUESTION" && cc.localStatus === "ALIVE" && !localDeadOrDying && cc.currentQ) {
+        const myQ = getLocalCuttingCornersQuestion(cc);
+        if (prevStage === "QUESTION" && cc.localStatus === "ALIVE" && !localDeadOrDying && myQ) {
           submitCuttingCornersChoice(matchState, player, false);
         }
         cc.stage = "SURVIVED";
@@ -1228,25 +1271,36 @@ window.Duskwood = window.Duskwood || {};
     }
   }
 
-  function buildCuttingCornersQuestions(matchState) {
+  function buildCuttingCornersQuestionPool(matchState) {
     const rim = matchState.rimPlayedCards || [];
+    const roomMap = matchState.roomMap || {};
     const progressCount = rim.filter((c) => c.type === "CHIME").length;
-    const totalRooms = Object.keys(matchState.roomMap || {}).length;
+    const totalRooms = Object.keys(roomMap).length;
     const eventCount = rim.filter((c) => c.type === "HEX").length;
+    const rimTotal = rim.length;
+    const adjDining = [
+      [0, -1], [1, 0], [0, 1], [-1, 0]
+    ].filter(([dx, dy]) => Boolean(roomMap[`${dx},${dy}`])).length;
+    const harvRisen = Boolean(matchState.harvesterSpawned);
 
-    function makeVariant(actual, minVal) {
+    function makeVariant(actual, minVal, maxVal) {
       const isTrue = Math.random() < 0.5;
       if (isTrue) return { shown: actual, isTrue: true };
-      const delta = Math.random() < 0.5 ? 1 : -1;
-      let fake = actual + delta;
-      if (fake < minVal) fake = actual + 1;
-      if (fake === actual) fake = actual + 2;
+      const cands = [];
+      if (actual - 1 >= minVal) cands.push(actual - 1);
+      if (maxVal == null || actual + 1 <= maxVal) cands.push(actual + 1);
+      if (!cands.length) cands.push(actual + 2);
+      const fake = cands[Math.floor(Math.random() * cands.length)];
       return { shown: fake, isTrue: false };
     }
 
-    const qProgress = makeVariant(progressCount, 0);
-    const qRooms = makeVariant(totalRooms, 2);
-    const qEvents = makeVariant(eventCount, 0);
+    const qProgress = makeVariant(progressCount, 0, null);
+    const qRooms    = makeVariant(totalRooms, 2, null);
+    const qEvents   = makeVariant(eventCount, 0, null);
+    const qAdj      = makeVariant(adjDining, 1, 4);
+    const qRim      = makeVariant(rimTotal, 0, null);
+    const qHarvTrue = Math.random() < 0.5;
+    const qHarvClaimRisen = qHarvTrue ? harvRisen : !harvRisen;
 
     const list = [
       {
@@ -1269,15 +1323,55 @@ window.Duskwood = window.Duskwood || {};
         actual: eventCount,
         shown: qEvents.shown,
         text: `FACE IT IF THERE ${qEvents.shown === 1 ? "IS" : "ARE"} ${qEvents.shown} ${qEvents.shown === 1 ? "EVENT" : "EVENTS"} ON THE TABLE.`
+      },
+      {
+        kind: "adjacent_dining",
+        isTrue: qAdj.isTrue,
+        actual: adjDining,
+        shown: qAdj.shown,
+        text: `FACE IT IF THERE ${qAdj.shown === 1 ? "IS" : "ARE"} ${qAdj.shown} ${qAdj.shown === 1 ? "ROOM" : "ROOMS"} DIRECTLY CONNECTED TO THE DINING ROOM.`
+      },
+      {
+        kind: "rim_total",
+        isTrue: qRim.isTrue,
+        actual: rimTotal,
+        shown: qRim.shown,
+        text: `FACE IT IF THERE ${qRim.shown === 1 ? "IS" : "ARE"} ${qRim.shown} PLAYED ${qRim.shown === 1 ? "CARD" : "CARDS"} AROUND THE TABLE RIM.`
+      },
+      {
+        kind: "harvester_spawned",
+        isTrue: qHarvTrue,
+        actual: harvRisen ? 1 : 0,
+        shown: qHarvClaimRisen ? 1 : 0,
+        text: qHarvClaimRisen
+          ? "FACE IT IF THE HOLLOW HARVESTER HAS ALREADY RISEN FROM THE TABLE."
+          : "FACE IT IF THE HOLLOW HARVESTER HAS NOT RISEN FROM THE TABLE YET."
       }
     ];
 
-    // Shuffle question order & pick ONLY 1 condition for Cutting Corners!
     for (let i = list.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [list[i], list[j]] = [list[j], list[i]];
     }
-    return [list[0]];
+    return list;
+  }
+
+  function assignCuttingCornersQuestionsByPlayer(matchState) {
+    const pool = buildCuttingCornersQuestionPool(matchState);
+    const byPlayer = {};
+    if (isMpEventMode(matchState) && App.Network && App.Network.getAllMatchSeats) {
+      const seats = App.Network.getAllMatchSeats();
+      seats.forEach((s, idx) => {
+        if (s && s.playerId) {
+          byPlayer[s.playerId] = [pool[idx % pool.length]];
+        }
+      });
+    }
+    const localPid = (App.Network && App.Network.getLocalPlayerId) ? App.Network.getLocalPlayerId() : "local";
+    if (!byPlayer[localPid]) {
+      byPlayer[localPid] = [pool[0]];
+    }
+    return { pool, byPlayer, localQuestions: byPlayer[localPid] };
   }
 
   function startCuttingCornersEvent(matchState) {
@@ -1309,9 +1403,12 @@ window.Duskwood = window.Duskwood || {};
     cc.localStatus = "ALIVE";
     cc.localDeathTimer = 0;
     cc.timer = 10.0;
-    cc.questions = buildCuttingCornersQuestions(matchState);
+    const assigned = assignCuttingCornersQuestionsByPlayer(matchState);
+    cc.questions = assigned.localQuestions;
+    cc.questionsByPlayer = assigned.byPlayer;
     cc.qIndex = 0;
     cc.currentQ = null;
+    cc.currentQByPlayer = {};
     cc.playerTurnedAround = false;
 
     App.Audio.hexAlert();
@@ -1346,7 +1443,7 @@ window.Duskwood = window.Duskwood || {};
     if (cc.qIndex >= cc.questions.length) {
       // Survived all conditions!
       cc.stage = "SURVIVED";
-      cc.timer = 3.2;
+      cc.timer = isMpEventMode(matchState) ? 4.6 : 3.2;
       if (hostLocalAlive) {
         App.Audio.clockChime();
         showSmudgeBanner("IT LEFT THE ROOM...\nYOU SURVIVED CUTTING CORNERS.", {
@@ -1360,10 +1457,19 @@ window.Duskwood = window.Duskwood || {};
     }
 
     cc.stage = "QUESTION";
-    cc.currentQ = cc.questions[cc.qIndex];
+    cc.currentQByPlayer = {};
+    if (cc.questionsByPlayer && typeof cc.questionsByPlayer === "object") {
+      Object.keys(cc.questionsByPlayer).forEach((pid) => {
+        const arr = cc.questionsByPlayer[pid];
+        if (Array.isArray(arr) && arr[cc.qIndex]) {
+          cc.currentQByPlayer[pid] = arr[cc.qIndex];
+        }
+      });
+    }
+    cc.currentQ = getLocalCuttingCornersQuestion(cc) || cc.questions[cc.qIndex];
     cc.timer = 10.0;
     cc.playerTurnedAround = false;
-    if (hostLocalAlive) {
+    if (hostLocalAlive && cc.currentQ) {
       cc.localStatus = "ALIVE";
       showSmudgeBanner(cc.currentQ.text, {
         subtag: `CONDITION ${cc.qIndex + 1} / ${cc.questions.length}`,
@@ -1440,7 +1546,8 @@ window.Duskwood = window.Duskwood || {};
 
   function submitCuttingCornersChoice(matchState, player, turnAround) {
     const cc = matchState && matchState.events && matchState.events.cuttingCorners;
-    if (!cc || cc.stage !== "QUESTION" || !cc.currentQ) return;
+    const activeQ = getLocalCuttingCornersQuestion(cc);
+    if (!cc || cc.stage !== "QUESTION" || !activeQ) return;
     if (cc.localStatus !== "ALIVE" || isLocalLockedInCellar(matchState)) return;
 
     // Visually turn player around if they chose TRUE (Face it!)
@@ -1449,7 +1556,7 @@ window.Duskwood = window.Duskwood || {};
       cc.playerTurnedAround = true;
     }
 
-    const correct = Boolean(turnAround) === Boolean(cc.currentQ.isTrue);
+    const correct = Boolean(turnAround) === Boolean(activeQ.isTrue);
     document.getElementById("event-smudge-choices")?.classList.add("hidden");
 
     if (correct) {

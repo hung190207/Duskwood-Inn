@@ -754,6 +754,61 @@ window.Duskwood = window.Duskwood || {};
       lore: "A cleaner flame keeps the corners of the room from creeping inward.",
       meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
     },
+    {
+      id: "ch_plus_30_catching_up",
+      type: "CHIME",
+      glyph: "+30",
+      name: "CATCHING UP",
+      shortEffect: "Catching Up",
+      flavorBody: "CATCHING UP FOR LOST TIME.\nADVANCE FORWARD HALF AN HOUR.",
+      effect: "Catching up for lost time. Advance forward half an hour. (Advances the player piece by 30 minutes.)",
+      lore: "Quick footsteps echo down the oak hall to make up for precious minutes slipped away.",
+      meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true, artVariant: "runner" }
+    },
+    {
+      id: "ch_plus_30_tea",
+      type: "CHIME",
+      glyph: "+30",
+      name: "STEEPING TEA",
+      shortEffect: "Steeping Tea",
+      flavorBody: "THE KETTLE WHISTLES SOFTLY WHILE FOG PRESSES AGAINST THE GLASS.\nADVANCE FORWARD HALF AN HOUR.",
+      effect: "The kettle whistles softly while fog presses against the glass. (Advances the player piece by 30 minutes.)",
+      lore: "A warm cup of pine-needle tea steadies the nerves for thirty quiet minutes.",
+      meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true, artVariant: "teacup", rpTint: "warm", rpMotif: "☕" }
+    },
+    {
+      id: "ch_plus_30_winding",
+      type: "CHIME",
+      glyph: "+30",
+      name: "WINDING THE GEARS",
+      shortEffect: "Winding the Gears",
+      flavorBody: "A BRASS KEY TURNS INSIDE THE WALL CLOCK, COAXING ITS HANDS PAST THE HALF-HOUR.\nADVANCE FORWARD HALF AN HOUR.",
+      effect: "A brass key turns inside the wall clock, coaxing its hands past the half-hour. (Advances the player piece by 30 minutes.)",
+      lore: "Old springs click cleanly into place and pull the night thirty minutes closer.",
+      meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true, artVariant: "clockkey", rpTint: "amber", rpMotif: "🗝" }
+    },
+    {
+      id: "ch_plus_30_footsteps",
+      type: "CHIME",
+      glyph: "+30",
+      name: "QUIET STRIDE",
+      shortEffect: "Quiet Stride",
+      flavorBody: "YOU STEP LIGHTLY OVER THE LOOSE FLOORBOARDS AND SLIP PAST THE SHADOWS.\nADVANCE FORWARD HALF AN HOUR.",
+      effect: "You step lightly over the loose floorboards and slip past the shadows. (Advances the player piece by 30 minutes.)",
+      lore: "Knowing which oak boards creak lets you cross half an hour untouched.",
+      meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true, artVariant: "footprints", rpTint: "slate", rpMotif: "👣" }
+    },
+    {
+      id: "ch_plus_30_hearth",
+      type: "CHIME",
+      glyph: "+30",
+      name: "STOKING THE EMBERS",
+      shortEffect: "Stoking the Embers",
+      flavorBody: "FRESH PINE LOGS CRACKLE IN THE HEARTH, PUSHING THE CHILL AWAY.\nADVANCE FORWARD HALF AN HOUR.",
+      effect: "Fresh pine logs crackle in the hearth, pushing the chill away. (Advances the player piece by 30 minutes.)",
+      lore: "Orange sparks curl up the stone chimney as thirty calm minutes drift by.",
+      meta: { deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true, artVariant: "flame", rpTint: "warm", rpMotif: "🔥" }
+    },
     // --- +60 MINUTES ROLEPLAY PROGRESS CARDS (3 immersive variants, identical +60m player-only mechanic) ---
     {
       id: "ch_plus_60",
@@ -787,6 +842,61 @@ window.Duskwood = window.Duskwood || {};
       effect: "Latches the storm shutters against the pine wind as the clock skips a full hour. (Advances the player piece by 60 minutes.)",
       lore: "With the gale shut outside, the cabin feels calm for an entire hour.",
       meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
+    },
+    {
+      id: "ch_plus_60_losing_track",
+      type: "CHIME",
+      glyph: "+60",
+      name: "LOSING TRACK OF TIME",
+      shortEffect: "Losing Track of Time",
+      flavorBody: "ARE YOU HAVING FUN YET?\nADVANCE FORWARD ONE HOUR",
+      effect: "Are you having fun yet? Advance forward one hour. (Advances the player piece by 60 minutes.)",
+      lore: "The cards keep turning and somehow an entire hour has already slipped past.",
+      meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true, artVariant: "runner" }
+    },
+    {
+      id: "ch_plus_60_midnight_chime",
+      type: "CHIME",
+      glyph: "+60",
+      name: "DEEP INTO THE NIGHT",
+      shortEffect: "Deep Into the Night",
+      flavorBody: "THE WIND HOWLS THROUGH THE PINES AS AN ENTIRE HOUR VANISHES WITHOUT A SOUND.\nADVANCE FORWARD ONE HOUR.",
+      effect: "The wind howls through the pines as an entire hour vanishes without a sound. (Advances the player piece by 60 minutes.)",
+      lore: "Moonlight inches across the dining floorboards while the night races toward twelve.",
+      meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true, artVariant: "crescent", rpTint: "dusk", rpMotif: "☽" }
+    },
+    {
+      id: "ch_plus_60_fast_forward",
+      type: "CHIME",
+      glyph: "+60",
+      name: "SLIPPING HANDS",
+      shortEffect: "Slipping Hands",
+      flavorBody: "YOU BLINK ONCE AND THE PENDULUM HAS ALREADY SWUNG PAST ANOTHER HOUR.\nADVANCE FORWARD ONE HOUR.",
+      effect: "You blink once and the pendulum has already swung past another hour. (Advances the player piece by 60 minutes.)",
+      lore: "Sand drains swiftly through the brass hourglass at the edge of the table.",
+      meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true, artVariant: "hourglass", rpTint: "amber", rpMotif: "⌛" }
+    },
+    {
+      id: "ch_plus_60_lantern_watch",
+      type: "CHIME",
+      glyph: "+60",
+      name: "KEEPING WATCH",
+      shortEffect: "Keeping Watch",
+      flavorBody: "HOLDING THE LANTERN HIGH BY THE DOORWAY UNTIL THE NEXT BELL TOLLS.\nADVANCE FORWARD ONE HOUR.",
+      effect: "Holding the lantern high by the doorway until the next bell tolls. (Advances the player piece by 60 minutes.)",
+      lore: "A steady amber wick guards the threshold through a long, silent hour.",
+      meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true, artVariant: "lantern", rpTint: "warm", rpMotif: "🏮" }
+    },
+    {
+      id: "ch_plus_60_old_diary",
+      type: "CHIME",
+      glyph: "+60",
+      name: "FADED PAGES",
+      shortEffect: "Faded Pages",
+      flavorBody: "LOST IN A FORMER GUEST'S SCRIBBLED NOTES WHILE THE NIGHT SLIPS BY.\nADVANCE FORWARD ONE HOUR.",
+      effect: "Lost in a former guest's scribbled notes while the night slips by. (Advances the player piece by 60 minutes.)",
+      lore: "By the time you close the yellowed ledger, the hands have jumped a full hour.",
+      meta: { deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true, artVariant: "quill", rpTint: "slate", rpMotif: "✒" }
     },
     {
       id: "ch_rewind_30",
@@ -859,14 +969,40 @@ window.Duskwood = window.Duskwood || {};
       meta: { action: "the_thief", deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, specialProgress: true }
     },
     {
-      id: "ch_the_neighbor",
+      id: "ch_go_again",
       type: "CHIME",
       glyph: "+30",
+      name: "GO AGAIN",
+      shortEffect: "Skip others & go again",
+      flavorBody: "SKIP EVERYONE'S TURN AND GO AGAIN",
+      effect: "Skip everyone's turn and go again. Advances ONLY the player piece by +30 minutes (the Hollow Harvester stays still), then returns the turn straight back to you.",
+      lore: "The brass turntable sweeps all the way around and locks right back in front of your chair.",
+      meta: { action: "go_again", deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
+    },
+    {
+      id: "ch_reverse",
+      type: "CHIME",
+      glyph: "+30",
+      name: "REVERSE",
+      shortEffect: "Reverse turn order",
+      flavorBody: "REVERSE THE ORDER OF TURNS",
+      effect: "Reverse the order of turns. Advances ONLY the player piece by +30 minutes (the Hollow Harvester stays still) and reverses the direction the round table rotates between seats.",
+      lore: "A heavy gear clunks beneath the oak planks as the tabletop begins spinning the opposite way.",
+      meta: { action: "reverse_turns", deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, flavorProgress: true }
+    },
+    {
+      id: "ch_the_neighbor",
+      type: "CHIME",
+      glyph: "+60",
       name: "THE NEIGHBOR",
-      shortEffect: "+30m • Knocks on Cellar door",
-      effect: "Advances ONLY the player piece by +30 minutes. Three heavy knocks echo at the door connected to The Cellar — walk over and press [E] to open it for The Neighbor and pick 1 of 3 offers.",
-      lore: "Three heavy knocks echo behind the Cellar door. Only the one who played me gets to pick.",
-      meta: { action: "the_neighbor", deltaMinutes: 30, freezeHarvester: true, skipPassiveStep: true, specialProgress: true }
+      shortEffect: "+60m • Knocks on Cellar door",
+      flavorBody: "KNOCK-KNOCK-KNOCK,
+WHO COULD IT BE?
+KNOCK-KNOCK-KNOCK,
+OH PLEASE HELP ME...",
+      effect: "Advances ONLY the player piece by +60 minutes. Three heavy knocks echo at the door connected to The Cellar — walk over and press [E] to open it for The Neighbor and pick 1 of 3 offers.",
+      lore: "Knock-knock-knock, who could it be? Knock-knock-knock, oh please help me...",
+      meta: { action: "the_neighbor", deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, specialProgress: true }
     },
 
     // =========================================================================
@@ -995,6 +1131,26 @@ window.Duskwood = window.Duskwood || {};
       effect: "Event: All cabin lights flicker for 5s, then only 2 random rooms stay lit and rotate every 10s for 90s. Stay inside lit rooms — a glowing four-legged Shadow Beast hunts the dark and vanishes on contact with light!",
       lore: "Four glowing eyes prowl every dark hallway the instant the breaker snaps.",
       meta: { eventKey: "stay_in_the_light", monsterId: "shadow_hunter", monsterName: "THE SHADOW HUNTER", penaltyHours: 1 }
+    },
+    {
+      id: "hx_graveyard_wipe",
+      type: "HEX",
+      glyph: "GW",
+      name: "GRAVEYARD WIPE",
+      shortEffect: "Wipes Graveyard & skips turn",
+      effect: "All cards in the Graveyard are gone. ...Also, skip your turn. (Strictly 2 copies per match; can be banished by The Neighbor.)",
+      lore: "A cold gust sweeps the pedestal clean before you can even play a card.",
+      meta: { eventKey: "graveyard_wipe", isGraveyardWipe: true, maxPerMatch: 2 }
+    },
+    {
+      id: "hx_time_is_up",
+      type: "HEX",
+      glyph: "XII",
+      name: "TIME IS UP...",
+      shortEffect: "12:00 AM • Reach Exit Room",
+      effect: "It is 12 o'clock. Get to the exit room if you wish to leave... (Guaranteed forced draw ONLY when the player piece reaches 12 o'clock.)",
+      lore: "The night clock strikes twelve. Leave the table and run for the Exit Room.",
+      meta: { eventKey: "time_is_up", isTimeIsUp: true, onlyAtMidnight: true }
     }
   ];
 
@@ -1046,22 +1202,34 @@ window.Duskwood = window.Duskwood || {};
     WARD:      0.10
   };
 
-  // Preserves exact +15 (0.22), +30 (0.27 across 4 roleplay cards), +60 (0.10 across 3 roleplay cards) balance!
+  // Preserves exact +15 (0.22), +30 (0.27 across 9 roleplay cards), +60 (0.10 across 8 roleplay cards) balance!
   const CHIME_CARD_WEIGHTS = {
-    ch_plus_15:          0.22,
-    ch_plus_30:          0.075,
-    ch_plus_30_matches:  0.065,
-    ch_plus_30_hinges:   0.065,
-    ch_plus_30_candle:   0.065,
-    ch_rewind_30:        0.08,
-    ch_plus_60:          0.036,
-    ch_plus_60_corridor: 0.032,
-    ch_plus_60_shutters: 0.032,
+    ch_plus_15:                0.22,
+    ch_plus_30:                0.030,
+    ch_plus_30_matches:        0.030,
+    ch_plus_30_hinges:         0.030,
+    ch_plus_30_candle:         0.030,
+    ch_plus_30_catching_up:    0.030,
+    ch_plus_30_tea:            0.030,
+    ch_plus_30_winding:        0.030,
+    ch_plus_30_footsteps:      0.030,
+    ch_plus_30_hearth:         0.030,
+    ch_rewind_30:              0.08,
+    ch_plus_60:                0.0125,
+    ch_plus_60_corridor:       0.0125,
+    ch_plus_60_shutters:       0.0125,
+    ch_plus_60_losing_track:   0.0125,
+    ch_plus_60_midnight_chime: 0.0125,
+    ch_plus_60_fast_forward:   0.0125,
+    ch_plus_60_lantern_watch:  0.0125,
+    ch_plus_60_old_diary:      0.0125,
     ch_shuffle:          0.12,
     ch_random_board:     0.09,
     ch_random_turn:      0.08,
     ch_traitor:          0.020,
     ch_sacrifice:        0.020,
+    ch_go_again:         0.065,
+    ch_reverse:          0.065,
     ch_the_thief:        0.06,
     ch_the_neighbor:     0.06
   };
@@ -1112,15 +1280,21 @@ window.Duskwood = window.Duskwood || {};
 
     const totalRooms = typeof options.totalRooms === "number" ? options.totalRooms : 7;
     const eventCooldownTurns = options.eventCooldownTurns || 0;
+    const bannedGraveyardWipe = Boolean(options.bannedGraveyardWipe);
+    const graveyardWipeDrawCount = Number(options.graveyardWipeDrawCount) || 0;
     const drawnEventIds = options.drawnEventCardIds instanceof Set
       ? options.drawnEventCardIds
       : new Set(options.drawnEventCardIds || []);
 
-    const EARLY_OK_EVENTS = new Set(["hx_corners", "hx_cellar_breakers", "hx_musical_rooms"]);
+    const EARLY_OK_EVENTS = new Set(["hx_corners", "hx_cellar_breakers", "hx_musical_rooms", "hx_graveyard_wipe"]);
     const eligibleHexes = (!allowHex || eventCooldownTurns > 0)
       ? []
       : getByType("HEX").filter((c) => {
-          if (c.id === "hx_harvester") return false;
+          if (c.id === "hx_harvester" || c.id === "hx_time_is_up") return false;
+          if (c.id === "hx_graveyard_wipe") {
+            if (bannedGraveyardWipe || graveyardWipeDrawCount >= 2) return false;
+            return true;
+          }
           if (drawnEventIds.has(c.id)) return false;
           if (totalRooms < 3 && !EARLY_OK_EVENTS.has(c.id)) return false;
           return true;
@@ -1215,7 +1389,9 @@ window.Duskwood = window.Duskwood || {};
         ? 2.6
         : c.id === "hx_corners"
           ? 1.5
-          : 0.7
+          : c.id === "hx_graveyard_wipe"
+            ? 1.35
+            : 0.7
     }));
     return pickWeightedFromList(weightedHex) || eligibleHexes[0];
   }
@@ -1265,9 +1441,11 @@ window.Duskwood = window.Duskwood || {};
   function buildSingleplayerDeck() {
     const cards = [];
     const usedUnique = new Set();
+    let gwCount = 0;
     for (let i = 0; i < 40; i++) {
-      const c = drawWeightedCard({ allowHex: true, isMultiplayer: false, excludeCardIds: usedUnique });
+      const c = drawWeightedCard({ allowHex: true, isMultiplayer: false, excludeCardIds: usedUnique, graveyardWipeDrawCount: gwCount });
       if (c && UNIQUE_ONCE_PER_MATCH_IDS.includes(c.id)) usedUnique.add(c.id);
+      if (c && c.id === "hx_graveyard_wipe") gwCount += 1;
       cards.push(c);
     }
     return cards;

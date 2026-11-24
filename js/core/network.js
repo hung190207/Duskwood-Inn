@@ -17,7 +17,14 @@
 window.Duskwood = window.Duskwood || {};
 
 (function (App) {
-  const PROTOCOL_VERSION = "v55";
+  const PROTOCOL_VERSION = "v59";
+  // 4 clear corner spawn points inside The Dining Room (verified against all Parlor colliders)
+  const CORNER_SPAWNS = [
+    { x: 32,  y: 182, facing: 1  }, // Seat 1 (SW corner)
+    { x: 176, y: 182, facing: -1 }, // Seat 2 (SE corner)
+    { x: 44,  y: 74,  facing: 1  }, // Seat 3 (NW corner)
+    { x: 180, y: 74,  facing: -1 }  // Seat 4 (NE corner)
+  ];
   const PEER_PREFIX = "duskwood-inn-tbl-v48-";
   const LOCAL_CHANNEL_NAME = "duskwood_inn_coop_bus_v48";
   const LS_BUS_KEY = "duskwood_inn_coop_ls_pkt_v48";
@@ -630,24 +637,33 @@ window.Duskwood = window.Duskwood || {};
     return (s && s.name) ? s.name : `SEAT ${seatIdx + 1}`;
   }
 
-  // Checks if ALL active players in the multiplayer match are seated at the round table
-  function getSeatedStatus(localSeated, localRoomCoord) {
+  // Checks if ALL active players in the multiplayer match are seated AND/OR in First-Person Table View
+  function getSeatedStatus(localSeated, localRoomCoord, localInTableView) {
     const activeSeats = getActiveSeatIndices();
     const localInDining = !localRoomCoord || (localRoomCoord.x === 0 && localRoomCoord.y === 0);
     let seatedCount = 0;
+    let tableViewCount = 0;
     const waitingNames = [];
+    const waitingTableViewNames = [];
 
     activeSeats.forEach((sIdx) => {
       const seat = session.seats[sIdx];
       if (!seat) return;
       if (seat.playerId === localPlayerId) {
-        if (localSeated && localInDining) seatedCount += 1;
+        const isSitting = Boolean(localSeated && localInDining);
+        const isInTv = Boolean(isSitting && (typeof localInTableView === "boolean" ? localInTableView : true));
+        if (isSitting) seatedCount += 1;
         else waitingNames.push(seat.name || `SEAT ${sIdx + 1}`);
+        if (isInTv) tableViewCount += 1;
+        else waitingTableViewNames.push(seat.name || `SEAT ${sIdx + 1}`);
       } else {
         const rp = remotePlayers.get(seat.playerId);
         const isSitting = Boolean(rp && rp.seated && rp.roomX === 0 && rp.roomY === 0);
+        const isInTv = Boolean(isSitting && rp.inTableView);
         if (isSitting) seatedCount += 1;
         else waitingNames.push(seat.name || `SEAT ${sIdx + 1}`);
+        if (isInTv) tableViewCount += 1;
+        else waitingTableViewNames.push(seat.name || `SEAT ${sIdx + 1}`);
       }
     });
 
@@ -655,8 +671,11 @@ window.Duskwood = window.Duskwood || {};
     return {
       totalPlayers,
       seatedCount,
+      tableViewCount,
       allSeated: totalPlayers > 0 && seatedCount >= totalPlayers,
+      allInTableView: totalPlayers > 0 && tableViewCount >= totalPlayers,
       waitingNames,
+      waitingTableViewNames,
       activeSeats
     };
   }
@@ -664,32 +683,27 @@ window.Duskwood = window.Duskwood || {};
   // ==================== IN-CABIN REMOTE PLAYER INTERPOLATION ====================
   function seedInitialRemotePlayers() {
     remotePlayers.clear();
-    const chairs = (App.GameRoom && App.GameRoom.CHAIRS) || [
-      { id: 0, seatX: 68,  seatY: 128, facing: 1 },
-      { id: 1, seatX: 140, seatY: 128, facing: -1 },
-      { id: 2, seatX: 104, seatY: 94,  facing: 1 },
-      { id: 3, seatX: 104, seatY: 157, facing: 1 }
-    ];
     const activeSeats = getActiveSeatIndices();
 
     session.seats.forEach((seat) => {
       if (!seat || seat.playerId === localPlayerId) return;
       const cid = getChairIdForSeat(seat.seatIdx, activeSeats);
-      const ch = chairs[cid] || chairs[0];
+      const sp = CORNER_SPAWNS[seat.seatIdx % CORNER_SPAWNS.length] || CORNER_SPAWNS[0];
       remotePlayers.set(seat.playerId, {
         playerId: seat.playerId,
         seatIdx: seat.seatIdx,
         name: seat.name,
         character: cloneCharacter(seat.character),
-        x: ch.seatX,
-        y: ch.seatY,
-        targetX: ch.seatX,
-        targetY: ch.seatY,
+        x: sp.x,
+        y: sp.y,
+        targetX: sp.x,
+        targetY: sp.y,
         roomX: 0,
         roomY: 0,
-        facing: ch.facing,
-        seated: true,
-        chairId: ch.id,
+        facing: sp.facing,
+        seated: false,
+        inTableView: false,
+        chairId: cid,
         moving: false,
         sprinting: false,
         crouching: false,
@@ -719,6 +733,7 @@ window.Duskwood = window.Duskwood || {};
         roomY: st.roomY || 0,
         facing: st.facing || 1,
         seated: Boolean(st.seated),
+        inTableView: Boolean(st.inTableView),
         chairId: typeof st.chairId === "number" ? st.chairId : 0,
         moving: Boolean(st.moving),
         sprinting: Boolean(st.sprinting),
@@ -747,6 +762,7 @@ window.Duskwood = window.Duskwood || {};
     }
     rp.facing = st.facing || 1;
     rp.seated = Boolean(st.seated);
+    rp.inTableView = Boolean(st.inTableView);
     rp.chairId = typeof st.chairId === "number" ? st.chairId : rp.chairId;
     rp.moving = Boolean(st.moving);
     rp.sprinting = Boolean(st.sprinting);
@@ -1288,6 +1304,7 @@ window.Duskwood = window.Duskwood || {};
     getSeatName,
     getSeatedStatus,
     CHAIR_WORLD_ANGLES,
+    CORNER_SPAWNS,
     getState: getPublicState,
     isMultiplayerMatch: () => session.inMatch && session.role !== "IDLE",
     PROTOCOL_VERSION,

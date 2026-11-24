@@ -2345,6 +2345,29 @@
   color: #542822;
 }
 
+.vc-title.is-graveyard-wipe {
+  color: #8f8a4c;
+  letter-spacing: 1.8px;
+  text-shadow:
+    -1.5px -1.5px 0 #1f1a12,
+     1.5px -1.5px 0 #1f1a12,
+    -1.5px  1.5px 0 #1f1a12,
+     1.5px  1.5px 0 #1f1a12;
+}
+
+.vc-gw-content {
+  justify-content: center;
+  gap: 34px;
+  padding: 18px 8px;
+}
+
+.vc-gw-line {
+  font-size: clamp(16px, 2.0vw, 19px);
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  color: #211a14;
+}
+
 .vc-divider-svg {
   width: min(220px, 78%);
   height: 11px;
@@ -3265,31 +3288,36 @@
   color: #fff7e2;
 }
 
-/* ==================== THE BASEMENT: FIRST-PERSON FUSE / BREAKER BOX MODAL ==================== */
-.bm-breaker-shell {
-  width: min(470px, 92vw);
-  display: flex;
-  flex-direction: column;
+/* ==================== THE BASEMENT: FULL-SCREEN FIRST-PERSON FUSE / BREAKER BOX ==================== */
+.bm-fp-fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 95;
+  background: #0a0506;
   overflow: hidden;
-  border-color: #c75b5b;
-  animation: popModal 0.14s ease-out;
-}
-
-.bm-breaker-body {
-  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  background: radial-gradient(circle at 50% 35%, rgba(34, 24, 26, 0.72), rgba(6, 7, 10, 0.96));
+  justify-content: space-between;
+  animation: bmFpFadeIn 0.14s ease-out;
 }
 
-.bm-breaker-frame {
-  width: min(340px, 82vw);
-  aspect-ratio: 320 / 240;
-  border: 3px solid var(--silver-dark);
-  background: #121418;
-  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.85), 0 10px 24px rgba(0, 0, 0, 0.85);
+.bm-fp-fullscreen.hidden {
+  display: none !important;
+}
+
+@keyframes bmFpFadeIn {
+  from { opacity: 0; transform: scale(1.03); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.bm-fp-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #0c0607;
 }
 
 .bm-fp-svg {
@@ -3298,32 +3326,61 @@
   display: block;
 }
 
-.bm-spark-arcs {
-  animation: bmSparkBlink 0.24s infinite alternate;
+.bm-siren-pulse {
+  animation: bmSirenPulse 0.88s ease-in-out infinite alternate;
 }
 
-@keyframes bmSparkBlink {
-  from { opacity: 0.25; }
+@keyframes bmSirenPulse {
+  from { opacity: 0.70; }
   to   { opacity: 1.0; }
 }
 
-.bm-progress-wrap {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.bm-spark-arcs {
+  animation: bmSparkBlink 0.22s infinite alternate;
 }
 
-.bm-progress-head {
+@keyframes bmSparkBlink {
+  from { opacity: 0.22; }
+  to   { opacity: 1.0; }
+}
+
+.bm-fp-hud-top {
+  position: relative;
+  z-index: 2;
   display: flex;
   justify-content: space-between;
-  font-family: var(--font-title);
-  font-size: 9px;
-  letter-spacing: 1.2px;
-  color: #f0e4cc;
+  align-items: center;
+  padding: 16px 26px;
+  background: linear-gradient(180deg, rgba(8, 4, 5, 0.85) 0%, rgba(8, 4, 5, 0) 100%);
+  pointer-events: none;
 }
 
-.bm-progress-track {
+.bm-fp-title,
+.bm-fp-pct {
+  font-family: var(--font-title);
+  font-size: 13px;
+  letter-spacing: 1.5px;
+  color: #ffe8cd;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.95);
+}
+
+.bm-fp-hud-bottom {
+  position: relative;
+  z-index: 2;
+  width: min(740px, 92vw);
+  margin: 0 auto 18px;
+  padding: 12px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: rgba(8, 5, 6, 0.78);
+  border: 2px solid rgba(198, 178, 152, 0.36);
+  backdrop-filter: blur(3px);
+}
+
+.bm-progress-track,
+.bm-fp-track {
   width: 100%;
   height: 18px;
   padding: 2px;
@@ -3348,6 +3405,66 @@
   letter-spacing: 0.8px;
   color: #ffd89b;
   text-align: center;
+}
+
+.bm-fp-actions {
+  display: flex;
+  gap: 12px;
+}
+
+/* ==================== TIME IS UP... CARD (12:00 AM MIDNIGHT) & ROLEPLAY CARD VARIANTS ==================== */
+.vc-timeup-layout {
+  justify-content: space-between;
+}
+
+.vc-title.is-time-is-up {
+  font-size: clamp(26px, 3.4vw, 35px);
+  letter-spacing: 1.8px;
+  color: #16100c;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.vc-timeup-content {
+  justify-content: center;
+  gap: 28px;
+  padding: 14px 12px;
+}
+
+.vc-timeup-clock-line {
+  font-size: clamp(18px, 2.2vw, 22px);
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  color: #1e1610;
+}
+
+.vc-timeup-exit-line {
+  font-size: clamp(16px, 2.0vw, 20px);
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: 0.9px;
+  color: #2b211a;
+  max-width: 92%;
+}
+
+/* Subtle visual variety tints for the expanded +30 / +60 Roleplay Progress Cards */
+.fp-parchment-hand-card.rp-tint-warm {
+  background: linear-gradient(160deg, #f7ecd6 0%, #ead8b5 100%);
+}
+.fp-parchment-hand-card.rp-tint-slate {
+  background: linear-gradient(160deg, #f0ede4 0%, #ddd8c8 100%);
+}
+.fp-parchment-hand-card.rp-tint-amber {
+  background: linear-gradient(160deg, #f9eed1 0%, #e8cfa0 100%);
+}
+.fp-parchment-hand-card.rp-tint-dusk {
+  background: linear-gradient(160deg, #ece8e1 0%, #d4cec2 100%);
+}
+.fp-parchment-hand-card .fp-parch-rp-motif {
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.8;
+  margin-top: -2px;
+  color: #4a3929;
 }
 
 /* ==================== THE NEIGHBOR: BOTTOM INK-SMUDGE DIALOGUE & 3D CARD FLIP ==================== */
@@ -3877,6 +3994,19 @@
   letter-spacing: 0.7px;
   color: #211a14;
   max-width: 94%;
+}
+
+.vc-neighbor-content {
+  gap: 16px;
+  padding: 8px 6px 4px;
+}
+
+.vc-neighbor-poem {
+  font-size: clamp(16.5px, 2.05vw, 20px);
+  font-weight: 700;
+  line-height: 1.42;
+  letter-spacing: 0.85px;
+  color: #19120c;
 }
 
 .vc-clock-minutes-row {
