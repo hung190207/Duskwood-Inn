@@ -34,6 +34,141 @@ window.Duskwood = window.Duskwood || {};
       App.Basement.onKeyFUp(gameState);
     }
   }
+
+  // ==================== IN-GAME MULTIPLAYER CO-OP CHAT ====================
+  let igChatCollapsed = false;
+  let igChatUnread = 0;
+  let igChatIdleTimer = null;
+
+  function escapeChatHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .split('"').join("&quot;");
+  }
+
+  function isChatInputFocused() {
+    const ae = document.activeElement;
+    return Boolean(ae && (ae.id === "ig-chat-input" || ae.tagName === "INPUT" || ae.tagName === "TEXTAREA"));
+  }
+
+  function wakeIngameChat() {
+    const panel = document.getElementById("ingame-chat-panel");
+    if (!panel) return;
+    panel.classList.remove("is-idle");
+    clearTimeout(igChatIdleTimer);
+    igChatIdleTimer = setTimeout(() => {
+      const inp = document.getElementById("ig-chat-input");
+      if (document.activeElement !== inp) {
+        panel.classList.add("is-idle");
+      }
+    }, 7500);
+  }
+
+  function updateIngameChatUnreadUI() {
+    const badge = document.getElementById("ig-chat-unread");
+    if (!badge) return;
+    if (igChatCollapsed && igChatUnread > 0) {
+      badge.textContent = igChatUnread > 9 ? "9+" : String(igChatUnread);
+      badge.classList.remove("hidden");
+    } else {
+      badge.classList.add("hidden");
+    }
+  }
+
+  function setIngameChatCollapsed(collapsed) {
+    igChatCollapsed = Boolean(collapsed);
+    const panel = document.getElementById("ingame-chat-panel");
+    const btn = document.getElementById("ig-chat-toggle-btn");
+    if (panel) panel.classList.toggle("is-collapsed", igChatCollapsed);
+    if (btn) btn.textContent = igChatCollapsed ? "+" : "−";
+    if (!igChatCollapsed) {
+      igChatUnread = 0;
+      const box = document.getElementById("ig-chat-messages");
+      if (box) box.scrollTop = box.scrollHeight;
+    }
+    updateIngameChatUnreadUI();
+    wakeIngameChat();
+  }
+
+  function buildChatLineHtml(entry) {
+    if (!entry) return "";
+    if (entry.system) {
+      return `<div class="ig-chat-line is-sys">* ${escapeChatHtml(entry.text)}</div>`;
+    }
+    const sIdx = typeof entry.seatIdx === "number" && entry.seatIdx >= 0 ? (entry.seatIdx % 4) : 0;
+    return `<div class="ig-chat-line"><span class="ig-chat-sender seat-${sIdx}">${escapeChatHtml(entry.sender || "TRAVELER")}:</span>${escapeChatHtml(entry.text)}</div>`;
+  }
+
+  function syncIngameChatHistory() {
+    const panel = document.getElementById("ingame-chat-panel");
+    const hint = document.getElementById("hud-hint-chat");
+    const box = document.getElementById("ig-chat-messages");
+    const isMp = gameState.mode === "MULTIPLAYER" && App.Network && App.Network.isMultiplayerMatch && App.Network.isMultiplayerMatch();
+
+    if (hint) hint.classList.toggle("hidden", !isMp);
+    if (!panel) return;
+    panel.classList.remove("is-suppressed");
+    panel.classList.toggle("hidden", !isMp);
+    if (!isMp) return;
+
+    igChatUnread = 0;
+    setIngameChatCollapsed(false);
+    if (box) {
+      const log = (App.Network.getState && App.Network.getState().chatLog) || [];
+      const recent = log.slice(-24);
+      const introLine = `<div class="ig-chat-line is-sys">* Press [ENTER] to chat with your table.</div>`;
+      box.innerHTML = introLine + recent.map(buildChatLineHtml).join("");
+      box.scrollTop = box.scrollHeight;
+    }
+    wakeIngameChat();
+  }
+
+  function appendIngameChatMessage(entry) {
+    if (!active || gameState.mode !== "MULTIPLAYER") return;
+    const box = document.getElementById("ig-chat-messages");
+    if (!box || !entry) return;
+    box.insertAdjacentHTML("beforeend", buildChatLineHtml(entry));
+    while (box.children.length > 45) {
+      box.removeChild(box.firstElementChild);
+    }
+    box.scrollTop = box.scrollHeight;
+
+    if (igChatCollapsed) {
+      igChatUnread += 1;
+      updateIngameChatUnreadUI();
+    }
+    wakeIngameChat();
+
+    const localId = App.Network && App.Network.getLocalPlayerId ? App.Network.getLocalPlayerId() : "";
+    if (!entry.system && entry.playerId !== localId && App.Audio && App.Audio.hover) {
+      App.Audio.hover();
+    }
+  }
+
+  function openAndFocusIngameChat() {
+    if (!active || gameState.mode !== "MULTIPLAYER") return false;
+    const panel = document.getElementById("ingame-chat-panel");
+    const input = document.getElementById("ig-chat-input");
+    if (!panel || !input || panel.classList.contains("hidden") || panel.classList.contains("is-suppressed")) return false;
+    clearAllHeldKeys();
+    if (igChatCollapsed) setIngameChatCollapsed(false);
+    panel.classList.add("is-focused");
+    panel.classList.remove("is-idle");
+    clearTimeout(igChatIdleTimer);
+    input.focus();
+    return true;
+  }
+
+  function blurIngameChat() {
+    const panel = document.getElementById("ingame-chat-panel");
+    const input = document.getElementById("ig-chat-input");
+    if (input && document.activeElement === input) input.blur();
+    if (panel) panel.classList.remove("is-focused");
+    wakeIngameChat();
+  }
+
   let roomTransitionAlpha = 0;
   let roomTransitionCooldown = 0;
 
@@ -1374,6 +1509,7 @@ window.Duskwood = window.Duskwood || {};
       dialogueOpen ||
       paintingOpen ||
       neighborModalOpen ||
+      isChatInputFocused() ||
       (App.FieldBook && App.FieldBook.isOpen()) ||
       (App.Clues && App.Clues.isInspectOpen()) ||
       (App.Knight && App.Knight.isTableGlanceOpen()) ||
@@ -1495,6 +1631,18 @@ window.Duskwood = window.Duskwood || {};
     // Update & render active fullscreen pixel-art jumpscare at full frame rate
     if (App.Jumpscare && App.Jumpscare.isActive()) {
       App.Jumpscare.updateAndRender(dt);
+    }
+
+    const igChatEl = document.getElementById("ingame-chat-panel");
+    if (igChatEl && !igChatEl.classList.contains("hidden")) {
+      const suppressChat = Boolean(
+        (App.Jumpscare && App.Jumpscare.isActive()) ||
+        (App.Endgame && App.Endgame.isCutsceneBlocking(gameState)) ||
+        (App.Basement && App.Basement.isSlideCutscene(gameState))
+      );
+      igChatEl.classList.toggle("is-suppressed", suppressChat);
+      if (suppressChat && isChatInputFocused()) blurIngameChat();
+      igChatEl.classList.toggle("is-table-open", Boolean(App.TableView.isOpen()));
     }
 
     if (App.TableView.isOpen()) {
@@ -1810,6 +1958,8 @@ window.Duskwood = window.Duskwood || {};
     }
     document.getElementById("pause-overlay")?.classList.add("hidden");
     document.getElementById("hud-dialogue")?.classList.add("hidden");
+    document.getElementById("ingame-chat-panel")?.classList.add("hidden");
+    document.getElementById("hud-hint-chat")?.classList.add("hidden");
 
     App.GameIntro.start(
       () => {
@@ -1826,6 +1976,7 @@ window.Duskwood = window.Duskwood || {};
       },
       () => {
         if (hud) hud.classList.remove("hud-hidden");
+        syncIngameChatHistory();
         if (gameState.mode === "MULTIPLAYER" && App.Network && !App.Network.isHost() && App.Network.requestImmediateResync) {
           App.Network.requestImmediateResync();
         }
@@ -1895,6 +2046,10 @@ window.Duskwood = window.Duskwood || {};
     if (App.Endgame && App.Endgame.cleanup) App.Endgame.cleanup(gameState);
 
     document.getElementById("game-stage")?.classList.add("hidden");
+    blurIngameChat();
+    clearTimeout(igChatIdleTimer);
+    document.getElementById("ingame-chat-panel")?.classList.add("hidden");
+    document.getElementById("hud-hint-chat")?.classList.add("hidden");
     document.getElementById("pause-overlay")?.classList.add("hidden");
     document.getElementById("hud-dialogue")?.classList.add("hidden");
     document.getElementById("app-shell")?.classList.remove("hidden");
@@ -1923,6 +2078,16 @@ window.Duskwood = window.Duskwood || {};
     });
 
     document.addEventListener("keydown", (e) => {
+      const chatInput = document.getElementById("ig-chat-input");
+      if (chatInput && document.activeElement === chatInput) {
+        if (e.code === "Escape") {
+          e.preventDefault();
+          blurIngameChat();
+        }
+        return;
+      }
+      if (isChatInputFocused()) return;
+
       keys[e.code] = true;
       if (!active || App.GameIntro.isBlockingInput() || (App.Jumpscare && App.Jumpscare.isActive())) return;
 
@@ -1951,6 +2116,26 @@ window.Duskwood = window.Duskwood || {};
       }
 
       if (paused) return;
+
+      if (
+        !e.defaultPrevented &&
+        e.code === "Enter" &&
+        gameState.mode === "MULTIPLAYER" &&
+        !dialogueOpen &&
+        !paintingOpen &&
+        !neighborModalOpen &&
+        !(App.Clues && App.Clues.isInspectOpen()) &&
+        !(App.Knight && App.Knight.isTableGlanceOpen()) &&
+        !(App.Thief && App.Thief.isStandModalOpen()) &&
+        !(App.FieldBook && App.FieldBook.isOpen()) &&
+        !(App.Basement && App.Basement.isRepairModalOpen(gameState)) &&
+        !(App.TableView && App.TableView.isOpen() && App.TableView.isBusy()) &&
+        !(App.Endgame && App.Endgame.isCutsceneBlocking(gameState))
+      ) {
+        e.preventDefault();
+        openAndFocusIngameChat();
+        return;
+      }
 
       if (e.code === "KeyB") {
         e.preventDefault();
@@ -2142,6 +2327,7 @@ window.Duskwood = window.Duskwood || {};
         keys["ShiftLeft"] = false;
         keys["ShiftRight"] = false;
       }
+      if (isChatInputFocused()) return;
       if (e.code === "KeyF" && active && !paused && App.Musical && App.Musical.isActive && App.Musical.isActive(gameState)) {
         App.Musical.onKeyFUp(gameState, player);
         syncHud();
@@ -2174,7 +2360,10 @@ window.Duskwood = window.Duskwood || {};
       if (!btn) return;
       const act = btn.getAttribute("data-game-action");
 
-      if (act === "toggle-lantern") {
+      if (act === "toggle-chat") {
+        setIngameChatCollapsed(!igChatCollapsed);
+        App.Audio.click();
+      } else if (act === "toggle-lantern") {
         player.lanternOn = !player.lanternOn;
         App.Audio.lanternClick();
         syncHud();
@@ -2238,7 +2427,48 @@ window.Duskwood = window.Duskwood || {};
     if (App.FieldBook) App.FieldBook.init();
     if (App.TableView) App.TableView.init();
 
+    const igChatForm = document.getElementById("ig-chat-form");
+    const igChatInput = document.getElementById("ig-chat-input");
+    const igChatHeader = document.getElementById("ig-chat-header");
+    if (igChatForm && igChatInput) {
+      igChatForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const txt = igChatInput.value.trim();
+        igChatInput.value = "";
+        if (txt && App.Network && App.Network.sendChat) {
+          App.Network.sendChat(txt);
+          if (App.Audio && App.Audio.click) App.Audio.click();
+        }
+        blurIngameChat();
+      });
+      igChatInput.addEventListener("focus", () => {
+        clearAllHeldKeys();
+        const panel = document.getElementById("ingame-chat-panel");
+        if (panel) {
+          panel.classList.add("is-focused");
+          panel.classList.remove("is-idle");
+        }
+        clearTimeout(igChatIdleTimer);
+      });
+      igChatInput.addEventListener("blur", () => {
+        const panel = document.getElementById("ingame-chat-panel");
+        if (panel) panel.classList.remove("is-focused");
+        wakeIngameChat();
+      });
+    }
+    if (igChatHeader) {
+      igChatHeader.addEventListener("click", (e) => {
+        if (e.target && e.target.closest && e.target.closest("#ig-chat-toggle-btn")) return;
+        setIngameChatCollapsed(!igChatCollapsed);
+        if (App.Audio && App.Audio.click) App.Audio.click();
+      });
+    }
+
     if (App.Network && App.Network.on) {
+      App.Network.on("chatMessage", (entry) => {
+        appendIngameChatMessage(entry);
+      });
+
       App.Network.on("gameMessage", (msg) => {
         if (!active || !msg || !msg.action) return;
         const p = msg.payload || {};

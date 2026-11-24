@@ -18,9 +18,9 @@
   />
 
   <!-- Structured Stylesheets -->
-  <link rel="stylesheet" href="css/theme.css?v=59" />
-  <link rel="stylesheet" href="css/lobby.css?v=59" />
-  <link rel="stylesheet" href="css/gameplay.css?v=59" />
+  <link rel="stylesheet" href="css/theme.css?v=60" />
+  <link rel="stylesheet" href="css/lobby.css?v=60" />
+  <link rel="stylesheet" href="css/gameplay.css?v=60" />
 </head>
 <body>
   <!-- Fullscreen Pixel-Art Dead Forest & Cabin Background (Lobby) -->
@@ -138,6 +138,7 @@
         <div class="key-hint"><kbd>T</kbd> TABLE VIEW</div>
         <div class="key-hint"><kbd>F</kbd> LANTERN</div>
         <div class="key-hint"><kbd>B</kbd> BOOK</div>
+        <div class="key-hint hidden" id="hud-hint-chat"><kbd>ENTER</kbd> CHAT</div>
         <div class="key-hint"><kbd>J</kbd> TOME</div>
         <div class="key-hint"><kbd>ESC</kbd> PAUSE</div>
       </div>
@@ -559,7 +560,7 @@
             </div>
             <div class="eg-cr-group">
               <span>CORRUPT PAINTING ART CREDITS</span>
-              <strong>RELATIONSHIP (关系), 2016 &mdash; ZHANG YUNYAO<br>TRAGIC FORMS ALBUM &mdash; KEN CURRIE</strong>
+              <strong>RELATIONSHIP (关系), 2016 &mdash; ZHANG YUNYAO<br>TRAGIC FORMS COLLECTION &mdash; KEN CURRIE</strong>
             </div>
             <div class="eg-cr-group">
               <span>MUSIC &amp; SOUNDTRACK</span>
@@ -578,6 +579,30 @@
         </div>
       </div>
     </div>
+
+
+    <!-- In-Game Multiplayer Co-op Chat Overlay (Cabin + Table View) -->
+    <aside id="ingame-chat-panel" class="ig-chat-panel hidden" aria-label="Multiplayer Table Chat">
+      <div class="ig-chat-header" id="ig-chat-header">
+        <span class="ig-chat-title">TABLE CHAT</span>
+        <span class="ig-chat-unread hidden" id="ig-chat-unread">0</span>
+        <button type="button" class="ig-chat-toggle-btn" id="ig-chat-toggle-btn" data-game-action="toggle-chat" title="Minimize / Expand Chat">&minus;</button>
+      </div>
+      <div class="ig-chat-body" id="ig-chat-body">
+        <div class="ig-chat-messages" id="ig-chat-messages" role="log" aria-live="polite"></div>
+        <form class="ig-chat-form" id="ig-chat-form" autocomplete="off">
+          <input
+            type="text"
+            id="ig-chat-input"
+            class="ig-chat-input"
+            maxlength="110"
+            placeholder="[ENTER] TYPE TO CHAT..."
+            aria-label="Send message to table"
+          />
+          <button type="submit" class="ig-chat-send-btn">SEND</button>
+        </form>
+      </div>
+    </aside>
 
     <!-- In-Game Pause Menu -->
     <div id="pause-overlay" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="pause-title">
@@ -914,7 +939,7 @@
           <span class="credit-role">CORRUPT PAINTING ART CREDITS</span>
           <ul class="credit-list">
             <li><span>cp.jpg:</span> <strong>Relationship (关系), 2016 &mdash; Zhang Yunyao</strong></li>
-            <li><span>cp_1.jpg:</span> <strong>Tragic Forms Album &mdash; Ken Currie</strong></li>
+            <li><span>cp_1.jpg:</span> <strong>Tragic Forms Collection &mdash; Ken Currie</strong></li>
           </ul>
         </div>
         <div class="credit-entry">
@@ -939,33 +964,33 @@
   </div>
 
   <!-- Structured Game Scripts (classic defer so index.html runs directly via file://) -->
-  <script defer src="js/data/config.js?v=59"></script>
-  <script defer src="js/data/cards.js?v=59"></script>
-  <script defer src="js/data/paintings.js?v=59"></script>
-  <script defer src="js/core/audio.js?v=59"></script>
-  <script defer src="js/core/character.js?v=59"></script>
-  <script defer src="js/core/network.js?v=59"></script>
-  <script defer src="js/lobby/background.js?v=59"></script>
-  <script defer src="js/lobby/customizer.js?v=59"></script>
-  <script defer src="js/lobby/tome.js?v=59"></script>
-  <script defer src="js/world/intro.js?v=59"></script>
-  <script defer src="js/world/parlor.js?v=59"></script>
-  <script defer src="js/world/rooms.js?v=59"></script>
-  <script defer src="js/world/book.js?v=59"></script>
-  <script defer src="js/world/clues.js?v=59"></script>
-  <script defer src="js/world/attic.js?v=59"></script>
-  <script defer src="js/world/stalkers.js?v=59"></script>
-  <script defer src="js/world/musical.js?v=59"></script>
-  <script defer src="js/world/basement.js?v=59"></script>
-  <script defer src="js/world/staylit.js?v=59"></script>
-  <script defer src="js/world/knight.js?v=59"></script>
-  <script defer src="js/world/thief.js?v=59"></script>
-  <script defer src="js/world/endgame.js?v=59"></script>
-  <script defer src="js/world/jumpscare.js?v=59"></script>
-  <script defer src="js/world/events.js?v=59"></script>
-  <script defer src="js/world/table-view.js?v=59"></script>
-  <script defer src="js/world/game.js?v=59"></script>
-  <script defer src="js/lobby/menus.js?v=59"></script>
-  <script defer src="js/main.js?v=59"></script>
+  <script defer src="js/data/config.js?v=60"></script>
+  <script defer src="js/data/cards.js?v=60"></script>
+  <script defer src="js/data/paintings.js?v=60"></script>
+  <script defer src="js/core/audio.js?v=60"></script>
+  <script defer src="js/core/character.js?v=60"></script>
+  <script defer src="js/core/network.js?v=60"></script>
+  <script defer src="js/lobby/background.js?v=60"></script>
+  <script defer src="js/lobby/customizer.js?v=60"></script>
+  <script defer src="js/lobby/tome.js?v=60"></script>
+  <script defer src="js/world/intro.js?v=60"></script>
+  <script defer src="js/world/parlor.js?v=60"></script>
+  <script defer src="js/world/rooms.js?v=60"></script>
+  <script defer src="js/world/book.js?v=60"></script>
+  <script defer src="js/world/clues.js?v=60"></script>
+  <script defer src="js/world/attic.js?v=60"></script>
+  <script defer src="js/world/stalkers.js?v=60"></script>
+  <script defer src="js/world/musical.js?v=60"></script>
+  <script defer src="js/world/basement.js?v=60"></script>
+  <script defer src="js/world/staylit.js?v=60"></script>
+  <script defer src="js/world/knight.js?v=60"></script>
+  <script defer src="js/world/thief.js?v=60"></script>
+  <script defer src="js/world/endgame.js?v=60"></script>
+  <script defer src="js/world/jumpscare.js?v=60"></script>
+  <script defer src="js/world/events.js?v=60"></script>
+  <script defer src="js/world/table-view.js?v=60"></script>
+  <script defer src="js/world/game.js?v=60"></script>
+  <script defer src="js/lobby/menus.js?v=60"></script>
+  <script defer src="js/main.js?v=60"></script>
 </body>
 </html>

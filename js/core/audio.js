@@ -404,7 +404,7 @@ window.Duskwood = window.Duskwood || {};
       playPromise
         .then(() => stopSynthFallback())
         .catch((err) => {
-          if (err && err.name === "NotAllowedError") return;
+          if (err && (err.name === "NotAllowedError" || err.name === "AbortError")) return;
           activateFallback(err ? err.name : "playback error");
         });
     }
@@ -940,27 +940,8 @@ window.Duskwood = window.Duskwood || {};
       if (el._warmed) return;
       el._warmed = true;
       try {
-        el.muted = true;
-        const p = el.play();
-        if (p && typeof p.then === "function") {
-          p.then(() => {
-            if (el._inUse) {
-              el.muted = false;
-              return;
-            }
-            el.pause();
-            try { if (el.readyState >= 1) el.currentTime = 0; } catch (_) {}
-            el.muted = false;
-          }).catch(() => {
-            el.muted = false;
-          });
-        } else {
-          el.pause();
-          el.muted = false;
-        }
-      } catch (_) {
-        el.muted = false;
-      }
+        if (el.readyState === 0) el.load();
+      } catch (_) {}
     });
   }
 
@@ -1086,28 +1067,8 @@ window.Duskwood = window.Duskwood || {};
       if (el._warmed) return;
       el._warmed = true;
       try {
-        el.muted = true;
-        const p = el.play();
-        if (p && typeof p.then === "function") {
-          p.then(() => {
-            if (el._playToken) {
-              el.muted = false;
-              return;
-            }
-            el.pause();
-            parkPageTurnSlot(el);
-            el.muted = false;
-          }).catch(() => {
-            el.muted = false;
-          });
-        } else {
-          el.pause();
-          parkPageTurnSlot(el);
-          el.muted = false;
-        }
-      } catch (_) {
-        el.muted = false;
-      }
+        if (el.readyState === 0) el.load();
+      } catch (_) {}
     });
   }
 
@@ -2643,20 +2604,8 @@ window.Duskwood = window.Duskwood || {};
     if (!el || el._warmed) return;
     el._warmed = true;
     try {
-      el.muted = true;
-      const p = el.play();
-      if (p && typeof p.then === "function") {
-        p.then(() => {
-          if (!jumpscareActive) {
-            el.pause();
-            try { if (el.readyState >= 1) el.currentTime = 0; } catch (_) {}
-          }
-          el.muted = false;
-        }).catch(() => { el.muted = false; });
-      }
-    } catch (_) {
-      el.muted = false;
-    }
+      if (el.readyState === 0) el.load();
+    } catch (_) {}
   }
 
   function playJumpscare(durationSec) {
@@ -2713,18 +2662,8 @@ window.Duskwood = window.Duskwood || {};
       if (!el._warmed) {
         el._warmed = true;
         try {
-          el.muted = true;
-          const p = el.play();
-          if (p && typeof p.then === "function") {
-            p.then(() => {
-              if (!atticGhostActive) {
-                el.pause();
-                try { if (el.readyState >= 1) el.currentTime = ATTIC_GHOST_START_SEC; } catch (_) {}
-              }
-              el.muted = false;
-            }).catch(() => { el.muted = false; });
-          }
-        } catch (_) { el.muted = false; }
+          if (el.readyState === 0) el.load();
+        } catch (_) {}
       }
     }
     if (!exorcismFailed && !exorcismEl) {
@@ -3584,31 +3523,12 @@ window.Duskwood = window.Duskwood || {};
 
   function warmUpNeighborAudio() {
     ensureNeighborAudioElements();
-    [
-      { el: doorKnockEl, active: () => doorKnockActive, trim: () => doorKnockTrimSec },
-      { el: doorOpenEl,  active: () => doorOpenActive,  trim: () => doorOpenTrimSec }
-    ].forEach((entry) => {
-      const el = entry.el;
+    [doorKnockEl, doorOpenEl].forEach((el) => {
       if (!el || el._warmed) return;
       el._warmed = true;
       try {
-        el.muted = true;
-        const p = el.play();
-        if (p && typeof p.then === "function") {
-          p.then(() => {
-            if (!entry.active()) {
-              el.pause();
-              try { if (el.readyState >= 1) el.currentTime = entry.trim(); } catch (_) {}
-            }
-            el.muted = false;
-          }).catch(() => { el.muted = false; });
-        } else {
-          el.pause();
-          el.muted = false;
-        }
-      } catch (_) {
-        el.muted = false;
-      }
+        if (el.readyState === 0) el.load();
+      } catch (_) {}
     });
   }
 

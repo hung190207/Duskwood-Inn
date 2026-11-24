@@ -5374,6 +5374,8 @@ window.Duskwood = window.Duskwood || {};
 
     document.addEventListener("keydown", (e) => {
       if (!isOpen) return;
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
       if (App.FieldBook && App.FieldBook.isOpen()) return;
       if (previewingHandCard && !pendingDrawnCard) {
         if (e.code === "Space" || e.code === "Enter" || e.code === "Escape") {

@@ -17,7 +17,7 @@
 window.Duskwood = window.Duskwood || {};
 
 (function (App) {
-  const PROTOCOL_VERSION = "v59";
+  const PROTOCOL_VERSION = "v60";
   // 4 clear corner spawn points inside The Dining Room (verified against all Parlor colliders)
   const CORNER_SPAWNS = [
     { x: 32,  y: 182, facing: 1  }, // Seat 1 (SW corner)
@@ -83,6 +83,7 @@ window.Duskwood = window.Duskwood || {};
     kicked: [],
     hostClosed: [],
     gameMessage: [],
+    chatMessage: [],
     toast: []
   };
 
@@ -130,16 +131,20 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function pushChatEntry(entry) {
-    session.chatLog.push({
+    const item = {
       id: entry.id || `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       sender: entry.sender || "",
+      seatIdx: typeof entry.seatIdx === "number" ? entry.seatIdx : -1,
+      playerId: entry.playerId || "",
       text: String(entry.text || "").slice(0, 120),
       system: Boolean(entry.system),
       ts: entry.ts || Date.now()
-    });
-    if (session.chatLog.length > 30) {
-      session.chatLog = session.chatLog.slice(-30);
+    };
+    session.chatLog.push(item);
+    if (session.chatLog.length > 50) {
+      session.chatLog = session.chatLog.slice(-50);
     }
+    return item;
   }
 
   function getOccupiedCount() {
@@ -313,12 +318,14 @@ window.Duskwood = window.Duskwood || {};
       guestConns.delete(playerId);
     }
 
-    pushChatEntry({
+    const sysEntry = pushChatEntry({
       system: true,
       text: `${leaving.name} ${reasonText || "left the table"}.`
     });
     broadcastLobbyState();
     if (session.inMatch) {
+      broadcastFromHost({ type: "CHAT_MSG", entry: sysEntry });
+      emit("chatMessage", sysEntry);
       broadcastFromHost({ type: "PLAYER_LEFT", playerId, name: leaving.name });
       emit("toast", `${leaving.name} disconnected from the table.`);
     }
@@ -432,10 +439,21 @@ window.Duskwood = window.Duskwood || {};
     }
 
     if (msg.type === "CHAT") {
-      const clean = String(msg.text || "").trim().slice(0, 100);
+      const clean = String(msg.text || "").trim().slice(0, 110);
       if (!clean) return;
-      pushChatEntry({ sender: seat.name, text: clean, system: false });
-      broadcastLobbyState();
+      const entry = pushChatEntry({
+        sender: seat.name,
+        seatIdx: seat.seatIdx,
+        playerId: seat.playerId,
+        text: clean,
+        system: false
+      });
+      if (session.inMatch) {
+        broadcastFromHost({ type: "CHAT_MSG", entry });
+        emit("chatMessage", entry);
+      } else {
+        broadcastLobbyState();
+      }
       return;
     }
 
@@ -562,6 +580,12 @@ window.Duskwood = window.Duskwood || {};
         character: msg.character
       };
       upsertRemotePlayerState(msg.playerId, seat, msg.state);
+      return;
+    }
+
+    if (msg.type === "CHAT_MSG" && msg.entry) {
+      const saved = pushChatEntry(msg.entry);
+      emit("chatMessage", saved);
       return;
     }
 
@@ -1139,12 +1163,23 @@ window.Duskwood = window.Duskwood || {};
   }
 
   function sendChat(text) {
-    const clean = String(text || "").trim().slice(0, 100);
+    const clean = String(text || "").trim().slice(0, 110);
     if (!clean) return;
     if (session.role === "HOST") {
       const hostSeat = session.seats[0];
-      pushChatEntry({ sender: hostSeat ? hostSeat.name : "HOST", text: clean, system: false });
-      broadcastLobbyState();
+      const entry = pushChatEntry({
+        sender: hostSeat ? hostSeat.name : "HOST",
+        seatIdx: 0,
+        playerId: localPlayerId,
+        text: clean,
+        system: false
+      });
+      if (session.inMatch) {
+        broadcastFromHost({ type: "CHAT_MSG", entry });
+        emit("chatMessage", entry);
+      } else {
+        broadcastLobbyState();
+      }
     } else if (session.role === "GUEST" && session.status === "CONNECTED") {
       sendToHost({ type: "CHAT", text: clean });
     }

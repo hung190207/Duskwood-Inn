@@ -111,7 +111,7 @@ window.Duskwood = window.Duskwood || {};
     {
       id: "corrupt_cp_1",
       title: "TRAGIC FORMS",
-      artist: "Tragic Forms Album - Ken Currie",
+      artist: "Tragic Forms Collection - Ken Currie",
       url: "image/cp_1.jpg",
       note: "A haunting, distorted visage stares back from inside the frame — a Corrupt Painting clue has manifested in this room.",
       palette: ["#181416", "#382c30", "#c4b6a8"],

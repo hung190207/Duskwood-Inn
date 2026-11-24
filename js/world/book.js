@@ -837,6 +837,8 @@ window.Duskwood = window.Duskwood || {};
 
     document.addEventListener("keydown", (e) => {
       if (!isOpen) return;
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
       if (e.code === "ArrowLeft" || e.code === "KeyA") {
         e.preventDefault();
         goToSpread(currentSpread - 1);

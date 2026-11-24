@@ -691,6 +691,8 @@ window.Duskwood = window.Duskwood || {};
     });
 
     document.addEventListener("keydown", (e) => {
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;
       const modal = document.getElementById("modal-howto");
       if (!modal || modal.classList.contains("hidden") || activeBookTab !== "rules") return;
       if (e.code === "ArrowLeft") {

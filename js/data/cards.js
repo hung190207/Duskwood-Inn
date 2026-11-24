@@ -996,10 +996,7 @@ window.Duskwood = window.Duskwood || {};
       glyph: "+60",
       name: "THE NEIGHBOR",
       shortEffect: "+60m • Knocks on Cellar door",
-      flavorBody: "KNOCK-KNOCK-KNOCK,
-WHO COULD IT BE?
-KNOCK-KNOCK-KNOCK,
-OH PLEASE HELP ME...",
+      flavorBody: "KNOCK-KNOCK-KNOCK,\nWHO COULD IT BE?\nKNOCK-KNOCK-KNOCK,\nOH PLEASE HELP ME...",
       effect: "Advances ONLY the player piece by +60 minutes. Three heavy knocks echo at the door connected to The Cellar — walk over and press [E] to open it for The Neighbor and pick 1 of 3 offers.",
       lore: "Knock-knock-knock, who could it be? Knock-knock-knock, oh please help me...",
       meta: { action: "the_neighbor", deltaMinutes: 60, freezeHarvester: true, skipPassiveStep: true, specialProgress: true }

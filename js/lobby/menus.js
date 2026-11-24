@@ -501,6 +501,7 @@ window.Duskwood = window.Duskwood || {};
 
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
+      if (document.activeElement && document.activeElement.id === "ig-chat-input") return;
       if (activeModalId) {
         closeAllModals(false);
       }

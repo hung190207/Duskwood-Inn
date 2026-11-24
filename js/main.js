@@ -14,7 +14,11 @@ window.Duskwood = window.Duskwood || {};
 
     // When inside the Stardew Cabin, render the 2D Game World instead of the Lobby
     if (App.GameWorld && App.GameWorld.isActive()) {
-      App.GameWorld.renderFrame(timeSec, dt);
+      try {
+        App.GameWorld.renderFrame(timeSec, dt);
+      } catch (err) {
+        console.error("[Duskwood Render]", err);
+      }
       requestAnimationFrame(tick);
       return;
     }
